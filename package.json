@@ -35,7 +35,6 @@
     "build": "tsx scripts/build.ts",
     "runtime:check": "tsx scripts/runtime-check.ts",
     "install:codex": "node scripts/install.mjs",
-    "release": "tsx scripts/release.ts",
     "setup": "tsx scripts/setup.ts",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -44,7 +43,6 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run runtime:check && npm run plugin:validate -- --runtime",
     "demo": "tsx scripts/demo.ts",
     "smoke": "tsx scripts/smoke.ts",
-    "codex:verify": "tsx scripts/codex-verify.ts",
-    "test:network": "tsx scripts/network-check.ts"
+    "codex:verify": "tsx scripts/codex-verify.ts"
   }
 }
