@@ -46,7 +46,14 @@ const LOOK = /^\s*(?:cat|head|tail|less|more|bat|nl|wc|ls|tree|find|fd|rg|grep|a
 /** A short, safe label for a shell command: its first words, never secrets that may follow. */
 export function commandLabel(command: string): string {
   const first = command.replace(/\s+/g, " ").trim().split(/\s*(?:&&|\|\||;|\|)\s*/)[0] ?? "";
-  const words = first.split(" ").filter(word => !/[=]|token|key|secret|password/i.test(word)).slice(0, 4).join(" ");
+  const kept: string[] = [];
+  let skipNext = false;
+  for (const word of first.split(" ")) {
+    if (skipNext) { skipNext = false; continue; }
+    if (/=|token|key|secret|password|passwd|auth|bearer/i.test(word)) { skipNext = word.startsWith("-") && !word.includes("="); continue; }
+    kept.push(word);
+  }
+  const words = kept.slice(0, 4).join(" ");
   return words.length > 48 ? `${words.slice(0, 47)}…` : words;
 }
 
