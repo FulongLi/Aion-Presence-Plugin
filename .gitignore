@@ -12,3 +12,6 @@
 # misc
 .DS_Store
 npm-debug.log*
+
+# release archives (npm run release)
+/dist/

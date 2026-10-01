@@ -35,6 +35,7 @@
     "build": "tsx scripts/build.ts",
     "runtime:check": "tsx scripts/runtime-check.ts",
     "install:codex": "node scripts/install.mjs",
+    "release": "tsx scripts/release.ts",
     "setup": "tsx scripts/setup.ts",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
