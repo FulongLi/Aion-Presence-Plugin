@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { MediaRef } from "../../core/presentation";
 import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
-import { MediaStore, sniffImage } from "../media";
+import { MediaStore, sniffMedia } from "../media";
 import { DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
 import { hookEventSchema, hubCommandSchema, mediaUploadSchema, type DisplayPreference, type HubCommand, type HubSnapshot } from "./protocol";
 
@@ -149,8 +149,10 @@ export class PresenceHub {
     return this.snapshot();
   }
 
-  addMedia(data: Buffer, mime: string): MediaRef {
-    if (sniffImage(data) === null) throw new Error("image-invalid");
+  /** Keeps media for the surfaces under the type its bytes actually are (never what a caller claims). */
+  addMedia(data: Buffer, _claimed?: string): MediaRef {
+    const mime = sniffMedia(data);
+    if (!mime) throw new Error("media-invalid");
     return this.media.add(data, mime);
   }
 
@@ -250,7 +252,7 @@ export class PresenceHub {
         const upload = mediaUploadSchema.safeParse(await readJson(req, MEDIA_LIMIT));
         if (!upload.success) return send(res, 400, { error: "invalid-media" });
         const data = Buffer.from(upload.data.data, "base64");
-        const mime = sniffImage(data);
+        const mime = sniffMedia(data);
         if (!mime || data.length > 8 * 1024 * 1024) return send(res, 400, { error: "invalid-media" });
         return send(res, 200, this.addMedia(data, mime));
       }

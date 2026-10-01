@@ -6,9 +6,10 @@ import type { HubSnapshot } from "../host/hub/protocol";
 import type { Framing, RuntimeHandle, RuntimeInputs } from "../render";
 import { VisualActionController } from "../visual/controller";
 import { visualForms } from "../visual/forms";
+import { decodeHeightField } from "../visual/heightfield";
 import { normalizeImage } from "../visual/image";
 import type { MorphTarget } from "../visual/types";
-import { decodeImage, rasterizeText } from "./glyphs";
+import { decodeImage, rasterizeEmoji, rasterizeText } from "./glyphs";
 import { buildPanel } from "./panel";
 import type { ConnectionState, PresenceTransport } from "./transports/types";
 
@@ -98,6 +99,10 @@ export class PresenceView {
     if ((presentation?.id ?? null) !== this.presentationId) {
       this.presentationId = presentation?.id ?? null;
       void this.present(presentation);
+      // A looked-up picture or terrain names itself and its public source, quietly, once.
+      const caption = presentation?.kind === "terrain" ? presentation.label
+        : presentation?.kind === "image" && presentation.mode === "particles" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
+      if (caption) this.say(caption, 6_000);
     }
     if (snapshot.hub.display === "fullscreen" && this.transport.kind === "companion" && !this.fullscreenHinted && this.transport.fullscreen()?.active === false) {
       this.fullscreenHinted = true;
@@ -164,8 +169,16 @@ export class PresenceView {
       case "image": {
         const blob = await this.transport.media(request.media.id);
         signal.throwIfAborted();
-        return { visual: normalizeImage(await decodeImage(blob)), hold: Infinity, label: "image" };
+        // The fit carries the request's intent: a portrait keeps SCF's head-and-shoulders band and portrait sampling.
+        return { visual: normalizeImage(await decodeImage(blob), request.fit), hold: Infinity, label: "image" };
       }
+      case "terrain": {
+        const blob = await this.transport.media(request.media.id);
+        signal.throwIfAborted();
+        return { visual: { kind: "heightfield", field: decodeHeightField(new Uint8Array(await blob.arrayBuffer())), style: request.style }, hold: Infinity, label: "terrain" };
+      }
+      case "emoji":
+        return { visual: { kind: "raster2d", style: "emoji", raster: rasterizeEmoji(request.emoji) }, hold: Infinity, label: request.emoji };
     }
   }
 

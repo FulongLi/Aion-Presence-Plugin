@@ -5,6 +5,7 @@ import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { PresenceLink } from "../src/host/hub/link";
 import { createAionServer } from "../src/host/mcp/server";
+import { VisualResolver } from "../src/host/resolver";
 
 export const PAGE = "<!doctype html><title>Aion Presence</title><main id=presence></main>";
 export const tempHome = () => mkdtempSync(join(tmpdir(), "aion-test-"));
@@ -15,12 +16,17 @@ export const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAA
 export const MCP_APPS_CAPABILITIES = { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: [RESOURCE_MIME_TYPE] } } };
 
 /** The Aion MCP server and a client over an in-memory transport, with its own runtime directory. */
-export async function connectAion(options: { home?: string; capabilities?: Record<string, unknown>; env?: NodeJS.ProcessEnv } = {}) {
+/** A resolver that never reaches the network: unit tests pass their own providers, or get "nothing found". */
+export const offlineResolver = () => new VisualResolver({ env: {}, imageProviders: [], terrainProviders: [] });
+
+export async function connectAion(options: {
+  home?: string; capabilities?: Record<string, unknown>; env?: NodeJS.ProcessEnv; resolver?: VisualResolver; now?: () => Date;
+} = {}) {
   const home = options.home ?? tempHome();
   const link = new PresenceLink({ home, port: 0, page: () => PAGE });
   const opened: string[] = [];
   const server = createAionServer({
-    link, page: () => PAGE, version: "0.0.0-test", env: { ...options.env },
+    link, page: () => PAGE, version: "0.0.0-test", env: { ...options.env }, resolver: options.resolver ?? offlineResolver(), now: options.now,
     openWindow: async url => { opened.push(url); return true; },
   });
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();

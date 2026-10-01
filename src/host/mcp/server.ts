@@ -1,28 +1,29 @@
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { CLIENT_CAPABILITIES_META_KEY, McpServer, type CallToolResult, type ClientCapabilities, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { AION_BODIES, bodyLabel } from "../../core/body";
+import { AION_BODIES, bodyLabel, PERSISTENT_BODIES } from "../../core/body";
 import { AION_IDENTITY, embodimentStatement } from "../../core/identity";
 import {
   cleanCode, cleanText, describePresentation, LIMITS, type PresentationContent,
 } from "../../core/presentation";
 import { ACTIVITY_STATES } from "../../core/state";
-import { visualForms } from "../../visual/forms";
+import { errorCode } from "../../visual/errors";
+import { visualForms, type VisualFormRegistry } from "../../visual/forms";
+import { clockText } from "../../visual/validate";
 import type { PresenceBackend, PresenceLink } from "../hub/link";
 import type { DisplayPreference, HubSnapshot } from "../hub/protocol";
 import { loadImageSource, MediaError } from "../media";
+import { VisualResolver } from "../resolver";
 import {
-  mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showImageInput, showResultInput,
+  mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
+  showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
-export const TOOL_NAMES = [
-  "open_presence", "set_presence_state", "set_body_form", "show_visual_form", "show_text", "show_image", "show_result", "show_artifact", "clear_presentation",
-] as const;
-export const APP_TOOL_NAMES = ["presence_sync", "presence_media"] as const;
+export { APP_TOOL_NAMES, TOOL_NAMES, type ToolName } from "./toolNames";
 
 export interface AionServerOptions {
   link: PresenceLink;
@@ -31,10 +32,16 @@ export interface AionServerOptions {
   version: string;
   /** Opens the companion window (injectable for tests). */
   openWindow?: (url: string) => Promise<boolean>;
+  /** Looks up portraits, images and terrain on public data sources (injectable for tests). */
+  resolver?: VisualResolver;
+  /** The plugin's assets/ directory, for curated first-party assets. */
+  assetsDir?: string;
+  /** The local clock (injectable for tests). */
+  now?: () => Date;
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "clock", "number", "symbol", "emoji", "artifact"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -48,25 +55,104 @@ export const presenceOutput = z.object({
     open: z.boolean().describe("A companion window is connected, or the host is embedding Aion."),
     hooks: z.enum(["active", "not-detected"]).describe("active: Codex lifecycle hooks already reflect reading, editing, testing, building and completion."),
   }),
+  shown: z.string().optional().describe("What the body shows, when you may want to say it: the local time, the form a name found, the person or place found."),
+  source: z.object({ provider: z.string(), page: z.string().optional(), license: z.string().optional() }).optional()
+    .describe("Where a looked-up picture or terrain came from (a public source), for attribution if asked."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
 });
 type PresenceOutput = z.infer<typeof presenceOutput>;
 
-const formCatalogue = () => visualForms.categories().map(category =>
-  `${category.label}: ${visualForms.forms().filter(form => form.category === category.id).map(form => form.id.slice(category.id.length + 1)).join(", ")}`).join(". ");
+/** Every form id SCF's own visual language offers, grouped by category (symbols have their own tool). */
+export function formCatalog(registry: VisualFormRegistry = visualForms): string {
+  return registry.categories().filter(category => category.id !== "symbol")
+    .map(category => `${category.label}: ${registry.forms().filter(form => form.category === category.id).map(form => form.id).join(", ")}`)
+    .join(". ");
+}
+
+/** The variants forms declare, forms with the same set grouped together; the first is the default (SCF). */
+export function formVariantCatalog(registry: VisualFormRegistry = visualForms): string {
+  const groups = new Map<string, string[]>();
+  for (const form of registry.forms()) {
+    if (!form.variants?.length) continue;
+    const key = form.variants.map((variant, index) => `${variant.id}${index ? "" : " (default)"}`).join(" or ");
+    groups.set(key, [...(groups.get(key) ?? []), form.id]);
+  }
+  return [...groups].map(([variants, forms]) => `${forms.join(", ")}: ${variants}`).join("; ");
+}
+
+/**
+ * Tool descriptions are part of the visual-intent system: Codex chooses a visual from them. The wording is
+ * SCF's, tuned there over many conversations, with "your particle body" read as Aion, Codex's body.
+ */
+export const TOOL_DESCRIPTIONS = {
+  show_image: `Form a picture of almost anything with Aion's particle body: a person, vehicle, product, object, animal, building, place, `
+    + `artwork, logo, map or a reference image of an idea. With query, Aion first checks its curated local assets (such as the `
+    + `${AION_IDENTITY.creatorCompany} company logo), then searches open image sources (Wikipedia, Wikimedia Commons, Openverse); no key is needed. `
+    + "With source, it shows an image on this machine instead: one Codex generated, a screenshot, a rendered diagram. Use when seeing it "
+    + "materially helps, e.g. the user asks what something looks like or wants to see it. For a real person's face prefer show_portrait; "
+    + "for Taoist symbols, constellations and zodiac signs always use show_form.",
+  show_portrait: "Form a portrait of a real, recognizable person with Aion's particle body, from public photos (Wikipedia, then other open "
+    + "image sources), framed head and shoulders. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look "
+    + "like?\", \"Show me Albert Einstein\"), or when a portrait materially helps the answer. Do not call just because a name appears in "
+    + "conversation.",
+  show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
+    + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
+    + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
+  show_form: () => "Form a symbol or figure from Aion's own visual language directly with its particle body. It is drawn procedurally on the "
+    + "device, with no image search: Taoist symbols (the yin-yang/taiji, the yin and yang lines, the eight trigrams 乾 兑 离 震 巽 坎 艮 坤 "
+    + "and the bagua), constellations as star maps, the twelve zodiac signs and the planetary symbols. Always prefer it to show_image for "
+    + "these (\"What does Orion look like?\", \"Show me the yin-yang\"). Pass a form id from the list, or a plain name in English or Chinese "
+    + `("yin yang", "Orion", "Leo zodiac sign", "猎户座"). Form ids: ${formCatalog()}.`,
+  show_clock: "Form a clock face showing a time with Aion's particle body. Use when seeing a time helps: the user asks what time it is, or "
+    + "a specific time matters to the answer. Omit time to show the user's current local time; the result tells you that time so you can say it.",
+  show_number: "Show one short, key number with Aion's particle body (e.g. 42%, 84, 23°C, £28,000, 3.14). Use only for the single number "
+    + "that is the heart of the answer, not for every number mentioned.",
+  show_text: `Show text with Aion. One short word or label (up to 16 plain characters, e.g. a city, a name, "48/48") becomes the particle `
+    + `body itself: use it sparingly, when a single word is the answer or a useful anchor. Longer text (≤ ${LIMITS.text} characters) appears as `
+    + "quiet typography beside the presenting body, for one point the user should see at a glance. Not for logs or code (show_artifact).",
+  show_symbol: "Show a simple symbol with Aion's particle body, e.g. a check for yes/correct, a cross for no/wrong, a heart, a star, or an "
+    + "arrow for a direction or trend.",
+  show_emoji: "Briefly form one emoji with Aion's particle body as a short expressive reaction, like a gesture: e.g. 🎉 for a celebration, "
+    + "😂 amusement, 🤔 thinking, 😮 surprise, 👍 approval, 💡 an idea, 🚀 a launch. Also use it when the user asks to see an emoji. It is drawn "
+    + "instantly on the device (no image search). Use it only when a reaction genuinely adds to the moment, never on every reply or as filler.",
+  clear_presentation: "Immediately end the temporary visual or presentation, e.g. when it is no longer relevant: Aion returns to its current "
+    + "persistent body (the sphere or the figure). It does not change that body; use set_body_form for that. Presentations also end by "
+    + "themselves after their hold.",
+  set_body_form: "Change Aion's persistent body, the form it rests in between visuals: "
+    + `${PERSISTENT_BODIES.map(body => `"${body.id}" (${body.description.replace(/^your /, "its ")})`).join(", ")}. `
+    + "Use it only when the user asks Aion to take a form, e.g. \"take a human form\", \"become a figure\", \"go back to the sphere\", "
+    + "\"变成人形\", \"回到球体\". It stays until changed; every temporary visual returns to it. A figure is not a person to search for: "
+    + "never use show_image or show_portrait for it.",
+} as const;
+
+/** Model-facing explanations of resolver failures (SCF's tool statuses), so Codex can carry on in words. */
+function resolveFailure(code: string, what: string): string {
+  switch (code) {
+    case "portrait-not-found": return `portrait-not-found: no public portrait of ${what} was found. Describe them in words instead.`;
+    case "image-not-found": return `image-not-found: no suitable open image of "${what}" was found. Describe it in words, or try a more specific query.`;
+    case "region-not-found": return `region-not-found: no place called "${what}" was found. Check the name, or describe the terrain in words.`;
+    case "terrain-unavailable": return `terrain-unavailable: elevation data for ${what} could not be loaded right now. Describe the terrain in words.`;
+    default: return `${code}: the public image sources could not be reached right now. Answer in words; Aion stays as it is.`;
+  }
+}
 
 /**
  * The Aion Presence MCP server: a small, coherent tool surface over the presence hub. Codex is the
- * intelligence and calls these tools; nothing here calls a model, holds a credential or reaches the network.
+ * intelligence and calls these tools; nothing here calls a model or holds a credential. The only network it
+ * uses beyond its loopback hub is public data (pictures, places, elevation) when Codex asks to show one.
  */
 export function createAionServer(options: AionServerOptions): McpServer {
   const { link } = options;
   const env = options.env ?? process.env;
   const openWindow = options.openWindow ?? openBrowser;
+  const resolver = options.resolver ?? new VisualResolver({ env, assetsDir: options.assetsDir });
+  const now = options.now ?? (() => new Date());
   const server = new McpServer({ name: "aion-presence", title: "Aion Presence", version: options.version }, {
-    instructions: `${embodimentStatement("Codex")} Call open_presence when the user asks to open Aion. Use the other tools sparingly, for meaningful state and concise results; see the aion-presence skill.`,
+    instructions: `${embodimentStatement("Codex")} Call open_presence when the user asks to open Aion. When Aion is open, treat it as your `
+      + "visual body: when the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
+      + "only describing it; otherwise use the tools sparingly. See the aion-presence skill.",
   });
   let embeddedSeen = false;
 
@@ -89,32 +175,48 @@ export function createAionServer(options: AionServerOptions): McpServer {
     return { content: [{ type: "text", text: `${output.message}${notOpen}` }], structuredContent: output };
   };
   const failure = (message: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
-  const run = async (ctx: ServerContext | undefined, command: (backend: PresenceBackend) => Promise<HubSnapshot>, message: (snapshot: HubSnapshot) => string) => {
+  const run = async (ctx: ServerContext | undefined, command: (backend: PresenceBackend) => Promise<HubSnapshot>, message: (snapshot: HubSnapshot) => string,
+    extra: Partial<PresenceOutput> = {}) => {
     const snapshot = await link.run(command);
-    return result(summarize(snapshot, modeFor(ctx), message(snapshot)));
+    return result({ ...summarize(snapshot, modeFor(ctx), message(snapshot)), ...extra });
   };
-  const present = (ctx: ServerContext, content: PresentationContent, hold?: number) =>
-    run(ctx, backend => backend.apply({ type: "present", content, hold }), snapshot => `Aion is presenting ${describePresentation(content)}${snapshot.presentation?.hold ? ` for ${Math.round(snapshot.presentation.hold)} s` : " until cleared"}.`);
+  const present = (ctx: ServerContext, content: PresentationContent, hold?: number, extra: Partial<PresenceOutput> = {}) =>
+    run(ctx, backend => backend.apply({ type: "present", content, hold }),
+      snapshot => `Aion is presenting ${describePresentation(content)}${snapshot.presentation?.hold ? ` for ${Math.round(snapshot.presentation.hold)} s` : " until cleared"}.`, extra);
   const media = async (source: string) => {
     const { data, mime } = await loadImageSource(source);
     return link.run(backend => backend.addMedia(data, mime));
   };
   const mediaFailure = (error: unknown) => error instanceof MediaError ? failure(`${error.message}: ${error.detail}`) : failure("image-unavailable: the image could not be read.");
+  const hand = (bytes: Uint8Array, mime: string) => link.run(backend => backend.addMedia(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength), mime));
+  const credit = (source: { provider: string; license?: string }) => source.provider === "local-assets" ? undefined
+    : `${{ wikipedia: "Wikipedia", commons: "Wikimedia Commons", openverse: "Openverse", web: "Web search" }[source.provider] ?? source.provider}${source.license ? ` · ${source.license}` : ""}`.slice(0, LIMITS.title);
+  const label = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, LIMITS.title) || undefined;
+
+  const showForm = (ctx: ServerContext, args: z.infer<typeof showFormInput>) => {
+    const match = visualForms.lookup(args.form);
+    if (!match) return failure(`form-not-found: "${args.form}" is not one of Aion's visual forms yet. Use another tool (show_image for a picture), or just speak. Available: ${visualForms.ids().join(", ")}.`);
+    // An unknown variant falls back to the default, like an image intent (SCF): only a well-formed but unknown name fails.
+    const variant = (args.variant === undefined ? undefined : visualForms.variant(match.entry, args.variant)) ?? match.variant;
+    const shown = visualForms.label(match.entry.id, variant);
+    return present(ctx, { kind: "form", form: match.entry.id, ...(variant ? { variant } : {}), label: shown }, args.hold_seconds, { shown });
+  };
 
   registerAppResource(server, "Aion Presence", PRESENCE_RESOURCE_URI, {
     description: "The Aion Presence surface: Aion's particle body and the presentations it carries.",
-    _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: false } },
+    _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, permissions: { microphone: {} }, prefersBorder: false } },
   }, async () => ({
     contents: [{
       uri: PRESENCE_RESOURCE_URI, mimeType: RESOURCE_MIME_TYPE, text: options.page(),
-      _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, prefersBorder: false } },
+      // The microphone is only analysed locally for body language (never recorded or sent); hosts may decline it.
+      _meta: { ui: { csp: { connectDomains: [], resourceDomains: [] }, permissions: { microphone: {} }, prefersBorder: false } },
     }],
   }));
 
   registerAppTool(server, "open_presence", {
     title: "Open Aion",
     description: [
-      `Open ${AION_IDENTITY.name}, the visual body of this Codex session. Use when the user asks to open, show or wake Aion ("Open Aion"),`,
+      `Open ${AION_IDENTITY.name}, the visual body of this Codex session. Use when the user asks to open, show or wake Aion ("Open Aion", "打开 Aion"),`,
       "or once before presenting something visually when Aion is not open. Aion is not another AI model: Codex keeps doing all reasoning and work;",
       "Aion only presents it. In hosts that render MCP Apps Aion appears inside the host (fullscreen when requested and the host offers it);",
       "otherwise a local companion window opens. Calling it again is harmless and does not open a second window. Do not call it every turn.",
@@ -144,7 +246,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
   server.registerTool("set_presence_state", {
     title: "Set Aion's state",
     description: [
-      "Reflect what Codex is doing in Aion's body language: idle, listening, thinking, working, reading, editing, testing, building, presenting, complete or error.",
+      `Reflect what Codex is doing in Aion's body language: ${ACTIVITY_STATES.join(", ")}.`,
       "When open_presence reports hooks: active, reading, editing, testing, building and completion already follow Codex automatically; then use this only",
       "for phases hooks cannot see (thinking through a design, an error you diagnosed). When hooks are not detected, set the state at the start of each",
       "meaningful phase. Never call it for every small step, and never claim a state that is not true.",
@@ -156,48 +258,123 @@ export function createAionServer(options: AionServerOptions): McpServer {
 
   server.registerTool("set_body_form", {
     title: "Set Aion's body",
-    description: "Change Aion's persistent body: sphere (the original abstract body) or figure (a quiet, minimal humanoid of particles). Use when the user asks for a different body (\"take a human form\", \"go back to the sphere\"). The body persists; every temporary visual returns to it. Not for showing information.",
+    description: TOOL_DESCRIPTIONS.set_body_form,
     inputSchema: setBodyFormInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Aion's body is the ${bodyLabel(snapshot.body)}.`));
+  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Aion's body is the ${bodyLabel(snapshot.body)}.`,
+    { shown: bodyLabel(args.body) }));
 
-  server.registerTool("show_visual_form", {
+  server.registerTool("show_image", {
+    title: "Show an image",
+    description: TOOL_DESCRIPTIONS.show_image,
+    inputSchema: showImageInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (args, ctx) => {
+    if ((args.query === undefined) === (args.source === undefined)) {
+      return failure("invalid-arguments: give exactly one of query (something to look up, e.g. \"Eiffel Tower\") or source (an image file on this machine).");
+    }
+    if (args.source !== undefined) {
+      try {
+        const ref = await media(args.source);
+        return present(ctx, { kind: "image", media: ref, mode: args.mode ?? "particles", fit: "object", ...(args.alt ? { alt: args.alt } : {}) }, args.hold_seconds);
+      } catch (error) { return mediaFailure(error); }
+    }
+    try {
+      const found = await resolver.image(args.query!, args.intent ?? "general");
+      const ref = await hand(found.bytes, found.mime);
+      const alt = args.alt ?? label(found.label);
+      const by = credit(found.source);
+      return present(ctx, { kind: "image", media: ref, mode: args.mode ?? "particles", fit: found.fit, ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}) },
+        args.hold_seconds, { shown: found.label, source: found.source });
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.query!)); }
+  });
+
+  server.registerTool("show_portrait", {
+    title: "Show a portrait",
+    description: TOOL_DESCRIPTIONS.show_portrait,
+    inputSchema: showPortraitInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, async (args, ctx) => {
+    try {
+      const found = await resolver.portrait(args.person);
+      const ref = await hand(found.bytes, found.mime);
+      const by = credit(found.source);
+      return present(ctx, { kind: "image", media: ref, mode: "particles", fit: "portrait", alt: label(found.label) ?? args.person, ...(by ? { credit: by } : {}) },
+        args.hold_seconds, { shown: found.label, source: found.source });
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }
+  });
+
+  server.registerTool("show_terrain", {
+    title: "Show terrain",
+    description: TOOL_DESCRIPTIONS.show_terrain,
+    inputSchema: showTerrainInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, async (args, ctx) => {
+    try {
+      const found = await resolver.terrain(args.region, args.style ?? "terrain");
+      const ref = await hand(found.bytes, found.mime);
+      const { elevation } = found.field;
+      return present(ctx, { kind: "terrain", media: ref, style: args.style ?? "terrain", label: label(found.label) ?? args.region }, args.hold_seconds, {
+        shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}`, source: found.source,
+      });
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+  });
+
+  server.registerTool("show_form", {
     title: "Show a visual form",
-    description: `Turn Aion's body into one of its own procedural visual forms for a moment, then back to its persistent body. Use when the user asks for one of these concepts or one genuinely illustrates the point. Not for arbitrary pictures (show_image) or words (show_text). Forms — ${formCatalogue()}.`,
-    inputSchema: showVisualFormInput,
+    description: TOOL_DESCRIPTIONS.show_form(),
+    inputSchema: showFormInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => showForm(ctx, args));
+
+  server.registerTool("show_clock", {
+    title: "Show a clock",
+    description: TOOL_DESCRIPTIONS.show_clock,
+    inputSchema: showClockInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => {
-    const match = visualForms.lookup(args.form);
-    if (!match) return failure(`form-not-found: "${args.form}" is not one of Aion's visual forms. Available: ${visualForms.ids().join(", ")}.`);
-    const variant = args.variant === undefined ? match.variant : visualForms.variant(match.entry, args.variant);
-    if (args.variant !== undefined && !variant) {
-      return failure(`variant-not-found: ${match.entry.id} has ${match.entry.variants?.length ? `the variants ${match.entry.variants.map(item => item.id).join(", ")}` : "no variants"}.`);
-    }
-    return present(ctx, { kind: "form", form: match.entry.id, ...(variant ? { variant } : {}), label: visualForms.label(match.entry.id, variant) }, args.hold_seconds);
+    const time = args.time ?? clockText(now());
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return present(ctx, { kind: "clock", time }, args.hold_seconds, { shown: args.time ? time : `${time} (local time, ${zone})` });
   });
+
+  server.registerTool("show_number", {
+    title: "Show a number",
+    description: TOOL_DESCRIPTIONS.show_number,
+    inputSchema: showNumberInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => present(ctx, { kind: "number", value: args.value }, args.hold_seconds));
 
   server.registerTool("show_text", {
     title: "Show text",
-    description: `Present concise text with Aion. Up to 16 plain characters (a word, a number such as "48/48", a time) become the particle body itself; longer text (≤ ${LIMITS.text} characters) appears as quiet typography beside the presenting body. Use for one point the user should see at a glance. Not for logs or code (show_artifact); keep detail in the conversation.`,
+    description: TOOL_DESCRIPTIONS.show_text,
     inputSchema: showTextInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => present(ctx, { kind: "text", text: args.text, ...(args.title ? { title: args.title } : {}) }, args.hold_seconds));
 
-  server.registerTool("show_image", {
-    title: "Show an image",
-    description: "Present an image the user should see — one Codex generated, a screenshot, a rendered diagram. By default Aion's particles become the picture; mode \"framed\" shows the exact image beside the body (best where detail matters). Accepts an absolute local path, a file:// URL or a data:image URL; remote URLs are never fetched and nothing is uploaded anywhere.",
-    inputSchema: showImageInput,
+  server.registerTool("show_symbol", {
+    title: "Show a symbol",
+    description: TOOL_DESCRIPTIONS.show_symbol,
+    inputSchema: showSymbolInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, async (args, ctx) => {
-    try {
-      const ref = await media(args.source);
-      return present(ctx, { kind: "image", media: ref, mode: args.mode ?? "particles", ...(args.alt ? { alt: args.alt } : {}) }, args.hold_seconds);
-    } catch (error) { return mediaFailure(error); }
-  });
+  }, (args, ctx) => present(ctx, { kind: "symbol", symbol: args.symbol }, args.hold_seconds));
+
+  server.registerTool("show_emoji", {
+    title: "Show an emoji",
+    description: TOOL_DESCRIPTIONS.show_emoji,
+    inputSchema: showEmojiInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => present(ctx, { kind: "emoji", emoji: args.emoji }, args.hold_seconds));
 
   server.registerTool("show_result", {
     title: "Show a result",
@@ -243,12 +420,20 @@ export function createAionServer(options: AionServerOptions): McpServer {
   });
 
   server.registerTool("clear_presentation", {
-    title: "Clear the presentation",
-    description: "End the current presentation now; Aion returns to its persistent body. Presentations end by themselves after their hold, so use this only when the user asks or the content is obsolete.",
+    title: "Return to the body",
+    description: TOOL_DESCRIPTIONS.clear_presentation,
     inputSchema: z.object({}).strict(),
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (_args, ctx) => run(ctx, backend => backend.apply({ type: "clear" }), () => "Aion returned to its body."));
+
+  server.registerTool("show_visual_form", {
+    title: "Show a visual form (older name)",
+    description: "Older name of show_form, kept so earlier clients keep working. Prefer show_form; it behaves identically.",
+    inputSchema: showVisualFormInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => showForm(ctx, args));
 
   // Tools only the embedded view calls. They exist only for hosts that render MCP Apps: elsewhere they would
   // be noise in the agent's tool list.
@@ -269,7 +454,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     });
     registerAppTool(server, "presence_media", {
       title: "Aion Presence media",
-      description: "For the Aion Presence view only: the bytes of an image being presented.",
+      description: "For the Aion Presence view only: the bytes of an image or terrain being presented.",
       inputSchema: mediaInput,
       annotations: { readOnlyHint: true, openWorldHint: false },
       _meta: { ui: { resourceUri: PRESENCE_RESOURCE_URI, visibility: ["app"] } },

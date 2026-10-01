@@ -11,7 +11,7 @@ type Result = { isError?: boolean; content: { type: string; text?: string }[]; s
 const text = (result: unknown) => (result as Result).content.map(item => item.text ?? "").join("");
 const structured = (result: unknown) => presenceOutput.parse((result as Result).structuredContent);
 
-test("a host without MCP Apps sees exactly the nine Aion tools, each with schemas and honest annotations", async () => {
+test("a host without MCP Apps sees exactly the Aion tools, each with schemas and honest annotations", async () => {
   const aion = await connectAion();
   try {
     const { tools } = await aion.client.listTools();
@@ -21,7 +21,8 @@ test("a host without MCP Apps sees exactly the nine Aion tools, each with schema
       assert.equal(tool.inputSchema.type, "object");
       assert.equal((tool.inputSchema as { additionalProperties?: boolean }).additionalProperties, false, `${tool.name} rejects unknown fields`);
       assert.ok(tool.outputSchema, `${tool.name} declares its structured output`);
-      assert.equal(tool.annotations?.openWorldHint, false, `${tool.name} touches nothing outside this machine`);
+      // Only the lookups (a public picture, portrait or terrain) reach outside this machine, and they say so.
+      assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain"].includes(tool.name), `${tool.name} openWorldHint`);
       assert.equal(tool.annotations?.destructiveHint, false);
     }
     const open = tools.find(tool => tool.name === "open_presence")!;
@@ -127,7 +128,10 @@ test("tool input validation rejects unknown states, fields, oversize text and un
     await rejected("show_text", { text: "   " }, /text/);
     await rejected("show_result", { title: "t", summary: "s", details: Array(9).fill("d") }, /details|8/);
     await rejected("show_visual_form", { form: "dragon" }, /form-not-found/);
-    await rejected("show_visual_form", { form: "orion", variant: "rainbow" }, /variant-not-found: astronomy\.orion has the variants lines, stars/);
+    // A variant is a hint (SCF): an unknown one falls back to the form's default instead of failing.
+    const fallback = await aion.call("show_form", { form: "orion", variant: "rainbow" }) as Result;
+    assert.equal(fallback.isError, undefined);
+    assert.equal((fallback.structuredContent as { presentation: { description: string } }).presentation.description, "form: Orion (constellation)");
     await rejected("show_artifact", { type: "code", title: "Patch" }, /content-required/);
     await rejected("show_artifact", { type: "svg", title: "Diagram", content: "<script>alert(1)</script>" }, /svg-invalid/);
   } finally { await aion.close(); }

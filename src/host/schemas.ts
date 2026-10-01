@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { AION_BODIES } from "../core/body";
+import { AION_IDENTITY } from "../core/identity";
 import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, RESULT_STATUSES } from "../core/presentation";
 import { ACTIVITY_STATES } from "../core/state";
+import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
+import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
 
 /**
  * Input and output schemas shared by the MCP tools and the hub's local HTTP API, so a command is validated
@@ -21,6 +24,13 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
 const hold = z.number().min(0).max(LIMITS.hold.max)
   .describe(`Seconds to hold the presentation before Aion returns to its body (${LIMITS.hold.min}–${LIMITS.hold.max}; 0 = until cleared). Omit for a sensible default.`);
 
+/** A free-text field checked by one of SCF's validators after its whitespace is tidied. */
+const checked = (max: number, valid: (value: string) => boolean, what: string) => z.string().max(max * 4).transform((value, ctx) => {
+  const clean = tidy(value);
+  if (!valid(clean)) { ctx.addIssue({ code: "custom", message: what }); return z.NEVER; }
+  return clean;
+});
+
 export const activityStateSchema = z.enum(ACTIVITY_STATES);
 export const bodySchema = z.enum(AION_BODIES);
 
@@ -33,11 +43,14 @@ export const setBodyFormInput = z.object({
   body: bodySchema.describe("sphere: the original abstract body. figure: a quiet, minimal humanoid of particles."),
 }).strict();
 
-export const showVisualFormInput = z.object({
+export const showFormInput = z.object({
   form: z.string().min(1).max(60).describe("A visual form id or name, e.g. \"tao.yin-yang\", \"yin yang\", \"Orion\", \"Leo zodiac sign\", \"check\"."),
   variant: z.string().min(1).max(40).optional().describe("Optional variant the form declares, e.g. \"later-heaven\" for the bagua, \"stars\" for a constellation without lines."),
   hold_seconds: hold.optional(),
 }).strict();
+
+/** The v0.1 name of show_form's input, kept for older clients. */
+export const showVisualFormInput = showFormInput;
 
 export const showTextInput = z.object({
   text: text(LIMITS.text, "text").describe(`Concise text (≤ ${LIMITS.text} characters). Up to 16 plain characters become the particle body itself; longer text is shown beside it.`),
@@ -46,9 +59,54 @@ export const showTextInput = z.object({
 }).strict();
 
 export const showImageInput = z.object({
-  source: z.string().min(1).max(12_000_000).describe("An absolute path to a local PNG, JPEG, WebP, GIF or SVG file (or a file:// URL), or a data:image/…;base64 URL. Remote http(s) URLs are not fetched."),
+  query: checked(VISUAL_LIMITS.query, value => validQuery(value, VISUAL_LIMITS.query), `query: a short search phrase of at most ${VISUAL_LIMITS.query} characters, no URLs or markup`).optional()
+    .describe(`What to look up and show, as a short specific search phrase, e.g. "Tesla Model Y", "Eiffel Tower at night", "${AION_IDENTITY.creatorCompany} logo". At most ${VISUAL_LIMITS.query} characters, no URLs. Use either query or source, not both.`),
+  intent: z.enum(IMAGE_INTENTS).optional().describe("With query: what kind of picture this is; it chooses the sources and the framing. Default general."),
+  source: z.string().min(1).max(12_000_000).optional()
+    .describe("Instead of query: an image on this machine — an absolute path to a PNG, JPEG, WebP, GIF or SVG file (or a file:// URL), or a data:image/…;base64 URL. Remote URLs are not accepted here; use query to look something up."),
   alt: line(LIMITS.alt, "alt").optional().describe("Short description of the image."),
   mode: z.enum(IMAGE_MODES).optional().describe("particles (default): the body becomes the image. framed: the exact image is shown beside the body — use for diagrams and screenshots where detail matters."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showPortraitInput = z.object({
+  person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).describe("Full, unambiguous name of the person, e.g. \"Nikola Tesla\"."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showTerrainInput = z.object({
+  region: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `region: a place name of at most ${VISUAL_LIMITS.region} characters`)
+    .describe(`The place, e.g. "Wales", "United Kingdom", "Swiss Alps", "Grand Canyon". At most ${VISUAL_LIMITS.region} characters.`),
+  style: z.enum(TERRAIN_STYLES).optional().describe("Shading: terrain (default), topography (contour bands), relief (strong shading), heightmap (height only)."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showClockInput = z.object({
+  time: z.string().max(16).transform((value, ctx) => {
+    const time = normalizeClockTime(value);
+    if (!time) { ctx.addIssue({ code: "custom", message: "time: HH:MM (24-hour), e.g. 15:42" }); return z.NEVER; }
+    return time;
+  }).optional().describe("Optional 24-hour time as HH:MM, e.g. \"15:42\". Omit for the user's current local time."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showNumberInput = z.object({
+  value: checked(VISUAL_LIMITS.number, validNumber, `value: one number with an optional sign, currency, % or unit; at most ${VISUAL_LIMITS.number} characters`)
+    .describe(`The number with an optional sign, currency, % or unit, e.g. "42%", "84", "23°C", "£28,000", "3.14"; at most ${VISUAL_LIMITS.number} characters.`),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showSymbolInput = z.object({
+  symbol: z.enum(SYMBOL_NAMES).describe("Which symbol to show."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const showEmojiInput = z.object({
+  emoji: z.string().max(32).transform((value, ctx) => {
+    const emoji = value.trim();
+    if (!isSingleEmojiGrapheme(emoji)) { ctx.addIssue({ code: "custom", message: "emoji: exactly one Unicode emoji, no text" }); return z.NEVER; }
+    return emoji;
+  }).describe("Exactly one Unicode emoji, e.g. \"😊\", \"❤️\", \"👍🏻\", \"👨‍🚀\", \"🇬🇧\". No text, and not several emoji."),
   hold_seconds: hold.optional(),
 }).strict();
 

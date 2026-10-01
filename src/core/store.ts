@@ -42,6 +42,12 @@ export const systemClock: StoreClock = {
   },
 };
 
+/**
+ * A hold is time spent *formed* (as in SCF). The body first takes about this long to form, so the store keeps
+ * the presentation that much longer before releasing it.
+ */
+export const FORMING_SECONDS = 1.6;
+
 let presentationCounter = 0;
 const presentationId = (now: number) => `p${now.toString(36)}${(++presentationCounter).toString(36)}`;
 
@@ -88,7 +94,7 @@ export class PresenceStore {
   /** Shows a presentation, replacing any other. `holdSeconds` 0 holds it until cleared. */
   present(content: PresentationContent, holdSeconds?: number): Presentation {
     const now = this.clock.now();
-    const hold = holdFor(content.kind, holdSeconds, content.kind === "text" ? content.text : undefined);
+    const hold = holdFor(content, holdSeconds);
     const presentation = { ...content, id: presentationId(now), at: now, hold } as Presentation;
     this.cancelPresentation?.();
     this.cancelPresentation = null;
@@ -96,7 +102,7 @@ export class PresenceStore {
     if (hold > 0) {
       this.cancelPresentation = this.clock.schedule(() => {
         if (this.state.presentation?.id === presentation.id) this.commit({ presentation: null });
-      }, hold * 1000);
+      }, (hold + FORMING_SECONDS) * 1000);
     }
     return presentation;
   }
