@@ -39,6 +39,8 @@ export interface AionServerOptions {
   assetsDir?: string;
   /** The local clock (injectable for tests). */
   now?: () => Date;
+  /** Called once the host has connected and declared its capabilities (first-run opening). */
+  onReady?: (host: { embedded: boolean; client?: string }) => void;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -241,6 +243,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const before = await link.run(backend => backend.state());
     const fresh = decision.mode === "embedded" ? Date.now() - embeddedSyncAt > EMBEDDED_LIVE_MS : before.hub.viewers === 0;
     let snapshot = await link.run(backend => backend.apply({ type: "open", display, greet: fresh }));
+    // Aion may already be showing because it opened by itself on the first run: Codex still introduces it, once.
+    const introduce = fresh || before.hub.introduction;
+    if (before.hub.introduction) snapshot = await link.run(backend => backend.apply({ type: "introduced" }));
     if (args.body) snapshot = await link.run(backend => backend.apply({ type: "body", body: args.body! }));
     const url = link.current?.surfaceUrl;
     let opened = false;
@@ -252,8 +257,8 @@ export function createAionServer(options: AionServerOptions): McpServer {
         : opened ? `Aion opened in a companion window, as the ${bodyLabel(snapshot.body)}.`
           : `Aion is ready as the ${bodyLabel(snapshot.body)}; open ${url ?? "the companion window"} to see it.`);
     if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened;
-    const greeting = fresh ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
-    if (fresh) output.message += " A greeting is due: introduce Aion once, briefly (see greeting.line).";
+    const greeting = introduce ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
+    if (introduce) output.message += " A greeting is due: introduce Aion once, briefly (see greeting.line).";
     return result({ ...output, greeting, url, window_opened: opened, fullscreen: display === "fullscreen" ? "requested" : "not-requested" });
   });
 
@@ -480,6 +485,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
     });
   };
   if (env.AION_PRESENCE_APP_TOOLS === "always") registerAppOnlyTools();
-  server.server.oninitialized = () => { if (hostSupportsMcpApps(server.server.getClientCapabilities())) registerAppOnlyTools(); };
+  server.server.oninitialized = () => {
+    const embedded = hostSupportsMcpApps(server.server.getClientCapabilities());
+    if (embedded) registerAppOnlyTools();
+    options.onReady?.({ embedded, client: server.server.getClientVersion()?.name });
+  };
   return server;
 }

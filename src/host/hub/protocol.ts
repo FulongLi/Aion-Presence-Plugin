@@ -26,6 +26,8 @@ export interface HubInfo {
   display: DisplayPreference;
   /** Codex hooks have reported activity recently (they are trusted and running). */
   hooksActive: boolean;
+  /** Aion opened by itself (first run) and Codex has not introduced it yet. */
+  introduction: boolean;
 }
 
 export interface HubSnapshot extends Omit<PresenceSnapshot, "revision"> {
@@ -40,7 +42,9 @@ export type HubCommand =
   | { type: "present"; content: PresentationContent; hold?: number }
   | { type: "clear" }
   /** `greet`: a newly opened Presence waves once (default: when no companion window is connected). */
-  | { type: "open"; display?: DisplayPreference; greet?: boolean };
+  | { type: "open"; display?: DisplayPreference; greet?: boolean; introduce?: boolean }
+  /** Codex has given (or is giving) Aion's introduction. */
+  | { type: "introduced" };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -79,7 +83,8 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("body"), body: z.enum(AION_BODIES) }).strict(),
   z.object({ type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional() }).strict(),
   z.object({ type: z.literal("clear") }).strict(),
-  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("introduced") }).strict(),
 ]);
 
 export const hookEventSchema = z.object({

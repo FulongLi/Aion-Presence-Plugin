@@ -1,7 +1,7 @@
 {
-  "name": "aion-presence-dev",
+  "name": "spirit-connect",
   "interface": {
-    "displayName": "Aion Presence (local development)"
+    "displayName": "Spirit Connect"
   },
   "plugins": [
     {

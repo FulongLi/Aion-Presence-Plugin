@@ -15,5 +15,9 @@ export function findCodex(env: NodeJS.ProcessEnv = process.env): string | null {
   return null;
 }
 
-export const MARKETPLACE_NAME = "aion-presence-dev";
+/** The marketplace this repository publishes (.agents/plugins/marketplace.json), and the plugin's id in it. */
+export const MARKETPLACE_NAME = "spirit-connect";
 export const PLUGIN_ID = `aion-presence@${MARKETPLACE_NAME}`;
+/** v0.1 registered the repository under this name; installers remove it so the two never coexist. */
+export const LEGACY_MARKETPLACE = "aion-presence-dev";
+export const LEGACY_PLUGIN_ID = `aion-presence@${LEGACY_MARKETPLACE}`;

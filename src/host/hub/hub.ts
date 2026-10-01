@@ -59,6 +59,7 @@ export class PresenceHub {
   private readonly clock: StoreClock;
   private cancelSettle: (() => void) | null = null;
   private turnActive = false;
+  private introduction = false;
   private lastHookAt = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
 
@@ -119,7 +120,7 @@ export class PresenceHub {
     const { revision: _ignored, ...state } = this.store.snapshot();
     return {
       ...state, revision: this.revision,
-      hub: { id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive() },
+      hub: { id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction },
     };
   }
 
@@ -144,6 +145,10 @@ export class PresenceHub {
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
         // A fresh opening greets; a window that is already showing Aion does not greet again.
         if (command.greet ?? this.viewers.size === 0) this.store.greet();
+        if (command.introduce) { this.introduction = true; this.changed(); }
+        break;
+      case "introduced":
+        if (this.introduction) { this.introduction = false; this.changed(); }
         break;
     }
     return this.snapshot();
