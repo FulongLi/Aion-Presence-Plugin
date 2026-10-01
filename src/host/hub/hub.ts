@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { MediaRef } from "../../core/presentation";
 import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
-import { MediaStore, sniffImage } from "../media";
+import { MediaStore, sniffMedia } from "../media";
 import { DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
 import { hookEventSchema, hubCommandSchema, mediaUploadSchema, type DisplayPreference, type HubCommand, type HubSnapshot } from "./protocol";
 
@@ -59,6 +59,7 @@ export class PresenceHub {
   private readonly clock: StoreClock;
   private cancelSettle: (() => void) | null = null;
   private turnActive = false;
+  private introduction = false;
   private lastHookAt = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
 
@@ -119,7 +120,7 @@ export class PresenceHub {
     const { revision: _ignored, ...state } = this.store.snapshot();
     return {
       ...state, revision: this.revision,
-      hub: { id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive() },
+      hub: { id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction },
     };
   }
 
@@ -143,14 +144,20 @@ export class PresenceHub {
       case "open":
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
         // A fresh opening greets; a window that is already showing Aion does not greet again.
-        if (this.viewers.size === 0) this.store.greet();
+        if (command.greet ?? this.viewers.size === 0) this.store.greet();
+        if (command.introduce) { this.introduction = true; this.changed(); }
+        break;
+      case "introduced":
+        if (this.introduction) { this.introduction = false; this.changed(); }
         break;
     }
     return this.snapshot();
   }
 
-  addMedia(data: Buffer, mime: string): MediaRef {
-    if (sniffImage(data) === null) throw new Error("image-invalid");
+  /** Keeps media for the surfaces under the type its bytes actually are (never what a caller claims). */
+  addMedia(data: Buffer, _claimed?: string): MediaRef {
+    const mime = sniffMedia(data);
+    if (!mime) throw new Error("media-invalid");
     return this.media.add(data, mime);
   }
 
@@ -191,7 +198,8 @@ export class PresenceHub {
       }
       case "turn-end": {
         this.cancelSettle?.(); this.cancelSettle = null;
-        if (current.state !== "error") this.store.setActivity(this.turnActive ? "complete" : "idle", { source: "hook" });
+        // The turn ends: what Codex did (or answered) is complete, then rests. An error Codex reported is kept.
+        if (current.state !== "error") this.store.setActivity(this.turnActive || current.state === "responding" ? "complete" : "idle", { source: "hook" });
         this.turnActive = false;
         break;
       }
@@ -250,7 +258,7 @@ export class PresenceHub {
         const upload = mediaUploadSchema.safeParse(await readJson(req, MEDIA_LIMIT));
         if (!upload.success) return send(res, 400, { error: "invalid-media" });
         const data = Buffer.from(upload.data.data, "base64");
-        const mime = sniffImage(data);
+        const mime = sniffMedia(data);
         if (!mime || data.length > 8 * 1024 * 1024) return send(res, 400, { error: "invalid-media" });
         return send(res, 200, this.addMedia(data, mime));
       }

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import {
   cleanCode, cleanLine, cleanText, HOLD_SECONDS, holdFor, isGlyphText, LIMITS, planPresentation, type PresentationContent,
 } from "../src/core/presentation";
-import { ACTIVITY_TTL, PresenceStore, type StoreClock } from "../src/core/store";
+import { ACTIVITY_TTL, PresenceStore, type StoreClock, FORMING_SECONDS } from "../src/core/store";
 
 /** A manual clock: time moves only when the test says so. */
 function manualClock() {
@@ -64,7 +64,8 @@ test("temporary visual lifecycle: present → hold → expire, back to the body"
   const shown = store.present(result);
   assert.equal(shown.hold, HOLD_SECONDS.result);
   assert.equal(store.snapshot().presentation?.id, shown.id);
-  advance(HOLD_SECONDS.result - 1);
+  // The hold is time spent formed, so the store keeps it for the forming time too.
+  advance(HOLD_SECONDS.result + FORMING_SECONDS - 1);
   assert.ok(store.snapshot().presentation);
   advance(2);
   assert.equal(store.snapshot().presentation, null);
@@ -78,7 +79,7 @@ test("a new presentation replaces the old one, and the old timer cannot clear th
   const second = store.present(result, 10);
   advance(3);
   assert.equal(store.snapshot().presentation?.id, second.id);
-  advance(8);
+  advance(9);
   assert.equal(store.snapshot().presentation, null);
 });
 
@@ -99,7 +100,7 @@ test("the persistent body survives every temporary visual; changing it releases 
   assert.equal(store.snapshot().body, "sphere");
   assert.equal(store.setBody("figure"), true);
   store.present(orion);
-  advance(HOLD_SECONDS.form + 1);
+  advance(HOLD_SECONDS.form + FORMING_SECONDS + 1);
   assert.equal(store.snapshot().presentation, null);
   assert.equal(store.snapshot().body, "figure", "figure → Orion → figure, not the sphere");
   store.present(result);
@@ -125,12 +126,21 @@ test("display text is cleaned and bounded", () => {
   assert.equal(cleanText("", 10), null);
 });
 
-test("hold durations default per kind and are clamped", () => {
-  assert.equal(holdFor("form"), HOLD_SECONDS.form);
-  assert.equal(holdFor("result", 0), 0);
-  assert.equal(holdFor("result", 1), LIMITS.hold.min);
-  assert.equal(holdFor("result", 10_000), LIMITS.hold.max);
-  assert.ok(holdFor("text", undefined, "x".repeat(400)) > holdFor("text", undefined, "short"));
+test("hold durations default per kind (SCF's for its visuals) and are clamped", () => {
+  assert.equal(holdFor(orion), HOLD_SECONDS.form);
+  assert.equal(holdFor(result, 0), 0);
+  assert.equal(holdFor(result, 1), LIMITS.hold.min);
+  assert.equal(holdFor(result, 10_000), LIMITS.hold.max);
+  const long = { kind: "text", text: "x ".repeat(200).trim() } as const;
+  assert.ok(holdFor(long) > holdFor({ kind: "text", text: "short sentence that is shown beside the body" }));
+  // SCF Presence's tuned holds, in seconds formed.
+  const media = { id: "m000000000000000000", mime: "image/png", bytes: 10 };
+  assert.deepEqual([
+    holdFor({ kind: "clock", time: "12:30" }), holdFor({ kind: "number", value: "42%" }), holdFor({ kind: "text", text: "Paris" }),
+    holdFor({ kind: "symbol", symbol: "check" }), holdFor({ kind: "emoji", emoji: "🎉" }), holdFor(orion),
+    holdFor({ kind: "image", media, mode: "particles", fit: "portrait" }), holdFor({ kind: "image", media, mode: "particles" }),
+    holdFor({ kind: "terrain", media: { ...media, mime: "application/vnd.aion.heightfield" }, style: "terrain", label: "Wales" }),
+  ], [7, 7, 6, 5, 4, 10, 14, 12, 14]);
 });
 
 test("the body itself becomes short information; long content is presented beside it", () => {

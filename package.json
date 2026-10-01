@@ -1,6 +1,6 @@
 {
   "name": "aion-presence-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Aion Presence: a visual embodiment layer for Codex. Codex is the intelligence; Aion is the body.",
   "type": "module",
@@ -33,12 +33,15 @@
   "scripts": {
     "dev": "tsx scripts/dev.ts",
     "build": "tsx scripts/build.ts",
+    "runtime:check": "tsx scripts/runtime-check.ts",
+    "install:codex": "node scripts/install.mjs",
+    "release": "tsx scripts/release.ts",
     "setup": "tsx scripts/setup.ts",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "plugin:validate": "tsx scripts/validate-plugin.ts",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run plugin:validate -- --runtime",
+    "check": "npm run lint && npm run typecheck && npm test && npm run runtime:check && npm run plugin:validate -- --runtime",
     "demo": "tsx scripts/demo.ts",
     "smoke": "tsx scripts/smoke.ts",
     "codex:verify": "tsx scripts/codex-verify.ts"

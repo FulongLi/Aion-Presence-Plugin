@@ -1,11 +1,13 @@
 import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { build, type BuildOptions, type Plugin } from "esbuild";
 import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
 
 /**
  * Builds the plugin runtime into plugins/aion-presence/runtime/ — self-contained, because Codex copies the
- * plugin root into its cache and runs it without this repository's node_modules:
+ * plugin root into its cache and runs it without this repository's node_modules. The runtime is committed, so
+ * a Git install (`codex plugin marketplace add FulongLi/Aion-Presence-Plugin`) needs no build; CI checks that the
+ * committed runtime is exactly what the sources build (npm run runtime:check).
  *
  *   presence.html   the Presence surface: page, styles and script in one file (MCP Apps resource + companion)
  *   aion-mcp.mjs    the MCP server and presence hub (Node, every dependency bundled)
@@ -13,7 +15,8 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *
  * `--watch` rebuilds on change (npm run dev).
  */
-const RUNTIME = join(PLUGIN_ROOT, "runtime");
+const outIndex = process.argv.indexOf("--out");
+const RUNTIME = outIndex > 0 ? resolve(process.argv[outIndex + 1]) : join(PLUGIN_ROOT, "runtime");
 const watch = process.argv.includes("--watch");
 const src = (path: string) => join(REPO_ROOT, "src", path);
 

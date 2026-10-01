@@ -1,5 +1,5 @@
 import { subjectMap } from "./image";
-import type { PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
+import type { HeightFieldTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
 
 /**
  * VisualTarget → particle rest positions and tones. This is the only place the body learns a shape,
@@ -12,6 +12,7 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
   switch (target.kind) {
     case "raster2d": return rasterPoints(target, count);
     case "points": return layoutPoints(target, count);
+    case "heightfield": return heightFieldPoints(target, count);
     default: throw new Error("invalid-target");
   }
 }
@@ -291,6 +292,88 @@ function layoutPoints(target: PointLayoutTarget, count: number): TargetPoints {
       tone = 0.006 + 0.07 * Math.pow(next(), 6);
     }
     positions.set([x * scale, y * scale, z], i * 3);
+    tones[i] = Math.max(0, Math.min(1, tone));
+  }
+  return { positions, tones };
+}
+
+/** Terrain is laid on a ground plane tilted back from the viewer, so height reads as upward relief. */
+export const terrainLayout = { width: 3.6, depth: 4, tilt: 0.9, height: 0.8 };
+
+function validateField(target: HeightFieldTarget) {
+  const f = target.field;
+  if (!f || !(f.width >= 2 && f.height >= 2) || f.width * f.height > 256 * 256 || !(f.values instanceof Float32Array)
+    || f.values.length !== f.width * f.height || (f.mask && f.mask.length !== f.values.length)
+    || !(f.aspect > 0.05 && f.aspect < 20) || !(f.relief >= 0 && f.relief <= 1)) throw new Error("invalid-heightfield");
+  for (let i = 0; i < f.values.length; i++) if (!(f.values[i] >= 0 && f.values[i] <= 1)) throw new Error("invalid-heightfield");
+}
+
+/**
+ * 2.5D sampling. X/Y keep the grid's geographic layout on a ground plane; Z is the normalized height
+ * times the relief. Particles are spread evenly over the surface (a little denser on steep ground so
+ * ridges read) with bilinear height between cells, so there is no terracing. Tones are hillshading
+ * lit from the north-west, varied by style: terrain, relief (stronger shading), topography (contour
+ * bands) or heightmap (plain height).
+ */
+function heightFieldPoints(target: HeightFieldTarget, count: number): TargetPoints {
+  validateField(target);
+  const { width: W, height: H, values, mask, aspect, relief } = target.field;
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H && (!mask || mask[y * W + x] === 1);
+  const at = (x: number, y: number, fallback: number) => inside(x, y) ? values[y * W + x] : fallback;
+  const ground = Math.min(terrainLayout.width, terrainLayout.depth * aspect);
+  const groundW = ground, groundD = ground / aspect;
+  const lift = terrainLayout.height * relief;
+  const slope = new Float32Array(W * H);
+  const distribution = new Float64Array(W * H);
+  let total = 0;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x;
+    if (inside(x, y)) {
+      const v = values[i];
+      const dx = (at(x + 1, y, v) - at(x - 1, y, v)) * lift / (2 * groundW / W);
+      const dy = (at(x, y + 1, v) - at(x, y - 1, v)) * lift / (2 * groundD / H);
+      slope[i] = Math.min(1, Math.hypot(dx, dy));
+      total += 1 + slope[i] * 1.2;
+    }
+    distribution[i] = total;
+  }
+  if (total < 1) throw new Error("empty-heightfield");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  const next = random(0x3e1f);
+  const cos = Math.cos(terrainLayout.tilt), sin = Math.sin(terrainLayout.tilt);
+  // Light from the north-west, above: the classic cartographic hillshade direction.
+  const light = [-0.55, 0.55, 0.63];
+  const style = target.style;
+  for (let i = 0; i < count; i++) {
+    const cell = pickCell(distribution, next() * total);
+    const cx = cell % W, cy = Math.floor(cell / W);
+    const fx = next(), fy = next();
+    const v = values[cell];
+    // Bilinear height towards the neighbours in the jitter direction (outside cells hold this one's height).
+    const nx = fx < 0.5 ? cx - 1 : cx + 1, ny = fy < 0.5 ? cy - 1 : cy + 1;
+    const tx = Math.abs(fx - 0.5), ty = Math.abs(fy - 0.5);
+    const top = v + (at(nx, cy, v) - v) * tx, bottom = at(cx, ny, v) + (at(nx, ny, v) - at(cx, ny, v)) * tx;
+    const h = top + (bottom - top) * ty;
+    const px = ((cx + fx) / W - 0.5) * groundW;
+    const pv = (0.5 - (cy + fy) / H) * groundD;
+    const pz = h * lift;
+    positions.set([px, pv * cos + pz * sin - lift * sin * 0.3, -pv * sin + pz * cos], i * 3);
+    // Surface normal from the height gradient in ground units (x east, y north, z up).
+    const gx = (at(cx + 1, cy, v) - at(cx - 1, cy, v)) * lift / (2 * groundW / W);
+    const gy = -(at(cx, cy + 1, v) - at(cx, cy - 1, v)) * lift / (2 * groundD / H);
+    const norm = Math.hypot(gx, gy, 1);
+    const shade = Math.max(0, (-gx * light[0] - gy * light[1] + light[2]) / norm);
+    let tone: number;
+    switch (style) {
+      case "relief": tone = 0.1 + shade * 0.8 + h * 0.1; break;
+      case "heightmap": tone = 0.12 + h * 0.85; break;
+      case "topography": {
+        const band = Math.abs((h * 10) % 1 - 0.5) > 0.42 ? 0.22 : 0;
+        tone = 0.14 + shade * 0.42 + h * 0.24 + band;
+        break;
+      }
+      default: tone = 0.16 + shade * 0.5 + h * 0.3;
+    }
     tones[i] = Math.max(0, Math.min(1, tone));
   }
   return { positions, tones };

@@ -1,14 +1,17 @@
 import { Aion } from "../core/aion";
+import { GreetingGate } from "../core/guidance";
 import { planPresentation, type BodyVisual, type Presentation } from "../core/presentation";
-import { SemanticPresence } from "../core/signal";
+import { PresenceEngine } from "../core/signal";
 import type { ActivityState } from "../core/state";
 import type { HubSnapshot } from "../host/hub/protocol";
 import type { Framing, RuntimeHandle, RuntimeInputs } from "../render";
 import { VisualActionController } from "../visual/controller";
 import { visualForms } from "../visual/forms";
+import { decodeHeightField } from "../visual/heightfield";
 import { normalizeImage } from "../visual/image";
 import type { MorphTarget } from "../visual/types";
-import { decodeImage, rasterizeText } from "./glyphs";
+import { decodeImage, rasterizeEmoji, rasterizeText } from "./glyphs";
+import { MicrophoneListener, microphonePermission, requestMicrophone } from "./microphone";
 import { buildPanel } from "./panel";
 import type { ConnectionState, PresenceTransport } from "./transports/types";
 
@@ -21,6 +24,9 @@ export interface ViewElements {
 }
 
 type BodyRequest = Exclude<BodyVisual, { type: "none" }>;
+
+/** Where local listening stands. "off": not asked (e.g. ?mic=0); "denied"/"unavailable": host states only. */
+export type MicState = "off" | "requesting" | "ready" | "denied" | "unavailable";
 
 /** The few words the status line may say, and only on a change. */
 const STATE_WORDS: Partial<Record<ActivityState, string>> = {
@@ -35,7 +41,12 @@ const STATE_WORDS: Partial<Record<ActivityState, string>> = {
  * idea which host it is in.
  */
 export class PresenceView {
-  readonly presence: SemanticPresence;
+  readonly presence: PresenceEngine;
+  readonly listener = new MicrophoneListener(() => this.microphoneLost());
+  mic: MicState = "off";
+  /** The greeting wave waits for the body to be on screen and for a quiet moment. */
+  readonly greeting = new GreetingGate();
+  private stream: MediaStream | null = null;
   readonly aion: Aion;
   readonly visual: VisualActionController<BodyRequest>;
   runtime: RuntimeHandle | null = null;
@@ -54,13 +65,19 @@ export class PresenceView {
 
   constructor(private readonly elements: ViewElements, private readonly transport: PresenceTransport, options: { debug?: boolean } = {}) {
     this.visual = new VisualActionController<BodyRequest>((request, signal) => this.resolve(request, signal));
-    this.aion = new Aion({ activity: () => this.activity, presenting: () => this.visual.presenting || this.panelOpen, signal: () => this.presence.signal });
-    this.presence = new SemanticPresence(() => this.aion.currentState);
+    // The host's activity (hub) is the base; the engine layers local listening on top (see core/signal.ts).
+    this.aion = new Aion({ activity: () => this.presence.activity, presenting: () => this.visual.presenting || this.panelOpen, signal: () => this.presence.signal });
+    this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity });
+    // An AnalyserNode fallback may wait for a first interaction (autoplay policy).
+    for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => this.listener.resume(), { passive: true });
     elements.fullscreen.addEventListener("click", () => void this.toggleFullscreen());
     document.addEventListener("keydown", event => {
       if ((event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey) void this.toggleFullscreen();
     });
     transport.onDisplayChange = () => this.updateFullscreenControl();
+    setInterval(() => {
+      if (this.greeting.pending && this.greeting.update({ bodyReady: this.runtime !== null, userActive: this.presence.userVoiced }, Date.now())) this.aion.gesture("greeting");
+    }, 150);
     this.updateFullscreenControl();
     if (options.debug) setInterval(() => this.renderDebug(), 500);
   }
@@ -86,7 +103,7 @@ export class PresenceView {
     this.aion.setBody(snapshot.body);
     if (snapshot.gesture && snapshot.gesture.id !== this.gestureId) {
       // A fresh opening greets (the first snapshot of a window that was just opened, or a new open request).
-      if (this.gestureId !== null || !previous) this.aion.gesture(snapshot.gesture.name);
+      if (this.gestureId !== null || !previous) this.greeting.request(Date.now());
       this.gestureId = snapshot.gesture.id;
     }
     if (snapshot.activity.state !== this.activity || snapshot.activity.label !== previous?.activity.label) {
@@ -98,6 +115,10 @@ export class PresenceView {
     if ((presentation?.id ?? null) !== this.presentationId) {
       this.presentationId = presentation?.id ?? null;
       void this.present(presentation);
+      // A looked-up picture or terrain names itself and its public source, quietly, once.
+      const caption = presentation?.kind === "terrain" ? presentation.label
+        : presentation?.kind === "image" && presentation.mode === "particles" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
+      if (caption) this.say(caption, 6_000);
     }
     if (snapshot.hub.display === "fullscreen" && this.transport.kind === "companion" && !this.fullscreenHinted && this.transport.fullscreen()?.active === false) {
       this.fullscreenHinted = true;
@@ -164,8 +185,16 @@ export class PresenceView {
       case "image": {
         const blob = await this.transport.media(request.media.id);
         signal.throwIfAborted();
-        return { visual: normalizeImage(await decodeImage(blob)), hold: Infinity, label: "image" };
+        // The fit carries the request's intent: a portrait keeps SCF's head-and-shoulders band and portrait sampling.
+        return { visual: normalizeImage(await decodeImage(blob), request.fit), hold: Infinity, label: "image" };
       }
+      case "terrain": {
+        const blob = await this.transport.media(request.media.id);
+        signal.throwIfAborted();
+        return { visual: { kind: "heightfield", field: decodeHeightField(new Uint8Array(await blob.arrayBuffer())), style: request.style }, hold: Infinity, label: "terrain" };
+      }
+      case "emoji":
+        return { visual: { kind: "raster2d", style: "emoji", raster: rasterizeEmoji(request.emoji) }, hold: Infinity, label: request.emoji };
     }
   }
 
@@ -191,13 +220,51 @@ export class PresenceView {
     this.updateFullscreenControl();
   }
 
+  /**
+   * Local listening: asks for the microphone once, when Presence opens. Only loudness and voice activity are
+   * computed, on this device. Refused or unavailable, Aion simply follows Codex's states.
+   */
+  async listen() {
+    if (this.mic === "requesting" || this.mic === "ready") return;
+    this.mic = "requesting";
+    let stream: MediaStream;
+    try {
+      stream = await requestMicrophone();
+    } catch (error) {
+      const denied = error instanceof DOMException && (error.name === "NotAllowedError" || error.name === "SecurityError");
+      this.mic = denied ? "denied" : "unavailable";
+      if (denied && (await microphonePermission()) === "denied") this.say("Microphone off · Aion follows Codex", 5_000);
+      return;
+    }
+    this.stream = stream;
+    try {
+      this.listener.attach(stream);
+      this.presence.setMicrophone(this.listener);
+      this.mic = "ready";
+    } catch {
+      this.mic = "unavailable";
+      this.stopListening();
+    }
+  }
+
+  /** Releases the microphone entirely (the page is closing). */
+  stopListening() {
+    this.presence.setMicrophone(null);
+    this.listener.stop();
+    for (const track of this.stream?.getTracks() ?? []) track.stop();
+    this.stream = null;
+  }
+
+  private microphoneLost() { this.presence.setMicrophone(null); this.mic = "unavailable"; }
+
   private renderDebug() {
     const quality = this.runtime?.quality();
     this.elements.debug.hidden = false;
     this.elements.debug.textContent = [
       `surface ${this.transport.kind} · ${this.connection}`,
       `renderer ${this.runtime?.backend ?? "starting"}${quality ? ` · ${quality.count} particles · effects ${quality.effects ? "on" : "off"} · ${quality.frameMs.toFixed(1)} ms · frame ${quality.frames}` : ""}`,
-      `state ${this.aion.currentState} · activity ${this.activity} · body ${this.aion.currentBody}`,
+      `state ${this.aion.currentState} · activity ${this.activity} → ${this.presence.activity} · body ${this.aion.currentBody}`,
+      `mic ${this.mic}${this.mic === "ready" ? ` · ${this.presence.userVoiced ? "voice" : "quiet"} · floor ${this.listener.vad.floor.toFixed(4)}` : ""}`,
       `visual ${this.visual.phase} · revision ${this.snapshot?.revision ?? "-"} · hooks ${this.snapshot?.hub.hooksActive ? "active" : "not detected"}`,
     ].join("\n");
   }

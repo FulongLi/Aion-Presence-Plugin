@@ -46,7 +46,7 @@ test("in plugin mode Aion is the host's body, never a second model or personalit
 // ── State ────────────────────────────────────────────────────────────────────────────────────────────
 
 test("the host's activity states are exactly the plugin vocabulary", () => {
-  assert.deepEqual([...ACTIVITY_STATES], ["idle", "listening", "thinking", "working", "reading", "editing", "testing", "building", "presenting", "complete", "error"]);
+  assert.deepEqual([...ACTIVITY_STATES], ["idle", "listening", "thinking", "working", "reading", "editing", "testing", "building", "responding", "presenting", "complete", "error"]);
   for (const state of ACTIVITY_STATES) assert.ok(isActivityState(state));
   for (const bad of ["speaking", "greeting", "excited", "", 3, null]) assert.equal(isActivityState(bad), false, String(bad));
 });

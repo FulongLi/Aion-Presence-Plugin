@@ -1,4 +1,5 @@
 import type { ActivityState } from "../../core/state";
+import { APP_TOOL_NAMES, TOOL_NAMES } from "../mcp/toolNames";
 import { WORK_STATES } from "../../core/state";
 
 /**
@@ -37,7 +38,7 @@ const EDIT_TOOLS = /^(?:apply_patch|edit|multiedit|write|notebookedit|str_replac
 const READ_TOOLS = /^(?:read|grep|glob|ls|list_dir|view_image|read_file|search|find)$/i;
 const SHELL_TOOLS = /^(?:bash|shell|local_shell|exec_command|unified_exec|container\.exec|run_terminal_cmd)$/i;
 /** Aion's own tools, under any MCP naming scheme the host uses. */
-const OWN_TOOLS = /(?:^|__|\.|\/)aion[-_]presence(?:__|\.|\/)|^(?:open_presence|set_presence_state|set_body_form|show_visual_form|show_text|show_image|show_result|show_artifact|clear_presentation|presence_sync|presence_media)$/i;
+const OWN_TOOLS = new RegExp(`(?:^|__|\\.|\\/)aion[-_]presence(?:__|\\.|\\/)|^(?:${[...TOOL_NAMES, ...APP_TOOL_NAMES].join("|")})$`, "i");
 
 const TEST = /(?:^|[\s;&|(])(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?test\b|npx\s+(?:jest|vitest|mocha|playwright\s+test)|(?:jest|vitest|mocha|ava|tap)\b|pytest\b|python3?\s+-m\s+(?:pytest|unittest)|cargo\s+(?:test|nextest)|go\s+test\b|(?:node|tsx|deno|bun)\s+(?:--)?test\b|node\s+--test|tsx\s+--test|deno\s+test|rspec\b|(?:bundle\s+exec\s+)?rake\s+test|ctest\b|swift\s+test|xcodebuild\b[^\n]*\btest\b|(?:\.\/)?gradlew?\s+(?:\S+\s+)*test\b|mvn\s+(?:\S+\s+)*test\b|dotnet\s+test|phpunit\b|mix\s+test|tox\b|nox\b)/i;
 const BUILD = /(?:^|[\s;&|(])(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?build\b|tsc\b|cargo\s+build|go\s+build|make\b|cmake\s+--build|ninja\b|(?:\.\/)?gradlew?\s+(?:\S+\s+)*(?:build|assemble)\b|mvn\s+(?:\S+\s+)*(?:package|install|compile)\b|xcodebuild\b|swift\s+build|vite\s+build|next\s+build|webpack\b|esbuild\b|rollup\b|docker\s+build|dotnet\s+build|bazel\s+build)/i;

@@ -49,7 +49,9 @@ async function boot() {
   }, { prefer: params.get("renderer") === "canvas" ? "canvas" : undefined });
   view.runtime = handle ?? null;
   (transport ?? fallback).start(view.apply, view.connectionChanged);
-  addEventListener("pagehide", () => { lifetime.abort(); transport?.close(); });
+  // Presence listens locally while it is open (?mic=0 turns it off). Only in a live Presence, never at rest.
+  if (transport && params.get("mic") !== "0") void view.listen();
+  addEventListener("pagehide", () => { lifetime.abort(); transport?.close(); view.stopListening(); });
 }
 
 void boot();

@@ -90,6 +90,10 @@ export function validatePluginPackage(options: { root?: string; marketplace?: st
     if (!validate(value)) for (const e of validate.errors ?? []) error("plugin.json", `${e.instancePath || "/"} ${e.message}`);
     if (isRecord(value)) manifest = value;
   }
+  if (root === PLUGIN_ROOT && typeof manifest.version === "string") {
+    const pkg = readJson(join(REPO_ROOT, "package.json")) as { version?: string };
+    if (pkg.version !== manifest.version) error("plugin.json", `version ${manifest.version} differs from package.json ${pkg.version}`);
+  }
   if (existsSync(join(root, ".codex-plugin", "plugin.json"))) {
     warn(".codex-plugin/plugin.json", "present: extensions.com.openai in plugin.json supersedes it, so the two would drift");
   }

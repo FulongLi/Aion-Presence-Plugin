@@ -1,10 +1,6 @@
 # dependencies
 /node_modules
 
-# Built plugin runtime (npm run build). The plugin root is copied into Codex's cache on install, so
-# the runtime is built before installing rather than committed.
-/plugins/aion-presence/runtime/
-
 # local tooling output
 /.e2e/
 *.tsbuildinfo
@@ -16,3 +12,6 @@
 # misc
 .DS_Store
 npm-debug.log*
+
+# release archives (npm run release)
+/dist/

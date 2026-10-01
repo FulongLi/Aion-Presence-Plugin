@@ -65,6 +65,9 @@ export function presenceForce(rest: VectorNode, seed: VectorNode, u: PhysicsUnif
   const speechTarget = normal.mul(localLift).add(circulation).add(texture).add(spectrumTarget).mul(u.speechGain);
   // Assistant speech radiates outward.
   const voice = normal.mul(u.voiceBody.mul(u.audioForce)).mul(u.speechGain);
-  return target.add(drift).add(flow).add(travel).add(speechTarget).mul(u.stiffness)
+  // Responding (semantic, no audio): a slow, even swell rises through the body. No amplitude, no spectrum.
+  const swell = sin(u.clock.mul(u.responseSpeed).sub(rest.y.mul(1.2))).mul(0.5).add(0.5);
+  const response = normal.mul(swell.mul(u.responding).mul(u.responseSwell)).mul(u.speechGain);
+  return target.add(drift).add(flow).add(travel).add(speechTarget).add(response).mul(u.stiffness)
     .add(thought).add(voice).mul(u.motion);
 }
