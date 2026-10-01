@@ -1,4 +1,5 @@
 import { Aion } from "../core/aion";
+import { GreetingGate } from "../core/guidance";
 import { planPresentation, type BodyVisual, type Presentation } from "../core/presentation";
 import { PresenceEngine } from "../core/signal";
 import type { ActivityState } from "../core/state";
@@ -43,6 +44,8 @@ export class PresenceView {
   readonly presence: PresenceEngine;
   readonly listener = new MicrophoneListener(() => this.microphoneLost());
   mic: MicState = "off";
+  /** The greeting wave waits for the body to be on screen and for a quiet moment. */
+  readonly greeting = new GreetingGate();
   private stream: MediaStream | null = null;
   readonly aion: Aion;
   readonly visual: VisualActionController<BodyRequest>;
@@ -72,6 +75,9 @@ export class PresenceView {
       if ((event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey) void this.toggleFullscreen();
     });
     transport.onDisplayChange = () => this.updateFullscreenControl();
+    setInterval(() => {
+      if (this.greeting.pending && this.greeting.update({ bodyReady: this.runtime !== null, userActive: this.presence.userVoiced }, Date.now())) this.aion.gesture("greeting");
+    }, 150);
     this.updateFullscreenControl();
     if (options.debug) setInterval(() => this.renderDebug(), 500);
   }
@@ -97,7 +103,7 @@ export class PresenceView {
     this.aion.setBody(snapshot.body);
     if (snapshot.gesture && snapshot.gesture.id !== this.gestureId) {
       // A fresh opening greets (the first snapshot of a window that was just opened, or a new open request).
-      if (this.gestureId !== null || !previous) this.aion.gesture(snapshot.gesture.name);
+      if (this.gestureId !== null || !previous) this.greeting.request(Date.now());
       this.gestureId = snapshot.gesture.id;
     }
     if (snapshot.activity.state !== this.activity || snapshot.activity.label !== previous?.activity.label) {

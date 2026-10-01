@@ -147,3 +147,23 @@ test("the hub re-validates the new presentation kinds, whoever sends them", () =
   assert.ok(!ok({ kind: "image", media, mode: "particles", fit: "sticker" }));
   assert.ok(!ok({ kind: "clock", time: "9:5" }) && !ok({ kind: "emoji", emoji: "two 🚀🚀" }) && !ok({ kind: "symbol", symbol: "skull" }));
 });
+
+test("open_presence: a greeting is due once per newly opened Presence, never while Aion is already showing", async () => {
+  const { MCP_APPS_CAPABILITIES } = await import("./helpers");
+  const aion = await connectAion({ capabilities: MCP_APPS_CAPABILITIES });
+  try {
+    type Opened = { greeting: { due: boolean; line?: string; line_zh?: string }; message: string };
+    const first = (await aion.call("open_presence", {}) as Result).structuredContent as unknown as Opened;
+    assert.equal(first.greeting.due, true);
+    assert.match(first.greeting.line!, /^Hi, I'm Aion, an interactive AI presence created by Spirit Connect/);
+    assert.match(first.greeting.line_zh!, /我是 Aion/);
+    assert.match(first.message, /A greeting is due/);
+    assert.equal((await state(aion)).gesture?.name, "greeting", "the body waves");
+    const gesture = (await state(aion)).gesture!.id;
+    // The embedded view is now showing Aion (it syncs through the host).
+    await aion.call("presence_sync", { after_revision: -1 });
+    const again = (await aion.call("open_presence", {}) as Result).structuredContent as unknown as Opened;
+    assert.equal(again.greeting.due, false);
+    assert.equal((await state(aion)).gesture!.id, gesture, "no second wave");
+  } finally { await aion.close(); }
+});

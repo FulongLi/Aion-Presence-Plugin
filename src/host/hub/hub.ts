@@ -143,7 +143,7 @@ export class PresenceHub {
       case "open":
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
         // A fresh opening greets; a window that is already showing Aion does not greet again.
-        if (this.viewers.size === 0) this.store.greet();
+        if (command.greet ?? this.viewers.size === 0) this.store.greet();
         break;
     }
     return this.snapshot();

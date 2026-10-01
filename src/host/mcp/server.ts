@@ -6,6 +6,7 @@ import { AION_IDENTITY, embodimentStatement } from "../../core/identity";
 import {
   cleanCode, cleanText, describePresentation, LIMITS, type PresentationContent,
 } from "../../core/presentation";
+import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
 import { visualForms, type VisualFormRegistry } from "../../visual/forms";
@@ -58,6 +59,11 @@ export const presenceOutput = z.object({
   shown: z.string().optional().describe("What the body shows, when you may want to say it: the local time, the form a name found, the person or place found."),
   source: z.object({ provider: z.string(), page: z.string().optional(), license: z.string().optional() }).optional()
     .describe("Where a looked-up picture or terrain came from (a public source), for attribution if asked."),
+  greeting: z.object({
+    due: z.boolean().describe("true once per newly opened Presence: introduce Aion in one short reply (see line); false: it is already open, do not greet again."),
+    line: z.string().optional().describe("The canonical introduction in English. Word it naturally; keep the names and facts."),
+    line_zh: z.string().optional().describe("The same introduction in Chinese, for a user writing in Chinese."),
+  }).optional(),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -152,9 +158,12 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const server = new McpServer({ name: "aion-presence", title: "Aion Presence", version: options.version }, {
     instructions: `${embodimentStatement("Codex")} Call open_presence when the user asks to open Aion. When Aion is open, treat it as your `
       + "visual body: when the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
-      + "only describing it; otherwise use the tools sparingly. See the aion-presence skill.",
+      + `only describing it; otherwise use the tools sparingly. ${onboardingGuidance()} See the aion-presence skill.`,
   });
   let embeddedSeen = false;
+  /** When an embedded view last synced: it is showing Aion right now if that was recent. */
+  let embeddedSyncAt = -Infinity;
+  const EMBEDDED_LIVE_MS = 30_000;
 
   const capabilities = (ctx?: ServerContext): ClientCapabilities | undefined =>
     (ctx?.mcpReq.envelope as Record<string, unknown> | undefined)?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined
@@ -228,7 +237,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, async (args, ctx) => {
     const decision = decideSurface(capabilities(ctx), args.surface ?? "auto", env);
     const display: DisplayPreference = args.display ?? "auto";
-    let snapshot = await link.run(backend => backend.apply({ type: "open", display }));
+    // A newly opened Presence (nothing is showing Aion yet) greets once: a small wave, and Codex's introduction.
+    const before = await link.run(backend => backend.state());
+    const fresh = decision.mode === "embedded" ? Date.now() - embeddedSyncAt > EMBEDDED_LIVE_MS : before.hub.viewers === 0;
+    let snapshot = await link.run(backend => backend.apply({ type: "open", display, greet: fresh }));
     if (args.body) snapshot = await link.run(backend => backend.apply({ type: "body", body: args.body! }));
     const url = link.current?.surfaceUrl;
     let opened = false;
@@ -240,7 +252,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
         : opened ? `Aion opened in a companion window, as the ${bodyLabel(snapshot.body)}.`
           : `Aion is ready as the ${bodyLabel(snapshot.body)}; open ${url ?? "the companion window"} to see it.`);
     if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened;
-    return result({ ...output, url, window_opened: opened, fullscreen: display === "fullscreen" ? "requested" : "not-requested" });
+    const greeting = fresh ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
+    if (fresh) output.message += " A greeting is due: introduce Aion once, briefly (see greeting.line).";
+    return result({ ...output, greeting, url, window_opened: opened, fullscreen: display === "fullscreen" ? "requested" : "not-requested" });
   });
 
   server.registerTool("set_presence_state", {
@@ -449,6 +463,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       _meta: { ui: { resourceUri: PRESENCE_RESOURCE_URI, visibility: ["app"] } },
     }, async args => {
       embeddedSeen = true;
+      embeddedSyncAt = Date.now();
       const snapshot = await link.run(backend => backend.state(args.after_revision ?? -1, args.hub, args.wait_ms ?? 0));
       return { content: [{ type: "text", text: `revision ${snapshot.revision}` }], structuredContent: snapshot as unknown as Record<string, unknown> };
     });

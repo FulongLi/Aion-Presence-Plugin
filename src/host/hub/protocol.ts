@@ -39,7 +39,8 @@ export type HubCommand =
   | { type: "body"; body: (typeof AION_BODIES)[number] }
   | { type: "present"; content: PresentationContent; hold?: number }
   | { type: "clear" }
-  | { type: "open"; display?: DisplayPreference };
+  /** `greet`: a newly opened Presence waves once (default: when no companion window is connected). */
+  | { type: "open"; display?: DisplayPreference; greet?: boolean };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -78,7 +79,7 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("body"), body: z.enum(AION_BODIES) }).strict(),
   z.object({ type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional() }).strict(),
   z.object({ type: z.literal("clear") }).strict(),
-  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional() }).strict(),
+  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional() }).strict(),
 ]);
 
 export const hookEventSchema = z.object({
