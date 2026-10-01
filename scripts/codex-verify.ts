@@ -1,8 +1,6 @@
-import { execFileSync, spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
-import type { AddressInfo } from "node:net";
-import { join, normalize } from "node:path";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { chromium } from "playwright-core";
@@ -50,16 +48,14 @@ const codexIn = (home: string) => (...args: string[]) => execFileSync(codex, arg
 async function serveHead() {
   const bare = join(mkdtempSync(join(E2E, "remote-")), "Aion-Presence-Plugin.git");
   homes.push(join(bare, ".."));
-  execFileSync("git", ["clone", "--quiet", "--bare", REPO_ROOT, bare]);
+  // --no-local: a real copy. A local clone hard-links this repository's object files, and the test deletes its copy.
+  execFileSync("git", ["clone", "--quiet", "--bare", "--no-local", REPO_ROOT, bare]);
   execFileSync("git", ["update-server-info"], { cwd: bare });
-  const server = createServer((req, res) => {
-    const path = normalize(join(bare, decodeURIComponent(new URL(req.url ?? "/", "http://x").pathname.replace(/^\/Aion-Presence-Plugin\.git/, ""))));
-    if (!path.startsWith(bare) || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200);
-    createReadStream(path).pipe(res);
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/Aion-Presence-Plugin.git`, close: () => server.close() };
+  // A separate process: the Codex calls below are synchronous and would block an in-process server.
+  const port = 40_000 + Math.floor(Math.random() * 20_000);
+  const server = spawn(process.execPath, ["-e", `require("node:http").createServer((q, s) => { const p = require("node:path").join(${JSON.stringify(join(bare, ".."))}, decodeURIComponent(new URL(q.url, "http://x").pathname)); require("node:fs").stat(p, (e, st) => { if (e || !st.isFile()) { s.writeHead(404); return s.end(); } s.writeHead(200); require("node:fs").createReadStream(p).pipe(s); }); }).listen(${port}, "127.0.0.1")`], { stdio: "ignore" });
+  await new Promise(resolve => setTimeout(resolve, 600));
+  return { url: `http://127.0.0.1:${port}/Aion-Presence-Plugin.git`, close: () => server.kill() };
 }
 
 type Installed = { pluginId: string; installed: boolean; enabled: boolean; version: string };
@@ -173,6 +169,9 @@ try {
   console.error(error);
 } finally {
   remote?.close();
+  // The test must leave this repository exactly as it found it.
+  const fsck = spawnSync("git", ["fsck", "--no-dangling"], { cwd: REPO_ROOT, encoding: "utf8" });
+  if (fsck.status !== 0 || /missing|broken/.test(fsck.stdout + fsck.stderr)) failures.push(`git fsck reports problems in this repository:\n${fsck.stdout}${fsck.stderr}`);
   for (const home of homes) rmSync(home, { recursive: true, force: true });
 }
 console.log(failures.length ? `\n${failures.length} check(s) failed` : "\n✓ Aion Presence installs from Git with no build, and runs from Codex's plugin cache");
