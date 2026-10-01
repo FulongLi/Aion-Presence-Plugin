@@ -112,7 +112,7 @@ Plugin:  Codex (the host agent)     ─► Presence Core
 
 | Area | Why | What the plugin does |
 | --- | --- | --- |
-| Speaking (audio-driven motion, lip-free speech accents, spectrum) | No host exposes assistant audio to plugins today. | Semantic `responding`; `HostAudioSource` takes real audio the day a host offers it. |
+| Speaking (audio-driven motion, speech accents, spectrum) | No host exposes assistant audio to plugins today. | Semantic `responding`; `HostAudioSource` takes real audio the day a host offers it. |
 | Echo / barge-in | SCF compared the microphone with the model's own audio track. | Conservative semantic guard; no barge-in claimed. |
 | Terrain relief-image fallback | It approximates height from a JPEG relief map, which would need a JPEG decoder in Node. | Real elevation only (the primary SCF path); unavailable data fails as `terrain-unavailable`. |
 | Symbols | SCF drew them with canvas paths; the resolver now runs where there is no canvas. | The same 12 symbols as ink forms (SCF's own ink style). |
