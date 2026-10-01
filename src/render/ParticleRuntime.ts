@@ -18,7 +18,15 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource }
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource }
+
+/**
+ * Where the body sits in the frame: `x` shifts it sideways and `y` upward (fractions of the view), `scale`
+ * sizes it. The surface moves the body aside when words stand beside it; the renderer frames it, so the
+ * background never moves.
+ */
+export interface Framing { x: number; y: number; scale: number }
+export interface FramingSource { sample(dt: number): Framing }
 
 export interface RuntimeOptions {
   /** A fixed quality tier for the whole session: no adaptive changes. */
@@ -29,7 +37,7 @@ export interface RuntimeOptions {
   reducedMotion?: boolean;
 }
 
-export interface QualityReport { tier: number; ceiling: number; count: number; effects: boolean; frameMs: number }
+export interface QualityReport { tier: number; ceiling: number; count: number; effects: boolean; frameMs: number; frames: number }
 
 export interface RuntimeHandle {
   readonly backend: "webgpu" | "canvas";
@@ -80,7 +88,15 @@ export async function createParticleRuntime(
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   renderer.domElement.setAttribute("aria-hidden", "true");
   container.append(renderer.domElement);
-  let stopped = false, frame = 0, revision = -1, accumulator = 0, frameMs = 16.7, spinAngle = 0;
+  let stopped = false, frame = 0, revision = -1, accumulator = 0, frameMs = 16.7, spinAngle = 0, frames = 0;
+  let framed = { x: 0, y: 0, scale: 1 }, viewWidth = 1, viewHeight = 1;
+  const frameView = (framing: Framing) => {
+    if (Math.abs(framing.x - framed.x) < 1e-4 && Math.abs(framing.y - framed.y) < 1e-4 && Math.abs(framing.scale - framed.scale) < 1e-4) return;
+    framed = { ...framing };
+    camera.setViewOffset(viewWidth, viewHeight, -framed.x * viewWidth, framed.y * viewHeight, viewWidth, viewHeight);
+    camera.zoom = framed.scale;
+    camera.updateProjectionMatrix();
+  };
   let last = performance.now();
   const resize = () => {
     const width = Math.max(1, container.clientWidth);
@@ -88,6 +104,8 @@ export async function createParticleRuntime(
     camera.aspect = width / height;
     const extent = (config.geometry.radius + config.spring.maxOffset) * 1.07;
     camera.position.z = Math.max(7.4, extent / (Math.tan(camera.fov * Math.PI / 360) * Math.min(1, camera.aspect)));
+    viewWidth = width; viewHeight = height;
+    camera.setViewOffset(width, height, -framed.x * width, framed.y * height, width, height);
     camera.updateProjectionMatrix();
     renderer.setPixelRatio(Math.min(devicePixelRatio, quality.settings().pixelRatio));
     renderer.setSize(width, height);
@@ -133,6 +151,7 @@ export async function createParticleRuntime(
       }
     }
     u.morph.value = morph;
+    if (inputs.framing) frameView(inputs.framing.sample(dt));
     const body = inputs.body.sample(dt, now, calm());
     u.bodyMorph.value = body.level;
     u.figureOrbit.value = body.orbit;
@@ -172,6 +191,7 @@ export async function createParticleRuntime(
       }
       // Bloom is a secondary effect: it is the first thing adaptive quality gives up.
       if (quality.effects) fx.post.render(); else renderer.render(scene, camera);
+      frames++;
     } catch {
       if (!stopped) { cleanup(); onError("device-lost"); }
       return false;
@@ -181,7 +201,7 @@ export async function createParticleRuntime(
 
   const handle: RuntimeHandle = {
     backend: "webgpu", config, tuning: false,
-    quality: () => ({ tier: quality.tier, ceiling: quality.ceiling, count: quality.settings().count, effects: quality.effects, frameMs }),
+    quality: () => ({ tier: quality.tier, ceiling: quality.ceiling, count: quality.settings().count, effects: quality.effects, frameMs, frames }),
     setTier(tier) { quality.force(Math.min(range.max, tier)); applyQuality(); },
     dispose: cleanup,
   };

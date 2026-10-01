@@ -10,7 +10,7 @@ import type { VisualFormEntry, VisualFormPack } from "../types";
  * on every device. (SCF Presence drew these on a 2D canvas; here they are ordinary visual forms.)
  */
 const INK: Ink = { density: 1, tone: 0.92, grain: 0.06 };
-const WIDTH = 0.2;
+const WIDTH = 0.16;
 
 type Drawing = (canvas: InkCanvas) => void;
 

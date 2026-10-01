@@ -1,0 +1,63 @@
+/* Aion Presence: the body is the interface. No dashboard, no chat, no developer HUD. */
+:root { color-scheme: dark; font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", sans-serif; background: #090e16; color: #b3bfcb; }
+* { box-sizing: border-box; }
+html, body { margin: 0; width: 100%; height: 100%; }
+body { overflow: hidden; background: #090e16; }
+
+.presence { position: relative; width: 100%; height: 100vh; height: 100svh; min-height: 320px; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 46%, #17222e 0%, #101923 39%, #090e16 78%); }
+.stage { position: absolute; inset: 0; touch-action: none; }
+.stage canvas { display: block; width: 100%; height: 100%; }
+
+/* When words accompany the body, the body steps aside (the renderer frames it) and the panel stands beside it. */
+.panel { position: absolute; right: max(28px, 4vw); top: 50%; width: min(420px, 38vw); max-height: min(78vh, 680px);
+  transform: translateY(-50%); overflow: auto; padding: 22px 24px; border-radius: 18px;
+  background: #0b121bcc; border: 1px solid #ffffff10; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  color: #c9d5e0; font-size: 14px; line-height: 1.55; opacity: 0; transition: opacity .9s ease .35s; scrollbar-width: thin; }
+.presence.with-panel .panel { opacity: 1; }
+.panel[hidden] { display: block; visibility: hidden; }
+.panel h2 { margin: 0 0 6px; font-size: 13px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: #8fa3b6; }
+.panel .summary { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 400; color: #e6eef5; letter-spacing: .01em; }
+.panel .mark { display: inline-block; width: 8px; height: 8px; margin-right: 10px; border-radius: 50%; vertical-align: 3px; background: #a8bed1; }
+.panel .mark.success { background: #a9d1b8; } .panel .mark.failure { background: #d9a7a2; } .panel .mark.partial { background: #dcc9a0; }
+.panel ul { margin: 14px 0 0; padding: 0; list-style: none; }
+.panel li { padding: 6px 0; border-top: 1px solid #ffffff0c; color: #b7c5d2; }
+.panel li:first-child { border-top: 0; }
+.panel p { margin: 10px 0 0; white-space: pre-wrap; }
+.panel pre { margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: #060a10; color: #cfdbe6;
+  font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+.panel .lang { margin-top: 4px; font-size: 11px; color: #74879a; }
+.panel img { display: block; max-width: 100%; max-height: 60vh; margin: 12px auto 0; border-radius: 8px; background: #0e1620; }
+.panel table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 12.5px; }
+.panel td { padding: 5px 0; border-top: 1px solid #ffffff0c; }
+.panel td.path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #cfdbe6; word-break: break-all; }
+.panel td.kind { width: 1%; padding-right: 10px; color: #8fa3b6; white-space: nowrap; }
+.panel td.delta { width: 1%; padding-left: 10px; white-space: nowrap; text-align: right; color: #8fa3b6; }
+.panel .add { color: #a9d1b8; } .panel .del { color: #d9a7a2; }
+
+/* A framed image is the information itself: larger, and the body stays quiet beside it. */
+.panel.wide { width: min(640px, 52vw); }
+
+/* Transient status: one quiet line that fades. */
+.status { position: absolute; left: 50%; bottom: max(22px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+  margin: 0; max-width: calc(100vw - 32px); font-size: 12px; letter-spacing: .04em; color: #8b9cad; text-align: center;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; }
+.status.visible { opacity: .85; transition: opacity .5s ease; }
+
+.corner { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; padding: 7px; border: 0; border-radius: 9px;
+  background: transparent; color: #8b9cad; cursor: pointer; opacity: 0; transition: opacity .4s ease, background .2s; }
+.presence:hover .corner, .corner:focus-visible { opacity: .7; }
+.corner:hover { background: #ffffff0d; opacity: 1; }
+.corner svg { width: 16px; height: 16px; display: block; }
+.corner:focus-visible { outline: 1px solid #9dadbf; outline-offset: 2px; }
+
+.debug { position: absolute; left: 12px; top: 12px; margin: 0; padding: 8px 10px; border-radius: 8px; background: #131d2acc;
+  font: 11px/1.5 ui-monospace, monospace; color: #9fb6ca; pointer-events: none; }
+
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
+/* Narrow embeds and phones: the panel sits below the body. */
+@media (max-width: 720px), (max-aspect-ratio: 4/5) {
+  .panel, .panel.wide { left: 16px; right: 16px; top: auto; bottom: 16px; width: auto; max-height: 46%; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

@@ -93,7 +93,7 @@ test("the Presence visual identity keeps SCF Presence's tuning", () => {
 
 const inputs = {} as RuntimeInputs;
 const container = {} as HTMLElement;
-const handle = (backend: "webgpu" | "canvas"): RuntimeHandle => ({ backend, config: particleDefaults, tuning: false, quality: () => ({ tier: 0, ceiling: 0, count: 0, effects: false, frameMs: 16 }), setTier: () => {}, dispose: () => {} });
+const handle = (backend: "webgpu" | "canvas"): RuntimeHandle => ({ backend, config: particleDefaults, tuning: false, quality: () => ({ tier: 0, ceiling: 0, count: 0, effects: false, frameMs: 16, frames: 0 }), setTier: () => {}, dispose: () => {} });
 function factories(webgpu: () => Promise<RuntimeHandle | undefined>) {
   const calls: string[] = [];
   let lost: ((code: string) => void) | null = null;

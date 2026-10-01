@@ -10,7 +10,7 @@ import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from
  * canvas from the CPU reference of each GPU expression, at a lower density. It keeps the identity of the
  * Presence where the full renderer cannot run; it is not a second look.
  */
-export const fallbackDefaults = { count: 4_000, coarseCount: 2_500, pixelRatio: 1.5, size: 1.15, levels: 10 };
+export const fallbackDefaults = { count: 4_000, coarseCount: 2_500, pixelRatio: 1.5, size: 1.4, levels: 10 };
 
 const smooth = (w: number) => { const x = Math.max(0, Math.min(1, w)); return x * x * (3 - 2 * x); };
 const hash = (x: number, y: number, z: number, a: number, b: number, c: number, k: number) => {
@@ -39,7 +39,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
-  let width = 1, height = 1, scale = 1, frame = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
+  let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
   const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count);
   const resize = () => {
     const ratio = Math.min(devicePixelRatio || 1, fallbackDefaults.pixelRatio);
@@ -65,6 +65,8 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const turn = inputs.morph.target?.motion?.spin ?? 0;
     if (morph > 0 && turn) spin = (spin + turn * dt * motion) % (Math.PI * 2);
     const body = inputs.body.sample(dt, now, calm());
+    const framing = inputs.framing?.sample(dt) ?? { x: 0, y: 0, scale: 1 };
+    const centreX = width / 2 + framing.x * width, centreY = height / 2 - framing.y * height, zoom = scale * framing.scale;
     const cycle = clock * particleDefaults.idle.frequency;
     const breath = particleDefaults.idle.breathing * (1 - presence.focus * 0.45);
     const gather = presence.focus * particleDefaults.listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction;
@@ -93,8 +95,8 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         tone += (target.tones[i] * 0.95 - tone) * mw;
       }
       const perspective = 7.4 / (7.4 - z);
-      xs[i] = width / 2 + x * scale * perspective;
-      ys[i] = height / 2 - y * scale * perspective;
+      xs[i] = centreX + x * zoom * perspective;
+      ys[i] = centreY - y * zoom * perspective;
       light[i] = Math.max(0, Math.min(1, tone));
     }
     context.clearRect(0, 0, width, height);
@@ -110,6 +112,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       context.fill();
     }
     context.globalCompositeOperation = "source-over";
+    frames++;
   };
 
   const cleanup = () => {
@@ -130,6 +133,6 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     frame = requestAnimationFrame(animate);
   };
   frame = requestAnimationFrame(animate);
-  const report = (): QualityReport => ({ tier: 0, ceiling: 0, count, effects: false, frameMs });
+  const report = (): QualityReport => ({ tier: 0, ceiling: 0, count, effects: false, frameMs, frames });
   return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, dispose: cleanup };
 }
