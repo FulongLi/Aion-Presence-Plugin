@@ -25,6 +25,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "globals": "^17.13.0",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.71.0"
@@ -37,6 +38,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "plugin:validate": "tsx scripts/validate-plugin.ts",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run plugin:validate -- --runtime"
+    "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run plugin:validate -- --runtime",
+    "demo": "tsx scripts/demo.ts",
+    "smoke": "tsx scripts/smoke.ts"
   }
 }
