@@ -1,4 +1,4 @@
-import type { Raster, Raster2DTarget } from "./types";
+import type { ImageFit, Raster, Raster2DTarget } from "./types";
 
 /** Pure raster geometry: crops, background trimming and resizing. No canvas, so it runs anywhere. */
 
@@ -124,13 +124,60 @@ export function resizeRaster(image: Raster, maxSide: number): Raster {
 export const TARGET_SIDE = 300;
 
 /**
- * Normalizes a decoded image the host handed over (a generated picture, a screenshot, a diagram) for the
- * particle body: trim a plain background, keep most of the subject and sample it as an object. A portrait
- * keeps a head-and-shoulders band instead.
+ * Normalizes a decoded picture for the particle body by its fit (SCF's `normalizeImage` by intent):
+ * - portrait: head-and-shoulders crop (a 4:5 band from near the top), portrait sampling;
+ * - map: kept whole (a map's edges are information), object sampling;
+ * - logo: a crisp mark on nothing (see normalizeLogoRaster);
+ * - object: trim a plain background, keep most of the subject, object sampling.
  */
-export function normalizeImage(image: Raster, style: "object" | "portrait" = "object"): Raster2DTarget {
-  if (style === "portrait") {
+export function normalizeImage(image: Raster, fit: ImageFit = "object"): Raster2DTarget {
+  if (fit === "portrait") {
     return { kind: "raster2d", style: "portrait", raster: resizeRaster(cropToAspect(image, 0.72, 1.05, 0.18), TARGET_SIDE) };
   }
-  return { kind: "raster2d", style: "object", raster: resizeRaster(cropToAspect(trimBackground(image), 0.6, 2.2), TARGET_SIDE) };
+  if (fit === "logo") return normalizeLogoRaster(image);
+  const trimmed = fit === "map" ? image : trimBackground(image);
+  return { kind: "raster2d", style: "object", raster: resizeRaster(cropToAspect(trimmed, 0.6, 2.2), TARGET_SIDE) };
+}
+
+const TRANSPARENT = 24;
+/** Longest side of a rasterized logo. */
+export const LOGO_SIDE = 400;
+
+/**
+ * Prepares a logo for the particle body: a crisp mark on nothing (from SCF's SVG transform).
+ * - Transparency is kept as it is (a transparent background is simply ignored by the sampler).
+ * - A fully opaque logo on a plain background (e.g. a white rectangle) has that background keyed out.
+ * - Empty margins are trimmed, leaving a small even border; the aspect ratio is preserved.
+ */
+export function normalizeLogoRaster(image: Raster, maxSide = LOGO_SIDE): Raster2DTarget {
+  const { width, height, data } = image;
+  let translucent = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) translucent++;
+  let raster = image;
+  if (translucent / (width * height) < 0.02) raster = keyBackground(image);
+  const trimmed = trimTransparent(raster, TRANSPARENT, 0.04);
+  if (!trimmed) throw new Error("asset-empty");
+  return { kind: "raster2d", style: "logo", raster: resizeRaster(trimmed, maxSide) };
+}
+
+/**
+ * An opaque raster whose border is one plain colour gets alpha from the distance to that colour.
+ * Artwork that fills the frame (a busy border) is left opaque rather than guessed at.
+ */
+function keyBackground(image: Raster): Raster {
+  const { width, height, data } = image;
+  const background = borderColor(image);
+  const distance = (i: number) => Math.hypot(data[i] - background[0], data[i + 1] - background[1], data[i + 2] - background[2]) / 441.7;
+  let border = 0, plain = 0;
+  const step = Math.max(1, Math.floor(Math.max(width, height) / 64));
+  const check = (x: number, y: number) => { border++; if (distance((y * width + x) * 4) < 0.06) plain++; };
+  for (let x = 0; x < width; x += step) { check(x, 0); check(x, height - 1); }
+  for (let y = 0; y < height; y += step) { check(0, y); check(width - 1, y); }
+  if (plain / border < 0.9) return image;
+  const out = new Uint8ClampedArray(data);
+  for (let i = 0; i < out.length; i += 4) {
+    const alpha = Math.max(0, Math.min(1, (distance(i) - 0.05) / 0.12));
+    out[i + 3] = Math.round(out[i + 3] * alpha);
+  }
+  return { width, height, data: out };
 }
