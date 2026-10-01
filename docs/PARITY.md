@@ -13,8 +13,9 @@ Plugin:  Codex (the host agent)     ─► Presence Core
 
 - Audited against SCF `origin/main` at `44fe4e6` (2026-10-01) and this repository at `a01db2f` (v0.1.0 MVP).
 - Paths: SCF `src/…` on the left; plugin `src/…` on the right.
-- *Final state* is only set to **parity** once the behaviour is implemented **and** covered by a test or the
-  browser smoke run. Until then it says **pending**.
+- *Final state* names the test or check that proves it: **parity** (SCF behaviour, ported), **adapted** (the
+  plugin architecture required a different mechanism; the difference is stated), **present** (plugin-only,
+  kept and verified).
 
 ## Legend
 
@@ -31,71 +32,71 @@ Plugin:  Codex (the host agent)     ─► Presence Core
 
 | Capability | SCF implementation | Plugin current state (v0.1) | Action taken | Final state |
 | --- | --- | --- | --- | --- |
-| Aion identity | `aion/identity.ts` frozen manifest | **present** (`core/identity.ts`, + embodiment statement) | Keep; greeting line built from it. | pending |
-| Sphere | `particle/sphere/createSphere.ts`, `ParticleRuntime` | **present** (identical) | Keep. | pending |
-| Particle Figure | `aion/figure/{skeleton,layout}.ts`, `physics/figure.ts` | **present** (identical) | Keep. | pending |
-| Figure gestures | `aion/figure/pose.ts` greeting / acknowledging / speaking | **present** (+ work-state poses) | Add a restrained semantic `responding` pose; keep greeting. | pending |
-| Idle | `PresenceEngine` field targets, idle pose | **present** | Keep. | pending |
-| Listening | local mic VAD → `listening` mode, focus, user amplitude, listening pose | **partial**: pose and field exist but nothing drives them (no microphone) | Port the microphone pipeline (below); local VAD drives listening. | pending |
-| Thinking | backend turn events → `thinking` | **present** via hooks (`UserPromptSubmit`) | Also infer a short thinking after a finished local utterance (SCF offline rule). | pending |
-| Responding / speaking | real assistant audio → `speaking` (amplitude, spectrum, speech motion) | **missing**: no host audio, and no semantic response state (Aion looks idle while Codex answers) | New semantic `responding` state (Skill-driven), distinct from audio-driven `speaking`; `HostAudioSource` kept for real audio. | pending |
-| Reading | — (plugin only) | **present** (hooks) | Keep. | pending |
-| Editing | — (plugin only) | **present** (hooks) | Keep. | pending |
-| Testing | — (plugin only) | **present** (hooks) | Keep. | pending |
-| Building | — (plugin only) | **present** (hooks) | Keep. | pending |
-| Completion | — (plugin only) | **present** (`Stop` hook → complete → idle) | Keep; `responding` → complete → idle. | pending |
-| Error | — (plugin only) | **present** | Keep. | pending |
-| Pointer interaction | `particle/interaction/pointer.ts`, pusher physics | **present** (identical) | Keep. | pending |
-| Morphing | `visual-actions/controller.ts`, `physics/morph.ts`, `morphBlend.ts` | **present** (controller generic over requests) | Keep; restore SCF hold times per visual kind. | pending |
-| Persistent body return | body rest layer under every visual | **present** | Keep; test figure → portrait / terrain / Orion → figure. | pending |
-| Adaptive quality | `particle/quality.ts` | **present** (+ effects shed first) | Keep. | pending |
+| Aion identity | `aion/identity.ts` frozen manifest | **present** (`core/identity.ts`, + embodiment statement) | Kept; greeting and Skill read the manifest. | **parity** — core.test (literals only in the manifest), skill.test |
+| Sphere | `particle/sphere/createSphere.ts`, `ParticleRuntime` | **present** (identical) | Kept. | **parity** — smoke (WebGPU and canvas) |
+| Particle Figure | `aion/figure/{skeleton,layout}.ts`, `physics/figure.ts` | **present** (identical) | Kept. | **parity** — smoke, core.test |
+| Figure gestures | `aion/figure/pose.ts` greeting / acknowledging / speaking | **present** (+ work-state poses) | Greeting wave now waits for a quiet moment; restrained semantic `responding` pose added. | **parity** — core.test, conversation.test |
+| Idle | `PresenceEngine` field targets, idle pose | **present** | Kept. | **parity** — core.test |
+| Listening | local mic VAD → `listening` mode, focus, user amplitude, listening pose | **partial**: pose and field exist but nothing drives them (no microphone) | Local VAD drives listening through `PresenceEngine` (SCF's engine with the host as transport). | **parity** — conversation.test (real VAD), smoke (fake microphone) |
+| Thinking | backend turn events → `thinking` | **present** via hooks (`UserPromptSubmit`) | Hooks, plus SCF's inferred thinking after a finished utterance (≤ 6 s). | **parity** — conversation.test |
+| Responding / speaking | real assistant audio → `speaking` (amplitude, spectrum, speech motion) | **missing**: no host audio, and no semantic response state (Aion looks idle while Codex answers) | `responding` state (Skill), sphere swell and figure pose; `speaking` stays real-audio only via `HostAudioSource`. | **adapted** (no host audio exists) — conversation.test, smoke, codex:verify |
+| Reading | — (plugin only) | **present** (hooks) | Kept. | **present** — hooks.test |
+| Editing | — (plugin only) | **present** (hooks) | Kept. | **present** — hooks.test |
+| Testing | — (plugin only) | **present** (hooks) | Kept. | **present** — hooks.test, codex:verify (real hook) |
+| Building | — (plugin only) | **present** (hooks) | Kept. | **present** — hooks.test |
+| Completion | — (plugin only) | **present** (`Stop` hook → complete → idle) | `Stop` after `responding` → complete → idle. | **present** — conversation.test |
+| Error | — (plugin only) | **present** | Kept. | **present** — store.test |
+| Pointer interaction | `particle/interaction/pointer.ts`, pusher physics | **present** (identical) | Kept. | **parity** — identical source |
+| Morphing | `visual-actions/controller.ts`, `physics/morph.ts`, `morphBlend.ts` | **present** (controller generic over requests) | Kept; SCF hold times restored, counted as time formed. | **parity** — store.test, smoke |
+| Persistent body return | body rest layer under every visual | **present** | Kept. | **parity** — conversation.test, smoke (figure → Tesla / UK terrain / Orion → figure) |
+| Adaptive quality | `particle/quality.ts` | **present** (+ effects shed first) | Kept. | **parity** — render.test |
 
 ### Visuals
 
 | Capability | SCF implementation | Plugin current state (v0.1) | Action taken | Final state |
 | --- | --- | --- | --- | --- |
-| Portrait | `show_portrait` → Wikipedia → web → Openverse → Commons; `normalizeImage(…, "portrait")` head-and-shoulders crop; portrait sampling | **missing** (no lookup); local images always sampled as *object* — the Nikola Tesla regression | Port the resolver chain server-side; `show_portrait`; portrait intent carried to the surface so it uses the portrait crop and sampling. | pending |
-| General image | `show_image(query, intent)` → curated local assets → provider chain by intent → ranked → downloaded → normalized | **partial**: local files / data URLs only | `show_image` takes exactly one of `source` (local) or `query` (+ `intent`); remote bytes validated server-side and handed over as local media. | pending |
-| Terrain | `show_terrain` → Nominatim/Photon → AWS terrarium tiles → height field (masked, smoothed, percentile-normalized) → 2.5D hillshaded relief | **missing** (`points.ts` had the height-field sampler removed) | Port geocoding, tiles, a Node PNG decoder for exact elevations, `buildHeightField`, and the 2.5D sampler; styles terrain/topography/relief/heightmap. | pending |
-| Clock | `show_clock` → canvas glyph, local time, result tells the model the time | **missing** (only via `show_text`) | `show_clock({ time? })`; the result reports the local time. | pending |
-| Number | `show_number` (≤ 12 chars, validated) | **partial** (via `show_text`) | `show_number({ value })`. | pending |
-| Text | `show_text` (≤ 16 chars as glyphs) | **present** (+ longer text beside the body) | Keep, with SCF's description. | pending |
-| Symbol | `show_symbol` (12 symbols, canvas paths) | **partial**: check, cross, exclamation… as an ink form pack; no tool | `show_symbol({ symbol })` over the symbol pack, covering SCF's 12 names. | pending |
-| Emoji | `show_emoji` → system emoji font raster → emoji sampling; one-grapheme validation | **missing** (the sampler style exists, unused) | Port the emoji rasterizer and validation; `show_emoji`. | pending |
-| Tao | `visual-forms/tao` (yin-yang, lines) | **present** (identical) | Keep. | pending |
-| Trigrams | `visual-forms/tao/trigrams.ts` | **present** (identical) | Keep. | pending |
-| Bagua | `visual-forms/tao` (earlier / later heaven) | **present** (identical) | Keep. | pending |
-| Constellations | `visual-forms/celestial/astronomy` | **present** (identical) | Keep. | pending |
-| Zodiac | `visual-forms/celestial/astrology` | **present** (identical) | Keep. | pending |
-| Visual hold / return | `HOLD_SECONDS` per action, controller return | **partial**: plugin holds differ (form 12 s, image 16 s) | SCF hold times for SCF visuals. | pending |
-| Image normalization | `transforms/crop.ts` by intent (portrait band, map untrimmed, object trim) | **partial** (`visual/image.ts`: two styles, not driven by intent) | Port `normalizeImage(image, intent)`. | pending |
-| Curated local assets | `sources/localAssets.ts` (Spirit Connect logo, logo normalization) | **missing** | Port the matcher; the logo ships in the plugin's assets. | pending |
+| Portrait | `show_portrait` → Wikipedia → web → Openverse → Commons; `normalizeImage(…, "portrait")` head-and-shoulders crop; portrait sampling | **missing** (no lookup); local images always sampled as *object* — the Nikola Tesla regression | Resolver chain ported (server side); `show_portrait`; fit carried to the surface → SCF crop and portrait sampling. | **parity** — resolver.test, visualTools.test, smoke, codex:verify (live Nikola Tesla; Einstein, da Vinci checked live) |
+| General image | `show_image(query, intent)` → curated local assets → provider chain by intent → ranked → downloaded → normalized | **partial**: local files / data URLs only | `show_image` takes `query` (+ intent) or `source`; bytes checked server-side, handed over as local media. | **parity** — resolver.test, visualTools.test |
+| Terrain | `show_terrain` → Nominatim/Photon → AWS terrarium tiles → height field (masked, smoothed, percentile-normalized) → 2.5D hillshaded relief | **missing** (`points.ts` had the height-field sampler removed) | Geocoding, tiles, exact PNG decode, height field, byte codec, 2.5D sampler restored. The approximate relief-image fallback is not ported (it needs JPEG decoding in Node). | **parity** (real elevation) — resolver.test, smoke, codex:verify (UK; Scotland, Wales, Swiss Alps, Grand Canyon checked live) |
+| Clock | `show_clock` → canvas glyph, local time, result tells the model the time | **missing** (only via `show_text`) | `show_clock`; the result tells Codex the local time. | **parity** — visualTools.test, smoke |
+| Number | `show_number` (≤ 12 chars, validated) | **partial** (via `show_text`) | `show_number` with SCF's validation (plus short units). | **parity** — visualTools.test, smoke |
+| Text | `show_text` (≤ 16 chars as glyphs) | **present** (+ longer text beside the body) | Kept, SCF description. | **parity** — store.test, smoke |
+| Symbol | `show_symbol` (12 symbols, canvas paths) | **partial**: check, cross, exclamation… as an ink form pack; no tool | `show_symbol` over the symbol pack (SCF's 12 names, drawn as ink forms rather than canvas glyphs). | **adapted** — visualTools.test |
+| Emoji | `show_emoji` → system emoji font raster → emoji sampling; one-grapheme validation | **missing** (the sampler style exists, unused) | SCF's system-font rasterizer and grapheme validation; `show_emoji`. | **parity** — visualTools.test, smoke |
+| Tao | `visual-forms/tao` (yin-yang, lines) | **present** (identical) | Kept. | **parity** — identical source, smoke |
+| Trigrams | `visual-forms/tao/trigrams.ts` | **present** (identical) | Kept. | **parity** — identical source |
+| Bagua | `visual-forms/tao` (earlier / later heaven) | **present** (identical) | Kept. | **parity** — identical source |
+| Constellations | `visual-forms/celestial/astronomy` | **present** (identical) | Kept. | **parity** — identical source, smoke |
+| Zodiac | `visual-forms/celestial/astrology` | **present** (identical) | Kept. | **parity** — identical source |
+| Visual hold / return | `HOLD_SECONDS` per action, controller return | **partial**: plugin holds differ (form 12 s, image 16 s) | SCF holds per kind, counted as time formed. | **parity** — store.test |
+| Image normalization | `transforms/crop.ts` by intent (portrait band, map untrimmed, object trim) | **partial** (`visual/image.ts`: two styles, not driven by intent) | SCF's `normalizeImage(image, intent)` ported (portrait, map, object, logo). | **parity** — visual.test, resolver.test |
+| Curated local assets | `sources/localAssets.ts` (Spirit Connect logo, logo normalization) | **missing** | Matcher ported; the logo ships in `assets/brand/`. | **parity** — resolver.test, visualTools.test |
 
 ### Conversation
 
 | Capability | SCF implementation | Plugin current state (v0.1) | Action taken | Final state |
 | --- | --- | --- | --- | --- |
-| Greeting | `aion/greeting.ts` gate (ready + quiet → greet once), `greetingLine`, wave gesture | **partial**: wave on open; no spoken/text introduction; no quiet gate | Gesture waits for a quiet moment; `open_presence` reports a greeting due once per new Presence session; the Skill gives the canonical introduction. | pending |
-| Onboarding | `aion/guidance.ts` examples backed by tools, `onboardingGuidance` | **missing** | Port as Skill guidance; examples tested against the real tool schemas. | pending |
-| Natural-language visual intent | `voice/visualGuidance.ts`, tuned tool descriptions | **missing** (one-line descriptions) | Port tool descriptions and rules into the MCP tools and a Visual Intent Policy in the Skill. | pending |
-| Local microphone analysis | `audio/microphone/MicrophoneListener.ts` (track processor / analyser, local only) | **missing** (deliberately removed in v0.1) | Port; only RMS leaves the audio thread; no recording, storage, upload or STT. | pending |
-| RMS / VAD | `audio/analyser.ts` `rms`, `microphone/vad.ts` | **missing** | Port as is. | pending |
-| Voice emphasis | `microphone/emphasis.ts` → focus impulse | **missing** | Port as is. | pending |
-| Echo guard | `PresenceEngine`: mic ignored while assistant audio is audible and 0.4 s after | **missing** | Semantic guard: no listening during `responding` and a short hold after; pluggable for real host audio. | pending |
-| Mic permission fallback | `controller.ts` mic states (prompt / denied / unavailable) | n/a | Request on open; denied → semantic host states only. | pending |
+| Greeting | `aion/greeting.ts` gate (ready + quiet → greet once), `greetingLine`, wave gesture | **partial**: wave on open; no spoken/text introduction; no quiet gate | `greeting.due` once per newly opened Presence; wave gated on body + quiet; Codex introduces Aion. | **parity** (Codex speaks it) — visualTools.test, firstRun.test, codex:verify |
+| Onboarding | `aion/guidance.ts` examples backed by tools, `onboardingGuidance` | **missing** | Examples backed by real tools; brief answers in the Skill and server instructions. | **parity** — skill.test (examples pass the real schemas) |
+| Natural-language visual intent | `voice/visualGuidance.ts`, tuned tool descriptions | **missing** (one-line descriptions) | SCF descriptions in the tools; Visual Intent Policy in the Skill. | **parity** — skill.test (every policy row passes its tool's schema) |
+| Local microphone analysis | `audio/microphone/MicrophoneListener.ts` (track processor / analyser, local only) | **missing** (deliberately removed in v0.1) | Ported unchanged; only RMS leaves the audio path; one file opens the microphone. | **parity** — apiIndependence.test, smoke |
+| RMS / VAD | `audio/analyser.ts` `rms`, `microphone/vad.ts` | **missing** | Ported unchanged. | **parity** — identical source, conversation.test |
+| Voice emphasis | `microphone/emphasis.ts` → focus impulse | **missing** | Ported unchanged. | **parity** — identical source |
+| Echo guard | `PresenceEngine`: mic ignored while assistant audio is audible and 0.4 s after | **missing** | Semantic guard (responding + 2.5 s hold); SCF's audio guard when a host exposes audio. | **adapted** — conversation.test |
+| Mic permission fallback | `controller.ts` mic states (prompt / denied / unavailable) | n/a | Requested on open; denied → host states only. | **parity** — conversation.test, smoke (refused context) |
 
 ### Surfaces, host and distribution
 
 | Capability | SCF implementation | Plugin current state (v0.1) | Action taken | Final state |
 | --- | --- | --- | --- | --- |
-| Embedded surface | — (SCF is a web app) | **present** (MCP Apps, only when declared) | Keep; declare the microphone permission (feature-detected). | pending |
-| Companion surface | — | **present** (Chromium app window) | Keep. | pending |
-| Fullscreen | browser fullscreen | **present** (host display modes / browser API) | Keep. | pending |
-| Codex hooks | — | **present** | Add the new tools to Aion's own-tool list; `responding` precedence. | pending |
-| Codex Skill | — | **present** | Rewrite: identity, embodiment, greeting, onboarding, responding, Visual Intent Policy, restraint. | pending |
-| MCP | — | **present** (9 tools) | SCF tool vocabulary restored; existing tools kept. | pending |
-| Direct installation | — | **missing**: runtime not committed, so a Git install has no runtime | Commit the built runtime (CI keeps it in sync); `codex plugin marketplace add FulongLi/Aion-Presence-Plugin`. | pending |
-| First-run launch | — | **missing** | First-run marker in plugin data; the first session opens Aion once. | pending |
+| Embedded surface | — (SCF is a web app) | **present** (MCP Apps, only when declared) | Kept; declares the microphone permission. | **present** — smoke (MCP Apps host) |
+| Companion surface | — | **present** (Chromium app window) | Kept. | **present** — smoke, codex:verify |
+| Fullscreen | browser fullscreen | **present** (host display modes / browser API) | Kept. | **present** — smoke |
+| Codex hooks | — | **present** | Own tools derived from the tool list; responding precedence. | **present** — hooks.test, conversation.test, codex:verify |
+| Codex Skill | — | **present** | Rewritten. | **present** — skill.test, codex:verify (in the model's skill list) |
+| MCP | — | **present** (9 tools) | 16 tools: SCF vocabulary + host tools; v0.1 tools kept. | **present** — mcp.test, visualTools.test |
+| Direct installation | — | **missing**: runtime not committed, so a Git install has no runtime | Runtime committed; `spirit-connect` marketplace; `scripts/install.mjs`; release archive. | **present** — codex:verify (Git install from a served HEAD, and the installer); GitHub itself pending a push |
+| First-run launch | — | **missing** | Marker in plugin data; first session opens Aion once; introduction still due. | **present** — firstRun.test, codex:verify |
 
 ### Intentionally excluded (not ported)
 
@@ -106,3 +107,13 @@ Plugin:  Codex (the host agent)     ─► Presence Core
 | `src/audio/assistant.ts`, `src/audio/spectrum.ts` analysis of the model's own audio | No assistant audio exists in plugin mode; `HostAudioSource` is the seam for a host that exposes it. |
 | `src/promo/*`, `src/particle/formation.ts`, `scripts/promo/*` | Promo film infrastructure. |
 | `src/dev/debugPanel.ts` | Replaced by the surface's `?debug=1` line. |
+
+## Where exact SCF parity was not possible
+
+| Area | Why | What the plugin does |
+| --- | --- | --- |
+| Speaking (audio-driven motion, lip-free speech accents, spectrum) | No host exposes assistant audio to plugins today. | Semantic `responding`; `HostAudioSource` takes real audio the day a host offers it. |
+| Echo / barge-in | SCF compared the microphone with the model's own audio track. | Conservative semantic guard; no barge-in claimed. |
+| Terrain relief-image fallback | It approximates height from a JPEG relief map, which would need a JPEG decoder in Node. | Real elevation only (the primary SCF path); unavailable data fails as `terrain-unavailable`. |
+| Symbols | SCF drew them with canvas paths; the resolver now runs where there is no canvas. | The same 12 symbols as ink forms (SCF's own ink style). |
+| Greeting voice | SCF's voice session spoke the line. | Codex gives the introduction in its own text or voice. |

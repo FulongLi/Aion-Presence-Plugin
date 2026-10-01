@@ -1,104 +1,89 @@
 # Aion Presence: architecture
 
 Aion Presence separates **who does the work** from **how it is seen**. The host agent (Codex today) is the
-intelligence. Aion is a presentation layer with four parts, and only the Host Adapter knows that a host exists.
+intelligence. Aion is SCF Presence's Presence with its AI transport replaced by the host:
 
 ```text
-Aion Core ──── Presence Surface ──── Host Adapter ──── Plugin Package
-(pure)         (browser)             (Node)            (what Codex installs)
+SCF:     OpenAI Realtime / GPT-Live ─► Presence Core
+Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─► particle renderer ─► Presence Surface
 ```
 
 ## Aion Core (`src/core`, `src/visual`)
 
 | Module | Role |
 | --- | --- |
-| `identity.ts` | The canonical facts (Aion · Intelligent Presence · Spirit Connect · Fulong), frozen. A test checks the literals appear nowhere else in `src`. `embodimentStatement()` states the plugin role: Aion is the host's body, never a second model. |
-| `state.ts` | Host activity: `idle listening thinking working reading editing testing building presenting complete error`; gestures `greeting` (once per opening) and `acknowledging` (a new task after rest); `speaking` only from real host audio. Deterministic. |
-| `body.ts` | The persistent body (`sphere`, `figure`) and its eased transition. |
-| `figure/` | The Particle Figure: 15-anchor skeleton, particle layout bound to it, pose solver and per-state body language (restrained: every non-gesture pose stays within a small distance of neutral, which a test enforces). |
-| `signal.ts` | `SemanticPresence`: state → the field signal the renderer reads (energy, warmth, focus, thinking, impulses). It replaces SCF's microphone-driven PresenceEngine. Without real host audio there is no amplitude, so nothing is lip-synced or faked. |
-| `audio.ts` | `HostAudioSource`, the seam for a host that someday exposes its assistant audio. Today: `NO_HOST_AUDIO`. |
-| `presentation.ts` | What can be presented (form, text, result, image, artifact), bounds, cleaning, hold times, and `planPresentation()`: what the body itself becomes vs. what stands beside it. |
-| `store.ts` | `PresenceStore`: the revisioned state every surface renders, with timing (holds expire, `complete` settles, forgotten work states expire). |
-| `visual/` | Visual forms (registry plus the Tao, celestial and symbol packs), target sampling (`points.ts`), image normalization and the Visual Action controller (form → hold → return to the persistent body). |
+| `identity.ts` | The canonical facts (Aion · Intelligent Presence · Spirit Connect · Fulong), frozen. A test checks the literals appear nowhere else in `src`. |
+| `state.ts` | Activity: `idle listening thinking working reading editing testing building responding presenting complete error`; gestures `greeting` and `acknowledging`; `speaking` only from real host audio. Deterministic. |
+| `signal.ts` | `PresenceEngine` (SCF's engine, transport replaced): the host's activity is the base; local voice → `listening`; a finished utterance → a short inferred `thinking`; real host audio → `speaking`; an echo guard. It produces the field signal the renderer reads, including the semantic `responding` swell. |
+| `listening/` | SCF's `VoiceActivityDetector` and `EmphasisDetector` (unchanged), `MicFrame`, `rms`. Pure numbers. |
+| `guidance.ts` | The greeting (from the identity), onboarding examples backed by real tools, SCF's greeting gate (waits for the body and a quiet moment). |
+| `body.ts`, `figure/` | Persistent body (sphere, figure), skeleton, layout, poses (work states, a restrained semantic `responding`). |
+| `audio.ts` | `HostAudioSource`, the seam for a host that someday exposes assistant audio. Today: `NO_HOST_AUDIO`. |
+| `presentation.ts`, `store.ts` | What can be presented (form, text, result, image with fit, terrain, clock, number, symbol, emoji, artifact), SCF's hold times (counted as time formed), and the revisioned store. |
+| `visual/` | Visual forms (Tao, celestial, symbols), target sampling incl. SCF's 2.5D height-field sampler, intent-driven `normalizeImage` (portrait band, map, object, logo), height-field codec, SVG checks, validators, the Visual Action controller. |
+
+### Precedence
+
+```text
+greeting gesture  >  presenting (a visual on show)  >  acknowledging  >  speaking (real audio)  >  activity
+activity = local listening, if the user is heard and the host is resting or thinking
+         = inferred thinking, after an utterance while the host rests (≤ 6 s, until the host confirms)
+         = the host's activity otherwise (real work is never hidden by the user's voice)
+```
+
+Echo: with real host audio, SCF's guard (no listening while audible and 0.4 s after). Without it, the engine is
+conservative: no listening while Codex is `responding` and for 2.5 s after, so Codex's voice from the speakers is
+not taken for the user. Real barge-in needs real host audio and is not claimed.
 
 ## Particle renderer (`src/render`)
 
-SCF Presence's WebGPU body, kept intact: compute-shader physics at a fixed 120 Hz step (presence field, pointer
-pusher, spring), the figure rest layer, staggered morph and body weights, microdisc material, bloom. The runtime
-reads three sources (presence signal, morph, body) and an optional framing; it never sees a host.
-
-**Adaptive quality** keeps SCF's frame-time controller (hysteresis, probation, device ranges) and adds one rule:
-a slow window first sheds the secondary effects (bloom, pixel ratio above 1); only further slow windows reduce the
-particle count. Climbing back, density returns first and effects last.
-
-**Fallback**: without WebGPU (or after a lost device) a Canvas 2D body draws the same particles from the CPU
-reference of each GPU expression, at lower density. `createRenderer()` chooses the renderer and reports why.
+SCF Presence's WebGPU body, kept intact: compute physics at 120 Hz (presence field, pointer pusher, spring), the
+figure rest layer, staggered morph and body weights, microdisc material, bloom, adaptive quality (effects shed
+before density). One addition: a `responding` uniform drives a slow, even swell in the presence force (no
+amplitude, no spectrum), mirrored in the Canvas 2D fallback.
 
 ## Host Adapter (`src/host`)
 
 ```text
 Codex ──stdio──► MCP server ──► PresenceLink ──► PresenceHub (in this process, or another Aion MCP process)
+                     └──► Visual Resolver ──https──► public data (allowlist)
 Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
 ```
 
-- **Presence hub** (`hub/hub.ts`): the one place state lives while Aion is open. It listens on `127.0.0.1`
-  (port 47231 if free) and every route requires the per-user token and a loopback `Host` header. Routes: the
-  surface page, `/events` (SSE), `/api/state` (long-poll), `/api/command`, `/api/media`, `/media/:id`,
-  `/api/hook`, `/health`.
-- **PresenceLink** (`hub/link.ts`): several Codex sessions may each run the MCP server. The first one to need the
-  hub starts it and writes `hub.json`; the others use it over HTTP; if its owner exits, the next call takes over.
-- **MCP server** (`mcp/server.ts`): nine tools with strict schemas, a shared structured output, the `ui://`
-  presence resource, and two app-only tools registered only for MCP Apps hosts.
-- **Surface decision** (`surface.ts`): embedded only when the client declares
-  `extensions["io.modelcontextprotocol/ui"].mimeTypes` including `text/html;profile=mcp-app`; otherwise companion.
-  An override can force companion, never embedded.
-- **Hook interpreter** (`hooks/mapping.ts`): event, tool name and command line → activity, with a settle delay
-  between tools and precedence for a specific state the agent set itself.
-- **Media** (`media.ts`): local files and `data:` URLs only, sniffed by their bytes, kept in a bounded in-memory
-  store.
+- **Presence hub** (`hub/`): state on `127.0.0.1` with a per-user token and loopback `Host` check; SSE for
+  companion windows, long-poll for embedded views, media by id, hook intake. Every command is re-validated.
+- **MCP server** (`mcp/server.ts`): SCF's visual vocabulary plus the host tools; SCF's tuned descriptions;
+  `greeting.due` once per newly opened Presence; app-only tools only for MCP Apps hosts.
+- **Visual Resolver** (`resolver/`): SCF's resolver moved from the browser into Node. `net.ts` is the only path to
+  the network: HTTPS to a fixed allowlist, no redirects, timeouts, byte limits, type and magic-byte checks, an
+  identifying User-Agent. Images: curated local assets (the Spirit Connect logo), then Wikipedia → Commons →
+  Openverse by intent, ranked as in SCF, dimensions checked from the header. Terrain: Nominatim/Photon → AWS
+  terrarium tiles (decoded exactly by a small PNG decoder) → SCF's height field → compact bytes. Results become
+  local media; the surface never contacts a remote host.
+- **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
+- **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
+  companion window once (`autoOpen`: first-run | always | never).
 
 ## Presence Surface (`src/surface`)
 
-One page, built into a single HTML file, is both the MCP Apps resource and the companion page:
+One page, built into a single HTML file, is both the MCP Apps resource and the companion page.
+`PresenceView` drives Aion Core from snapshots, resolves body visuals (forms, glyphs, emoji from the system font,
+images framed by their fit, height fields), shows the panel for long content, and runs local listening:
+`microphone.ts` (SCF's `MicrophoneListener`) is the only file that opens the microphone; it reduces each block of
+samples to one RMS number and nothing else leaves it. Refused or unavailable, Aion follows the host's states.
 
-```text
-main.ts ─► transport ─► PresenceView ─► Aion Core + VisualActionController + panel
-                                     └► createRenderer() (WebGPU or canvas)
-```
+## Plugin package and distribution (`plugins/aion-presence`)
 
-- `CompanionTransport`: EventSource on the hub. Fullscreen is the browser's Fullscreen API (user gesture).
-- `McpAppsTransport`: the official ext-apps `App`. State arrives by long-polling `presence_sync` through the
-  host, images by `presence_media`, and fullscreen only through the host's declared display modes.
-- `PresenceView`: activity → state, body → persistent body, gesture → greeting, presentation → a body visual
-  (`planPresentation`) and/or the panel. When the panel opens, the renderer frames the body aside (camera view
-  offset), so the background never shifts.
-
-## Plugin Package (`plugins/aion-presence`)
-
-A portable [Agent Plugins](https://agent-plugins.org/) package: `plugin.json` (with OpenAI's
-`extensions.com.openai.interface`), `mcp.json` (`node ${PLUGIN_ROOT}/runtime/aion-mcp.mjs`), `skills/`,
-`hooks/hooks.json` (Codex's default hook location), `assets/`, and the built `runtime/`. There is no
-`.codex-plugin/plugin.json`: Codex reads the portable manifest directly (verified by `npm run codex:verify`),
-and a second manifest would only drift.
-
-## What came from SCF Presence Realtime
-
-| Reused as is (imports adjusted) | Adapted | Not carried over |
-| --- | --- | --- |
-| `aion/body.ts`, `aion/figure/skeleton.ts`, `aion/figure/layout.ts`, `presence/focus.ts` | `aion/identity.ts` (+ embodiment statement), `aion/figure/pose.ts` (new work-state poses), `aion/index.ts` → `core/aion.ts` (activity inputs) | `realtime/*`, `live/*`, `voice/*`, `server/*`, `app/api/*`: sessions, keys, WebRTC, delegation |
-| `particle/` physics, material, postfx, sphere, pointer, morphBlend, speechMotion, `config/particleDefaults.ts` | `particle/ParticleRuntime.ts` (no promo staging/formation, framing, bloom governed by quality), `particle/quality.ts` (effects shed first), `ParticleSystem.ts`/`material.ts` (formation removed) | `audio/*` microphone, VAD and analysis |
-| `visual-forms/*` (registry, Tao, celestial) | `visual-actions/controller.ts` (generic requests, held until released), `visual-resolver/points.ts` (no terrain), `transforms/crop.ts` → `visual/image.ts` | `visual-resolver` web providers (Wikipedia, Commons, Openverse, terrain tiles, web search) |
-| `visual-resolver/providers/glyphs.ts` text rasterizer | | `promo/*`, `dev/debugPanel.ts` |
-
-Rewritten for the plugin: `core/state.ts` (activity states), `core/signal.ts` (semantic presence), `core/store.ts`,
-`core/presentation.ts`, `core/audio.ts`, the whole Host Adapter, the surface view, panel and transports, the
-symbol pack and the canvas fallback.
+A portable Agent Plugins package: `plugin.json` (with `extensions.com.openai.interface`), `mcp.json`, `skills/`,
+`hooks/hooks.json`, `assets/` and the built `runtime/`. The runtime is **committed**, so a Git install needs no
+build; `npm run runtime:check` (CI) fails if it differs from what the sources build. The repository's
+marketplace is `spirit-connect`: `codex plugin marketplace add FulongLi/Aion-Presence-Plugin` then
+`codex plugin add aion-presence@spirit-connect`. `scripts/install.mjs` is the one-command fallback;
+`npm run release` builds a reproducible archive.
 
 ## Extension points
 
-- **Another host**: a new transport in `src/surface/transports` and, if it is not an MCP client, an adapter
-  that sends hub commands. Core and renderer do not change.
-- **Real host audio**: a `HostAudioSource`; the presence then drives SCF's original speech motion.
-- **Another visual pack**: one more entry in `VISUAL_FORM_PACKS`.
-- **A standalone voice mode**: a separate adapter, disabled by default, outside plugin mode.
+- **Real host audio**: a `HostAudioSource`; the engine then drives SCF's speech motion and echo guard.
+- **Another host**: a transport in `src/surface/transports` and, if it is not an MCP client, an adapter that sends
+  hub commands.
+- **Another visual pack**: one more entry in `VISUAL_FORM_PACKS`. Another image source: one more provider.
