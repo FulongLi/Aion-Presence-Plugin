@@ -28,6 +28,8 @@ export const particleDefaults = {
   thinking: { turbulence: 0.52, rotation: 0.72, travel: 0.12 },
   // Most speech motion is local displacement; keep whole-body inflation restrained.
   speaking: { radial: 0.45, turbulence: 0.055, flow: 0.20, accent: 0.20, spectrum: 1.2 },
+  // Responding is semantic (no audio): a slow, even swell rising through the body, far quieter than speech.
+  responding: { swell: 0.032, speed: 1.3 },
   lighting: { ambient: 0.16, key: 1.25, fill: 0.28, wrap: 0.45 },
   bloom: { strength: 0.20, radius: 0.38, threshold: 0.85 },
 };

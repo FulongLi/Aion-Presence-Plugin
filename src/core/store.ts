@@ -24,7 +24,8 @@ export interface PresenceSnapshot {
 /** Seconds a state lasts unless something replaces it (null: indefinitely). */
 export const ACTIVITY_TTL: Record<ActivityState, number | null> = {
   idle: null, listening: 120, thinking: 600, working: 600, reading: 600, editing: 600, testing: 600, building: 600,
-  presenting: 600, complete: 6, error: 20,
+  // An answer is short; if the turn's end never arrives (no hooks), responding settles by itself.
+  responding: 60, presenting: 600, complete: 6, error: 20,
 };
 
 export interface StoreClock {

@@ -35,6 +35,7 @@ export function createUniforms(config: ParticleConfig) {
     voicePhase: uniform(0), voiceDirection: uniform(new Vector3(0.65, 0.4, 0.65)),
     attention: uniform(0), focusPulse: uniform(0), thinking: uniform(0), listeningAudio: uniform(0),
     energy: uniform(0.08), warmth: uniform(0.35), motion: uniform(1),
+    responding: uniform(0), responseSwell: uniform(config.responding.swell), responseSpeed: uniform(config.responding.speed),
     // Visual Action ↔ speech blending (see morphBlend.ts).
     speechGain: uniform(1), formedShimmer: uniform(0),
     // How far a spinning formed visual has turned (radians; see MorphTarget.motion).
@@ -52,7 +53,7 @@ export type PhysicsUniforms = ReturnType<typeof createUniforms>;
 
 /** Copies live-tunable configuration into uniforms (development tuning only). */
 export function syncUniforms(u: PhysicsUniforms, config: ParticleConfig) {
-  const { pusher: p, spring, idle, listening, focus, thinking, speaking, lighting, geometry } = config;
+  const { pusher: p, spring, idle, listening, focus, thinking, speaking, responding, lighting, geometry } = config;
   u.radius.value = p.radius; u.influence.value = p.influence; u.falloff.value = p.falloff; u.depth.value = p.depth;
   u.movement.value = p.movement; u.radial.value = p.radial; u.turbulence.value = p.turbulence;
   u.flowBias.value = p.flowBias; u.scatter.value = p.scatter; u.maxForce.value = p.maxForce;
@@ -66,6 +67,7 @@ export function syncUniforms(u: PhysicsUniforms, config: ParticleConfig) {
   u.rotation.value = thinking.rotation; u.thoughtTurbulence.value = thinking.turbulence; u.thoughtTravel.value = thinking.travel;
   u.audioForce.value = speaking.radial; u.audioTurbulence.value = speaking.turbulence;
   u.audioFlow.value = speaking.flow; u.audioAccent.value = speaking.accent; u.spectrumStrength.value = speaking.spectrum;
+  u.responseSwell.value = responding.swell; u.responseSpeed.value = responding.speed;
   u.size.value = geometry.size;
   u.ambient.value = lighting.ambient; u.key.value = lighting.key; u.fill.value = lighting.fill; u.wrap.value = lighting.wrap;
 }

@@ -55,6 +55,8 @@ const STATE_POSES: Record<AionState, PoseParams> = {
   // Both hands a little out and up: gathering.
   building: { ...NEUTRAL_POSE, lean: 0.03, nod: 0.14, left: arm(0.2, 0.42, 0.07), right: arm(0.2, 0.42, 0.07) },
   speaking: { ...NEUTRAL_POSE, lean: 0.03, left: arm(0.17, 0.2, 0.04), right: arm(0.17, 0.2, 0.04) },
+  // Answering: turned a little toward the user, hands slightly forward; the articulation is gestureTarget's.
+  responding: { ...NEUTRAL_POSE, lean: 0.035, tilt: 0.02, left: arm(0.15, 0.24, 0.05), right: arm(0.17, 0.36, 0.06) },
   // One hand raised, forearm up; the wave itself is the gesture envelope.
   greeting: { ...NEUTRAL_POSE, lean: 0.02, tilt: 0.05, right: arm(0.8, 1.95, 0.06) },
   acknowledging: { ...NEUTRAL_POSE, lean: 0.03 },
@@ -71,7 +73,7 @@ const STATE_MOTION: Record<AionState, { breath: number; sway: number }> = {
   idle: { breath: 1, sway: 1 }, listening: { breath: 0.7, sway: 0.4 }, thinking: { breath: 0.45, sway: 0.2 },
   reading: { breath: 0.5, sway: 0.2 }, working: { breath: 0.6, sway: 0.3 }, editing: { breath: 0.55, sway: 0.25 },
   testing: { breath: 0.45, sway: 0.12 }, building: { breath: 0.6, sway: 0.3 },
-  speaking: { breath: 0.9, sway: 0.6 }, greeting: { breath: 0.8, sway: 0.3 }, acknowledging: { breath: 0.8, sway: 0.4 },
+  speaking: { breath: 0.9, sway: 0.6 }, responding: { breath: 0.85, sway: 0.4 }, greeting: { breath: 0.8, sway: 0.3 }, acknowledging: { breath: 0.8, sway: 0.4 },
   presenting: { breath: 0.7, sway: 0.3 }, complete: { breath: 0.85, sway: 0.6 }, error: { breath: 0.5, sway: 0.15 },
 };
 
@@ -98,6 +100,17 @@ export function gestureTarget(state: AionState, t: number, amplitude = 0): PoseP
     case "complete":
       // The task is done: one short nod, then the settled pose.
       return { ...pose, nod: 0.4 * Math.sin(Math.PI * Math.min(1, t / 1.1)) };
+    case "responding": {
+      // Semantic, not audio: Codex is answering and no real voice signal exists. Two slow, out-of-step hand
+      // movements and a faint lift of the chest, fading in over a second. Never rhythmic like speech, never lip sync.
+      const w = smooth(0, 1, t);
+      const right = Math.sin(t * Math.PI * 2 * 0.42) * 0.09 * w, left = Math.sin(t * Math.PI * 2 * 0.29 + 1.3) * 0.05 * w;
+      return {
+        ...pose, lift: (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.21)) * 0.006 * w,
+        left: { ...pose.left, bend: pose.left.bend + left, forward: pose.left.forward + left * 0.15 },
+        right: { ...pose.right, bend: pose.right.bend + right, raise: pose.right.raise + right * 0.25, forward: pose.right.forward + right * 0.2 },
+      };
+    }
     case "speaking": {
       // The voice lifts the hands and chest a little; it never becomes a wave.
       const a = Math.max(0, Math.min(1, amplitude));

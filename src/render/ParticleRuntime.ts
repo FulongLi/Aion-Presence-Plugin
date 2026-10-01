@@ -174,6 +174,7 @@ export async function createParticleRuntime(
     u.thinking.value = presence.thinking;
     u.listeningAudio.value = presence.userAmplitude;
     u.energy.value = presence.energy;
+    u.responding.value = presence.responding;
     u.warmth.value = presence.warmth;
     u.motion.value = calm() ? 0.15 : 1;
     try {

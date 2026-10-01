@@ -193,7 +193,8 @@ export class PresenceHub {
       }
       case "turn-end": {
         this.cancelSettle?.(); this.cancelSettle = null;
-        if (current.state !== "error") this.store.setActivity(this.turnActive ? "complete" : "idle", { source: "hook" });
+        // The turn ends: what Codex did (or answered) is complete, then rests. An error Codex reported is kept.
+        if (current.state !== "error") this.store.setActivity(this.turnActive || current.state === "responding" ? "complete" : "idle", { source: "hook" });
         this.turnActive = false;
         break;
       }

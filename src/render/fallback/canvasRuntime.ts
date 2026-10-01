@@ -78,7 +78,8 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     for (let i = 0; i < count; i++) {
       const rx = sphere.positions[i * 3], ry = sphere.positions[i * 3 + 1], rz = sphere.positions[i * 3 + 2];
       // The sphere's own field, reduced to its readable parts: travelling breath, gathering, a thinking swirl.
-      const b = (Math.sin(cycle + ry * 0.65 + rx * 0.25) + Math.sin(cycle * 1.71 + rz) * 0.22) * breath - gather;
+      const swell = (Math.sin(clock * particleDefaults.responding.speed - ry * 1.2) * 0.5 + 0.5) * presence.responding * particleDefaults.responding.swell;
+      const b = (Math.sin(cycle + ry * 0.65 + rx * 0.25) + Math.sin(cycle * 1.71 + rz) * 0.22) * breath - gather + swell / radius;
       const s = Math.sin(clock * 0.9 + ry * 1.4) * swirl * motion;
       let x = rx * (1 + b) + rz * s, y = ry * (1 + b), z = rz * (1 + b) - rx * s;
       let tone = 0.62 + 0.3 * (rz / radius);

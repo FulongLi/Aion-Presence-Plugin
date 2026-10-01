@@ -7,15 +7,18 @@
  * inferred from emotion, and a state the host has not exposed is never pretended.
  *
  *   activity        idle | listening | thinking | working | reading | editing | testing | building |
- *                   presenting | complete | error
+ *                   responding | presenting | complete | error
  *   gestures        greeting (once, when Aion is first opened) and acknowledging (a small nod when a new
  *                   task begins) — timed, then they hand back to the activity
+ *   responding      semantic: Codex is producing its user-facing answer (the Skill says so just before it
+ *                   replies). A restrained answering motion, with no amplitude, spectrum or lip sync.
  *   speaking        reserved for a host that exposes real assistant audio (see audio.ts); never faked
+ *   listening       the host said so, or (on the surface) the local microphone hears the user
  *
  * The machine is deterministic: the same inputs at the same times give the same states.
  */
 export const ACTIVITY_STATES = [
-  "idle", "listening", "thinking", "working", "reading", "editing", "testing", "building", "presenting", "complete", "error",
+  "idle", "listening", "thinking", "working", "reading", "editing", "testing", "building", "responding", "presenting", "complete", "error",
 ] as const;
 export type ActivityState = typeof ACTIVITY_STATES[number];
 
