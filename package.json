@@ -40,6 +40,7 @@
     "plugin:validate": "tsx scripts/validate-plugin.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build && npm run plugin:validate -- --runtime",
     "demo": "tsx scripts/demo.ts",
-    "smoke": "tsx scripts/smoke.ts"
+    "smoke": "tsx scripts/smoke.ts",
+    "codex:verify": "tsx scripts/codex-verify.ts"
   }
 }
