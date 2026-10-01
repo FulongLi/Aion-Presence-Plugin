@@ -7,6 +7,8 @@ import { build } from "esbuild";
 import { chromium, type Page } from "playwright-core";
 import { connectAion, MCP_APPS_CAPABILITIES } from "../tests/helpers";
 import { PresenceHub } from "../src/host/hub/hub";
+import type { PresentationContent } from "../src/core/presentation";
+import { VisualResolver } from "../src/host/resolver";
 import { visualForms } from "../src/visual/forms";
 import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
 
@@ -32,7 +34,9 @@ mkdirSync(OUT, { recursive: true });
 const hub = new PresenceHub({ home: mkdtempSync(join(tmpdir(), "aion-smoke-")), port: 0, page: () => readFileSync(pagePath, "utf8") });
 await hub.start();
 hub.apply({ type: "open" });
-const browser = await chromium.launch({ executablePath: chromePath, headless: true, args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=metal"] });
+// A fake microphone device (a test tone), so the local listening path runs; permission is granted per context.
+const browser = await chromium.launch({ executablePath: chromePath, headless: true, args: ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=metal", "--use-fake-device-for-media-stream"] });
+const offline = process.argv.includes("--offline");
 const failures: string[] = [];
 const check = (ok: boolean, what: string) => { console.log(`  ${ok ? "✓" : "✗"} ${what}`); if (!ok) failures.push(what); };
 const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -87,8 +91,9 @@ try {
     await pause(3_200);
     check(/visual holding/.test(await debug(page)), "figure → Orion: the visual forms");
     await page.screenshot({ path: join(OUT, `${renderer}-3-orion.png`) });
-    await pause(6_000);
-    const after = await debug(page);
+    // The hold is time formed (SCF), then the body returns: wait for it rather than for a fixed time.
+    let after = "";
+    for (let waited = 0; waited < 12_000 && !(/visual sphere/.test(after) && /body figure/.test(after)); waited += 250) { await pause(250); after = await debug(page); }
     check(/visual sphere/.test(after) && /body figure/.test(after), "Orion → figure: back to the persistent body");
 
     hub.apply({ type: "present", content: { kind: "result", title: "Done", summary: "48 / 48 tests passed", status: "success", details: ["8 files changed", "Build successful"] }, hold: 8 });
@@ -106,10 +111,96 @@ try {
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
     await page.close();
   }
+  await visuals();
+  await listening();
   await embedded();
 } finally {
   await browser.close();
   await hub.stop();
+}
+
+/**
+ * The visuals restored from SCF, on the real surface: a portrait and a terrain looked up on public sources (the
+ * same resolver the MCP server uses; --offline skips them), the Tao and celestial forms, clock, number, emoji
+ * and a result card. Every visual returns to the persistent body: figure → Tesla → figure, figure → terrain →
+ * figure, figure → Orion → figure.
+ */
+async function visuals() {
+  console.log("visuals (SCF parity)");
+  const page = await browser.newPage({ viewport: { width: 1000, height: 760 } });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto(`${hub.surfaceUrl}&debug=1&mic=0`);
+  await pause(3_000);
+  hub.apply({ type: "body", body: "figure" });
+  await pause(3_000);
+  const show = async (name: string, content: PresentationContent, returns = true) => {
+    hub.apply({ type: "present", content, hold: 4 });
+    let formed = false;
+    for (let t = 0; t < 8_000 && !formed; t += 250) { await pause(250); formed = /visual holding/.test(await debug(page)); }
+    check(formed, `${name} forms`);
+    await page.screenshot({ path: join(OUT, `visual-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.png`) });
+    if (!returns) return;
+    let back = false;
+    for (let t = 0; t < 10_000 && !back; t += 250) { await pause(250); const info = await debug(page); back = /visual sphere/.test(info) && /body figure/.test(info); }
+    check(back, `${name} → figure: back to the persistent body`);
+  };
+  if (!offline) {
+    const resolver = new VisualResolver({ env: {} });
+    try {
+      const tesla = await resolver.portrait("Nikola Tesla");
+      await show("Nikola Tesla portrait", { kind: "image", media: hub.addMedia(Buffer.from(tesla.bytes)), mode: "particles", fit: "portrait", alt: "Nikola Tesla", credit: "Wikipedia" });
+    } catch (error) { check(false, `Nikola Tesla portrait resolves (${(error as Error).message})`); }
+    try {
+      const uk = await resolver.terrain("United Kingdom");
+      await show("United Kingdom terrain", { kind: "terrain", media: hub.addMedia(Buffer.from(uk.bytes)), style: "terrain", label: "United Kingdom" });
+    } catch (error) { check(false, `United Kingdom terrain resolves (${(error as Error).message})`); }
+  } else console.log("  ! --offline: the portrait and terrain lookups were skipped");
+  await show("Orion", { kind: "form", form: "astronomy.orion", label: visualForms.label("astronomy.orion") });
+  await show("yin-yang", { kind: "form", form: "tao.yin-yang", label: visualForms.label("tao.yin-yang") }, false);
+  await show("clock", { kind: "clock", time: "09:05" }, false);
+  await show("number", { kind: "number", value: "42%" }, false);
+  await show("emoji", { kind: "emoji", emoji: "🚀" }, false);
+  hub.apply({ type: "present", content: { kind: "result", title: "Done", summary: "48 / 48 tests passed", status: "success", details: ["8 files changed"] }, hold: 4 });
+  await pause(2_500);
+  check((await page.locator("#panel").textContent())?.includes("48 / 48 tests passed") ?? false, "result card");
+  await page.screenshot({ path: join(OUT, "visual-result.png") });
+  hub.apply({ type: "clear" });
+  hub.apply({ type: "activity", state: "responding" });
+  await pause(1_500);
+  check(/state responding/.test(await debug(page)), "responding: the body answers");
+  await page.screenshot({ path: join(OUT, "visual-responding.png") });
+  hub.apply({ type: "activity", state: "idle" });
+  hub.apply({ type: "body", body: "sphere" });
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
+/** Local listening: with a (fake) microphone the body hears it; refused, Aion follows the host's states. */
+async function listening() {
+  console.log("listening (local microphone)");
+  const granted = await browser.newContext({ viewport: { width: 800, height: 600 } });
+  await granted.grantPermissions(["microphone"]);
+  const page = await granted.newPage();
+  await page.goto(`${hub.surfaceUrl}&debug=1`);
+  let ready = false;
+  for (let t = 0; t < 6_000 && !ready; t += 250) { await pause(250); ready = /mic ready/.test(await debug(page)); }
+  check(ready, "the microphone is analysed locally once Presence opens");
+  await granted.close();
+  const refused = await browser.newContext({ viewport: { width: 800, height: 600 } });
+  const denied = await refused.newPage();
+  const errors: string[] = [];
+  denied.on("pageerror", error => errors.push(error.message));
+  await denied.goto(`${hub.surfaceUrl}&debug=1`);
+  await pause(2_500);
+  const info = await debug(denied);
+  check(/mic (denied|unavailable)/.test(info) && /surface companion · live/.test(info), "refused: Presence keeps working without it");
+  hub.apply({ type: "activity", state: "testing" });
+  await pause(800);
+  check(/activity testing → testing/.test(await debug(denied)), "and follows the host's states");
+  hub.apply({ type: "activity", state: "idle" });
+  check(errors.length === 0, "no page errors");
+  await refused.close();
 }
 
 /** The same surface inside an MCP Apps host. */
