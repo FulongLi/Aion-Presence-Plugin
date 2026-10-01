@@ -1,0 +1,34 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "aion-presence",
+  "version": "0.1.0",
+  "description": "A visual embodiment layer for Codex. Codex does the reasoning and the work; Aion gives it a quiet particle body that reflects real activity and presents results. No API key, no second model.",
+  "author": {
+    "name": "Spirit Connect",
+    "url": "https://github.com/FulongLi"
+  },
+  "homepage": "https://github.com/FulongLi/Aion-Presence-Plugin",
+  "repository": "https://github.com/FulongLi/Aion-Presence-Plugin",
+  "keywords": ["aion", "presence", "embodiment", "visualization", "particles", "codex", "mcp", "mcp-app"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Aion Presence",
+        "shortDescription": "A visual body for Codex",
+        "longDescription": "Aion is the embodied presentation surface for the Codex agent you are already using. Codex remains the intelligence; Aion is its body: a minimal particle presence that reflects meaningful work (thinking, reading, editing, testing, building) and presents concise results, short text, images and its own procedural visual forms. Aion makes no model API calls and needs no API key.",
+        "developerName": "Spirit Connect",
+        "category": "Developer Tools",
+        "capabilities": ["Interactive"],
+        "websiteURL": "https://github.com/FulongLi/Aion-Presence-Plugin",
+        "defaultPrompt": [
+          "Open Aion",
+          "Open Aion as a figure and show me the yin-yang",
+          "Run the tests and present the result with Aion"
+        ],
+        "brandColor": "#A8BED1",
+        "composerIcon": "./assets/icon.svg",
+        "logo": "./assets/logo.svg"
+      }
+    }
+  }
+}

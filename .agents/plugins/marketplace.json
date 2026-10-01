@@ -1,0 +1,20 @@
+{
+  "name": "aion-presence-dev",
+  "interface": {
+    "displayName": "Aion Presence (local development)"
+  },
+  "plugins": [
+    {
+      "name": "aion-presence",
+      "source": {
+        "source": "local",
+        "path": "./plugins/aion-presence"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
