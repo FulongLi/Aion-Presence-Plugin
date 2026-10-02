@@ -17,5 +17,11 @@ export interface PresenceTransport {
   onDisplayChange?: () => void;
   /** The host or user asked for fullscreen in open_presence; honoured only where the host offers it. */
   requestFullscreen?(): Promise<void>;
+  /** The user dismissed what is being presented: end it at the source, so every surface returns to the body. */
+  dismiss?(): Promise<void>;
+  /** ?debug=1 only: hands the diagnostics to the host side (`npm run diagnose`). */
+  diagnostics?(lines: Record<string, string>): void;
+  /** A newer window was brought to the foreground in this one's place: this one should retire. */
+  onSuperseded?: () => void;
   close(): void;
 }

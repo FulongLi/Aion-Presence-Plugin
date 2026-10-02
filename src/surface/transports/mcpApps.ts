@@ -13,7 +13,6 @@ export class McpAppsTransport implements PresenceTransport {
   onDisplayChange?: () => void;
   private context: McpUiHostContext | undefined;
   private stopped = false;
-  private fullscreenAsked = false;
 
   constructor(private readonly app: App) {
     app.onhostcontextchanged = params => {
@@ -54,7 +53,6 @@ export class McpAppsTransport implements PresenceTransport {
         if (snapshot.revision !== after || snapshot.hub.id !== hub) {
           after = snapshot.revision; hub = snapshot.hub.id;
           onSnapshot(snapshot);
-          if (snapshot.hub.display === "fullscreen" && !this.fullscreenAsked) { this.fullscreenAsked = true; void this.requestFullscreen(); }
         }
       } catch {
         failures++;
@@ -70,6 +68,10 @@ export class McpAppsTransport implements PresenceTransport {
     if (result.isError || !media?.data || !media.mime) throw new Error("media-unavailable");
     const bytes = Uint8Array.from(atob(media.data), char => char.charCodeAt(0));
     return new Blob([bytes], { type: media.mime });
+  }
+
+  async dismiss() {
+    await this.app.callServerTool({ name: "clear_presentation", arguments: {} });
   }
 
   async requestFullscreen() {

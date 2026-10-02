@@ -6,7 +6,7 @@ import { gzipSync } from "node:zlib";
 import { MARKETPLACE, PLUGIN_ROOT, REPO_ROOT, validatePluginPackage } from "./lib/pluginPackage";
 
 /**
- * `npm run release`: the installable package for a version (e.g. v0.2.0), reproducible from source.
+ * `npm run release`: the installable package for a version (e.g. v0.3.0), reproducible from source.
  *
  *   dist/aion-presence-v<version>.tar.gz     a ready local marketplace: no Node modules, no build needed
  *     aion-presence-v<version>/

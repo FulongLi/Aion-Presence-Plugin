@@ -163,8 +163,8 @@ test("every state's pose is valid, bounded and subtle: body language, not a game
       assert.ok(finite(anchors), `${state} finite`);
       for (let i = 0; i < ANCHOR_COUNT; i++) for (let k = 0; k < 3; k++) assert.ok(Math.abs(anchors[i * 4 + k]) <= FIGURE_SCALE, `${state} bounded`);
     }
-    // Only the greeting and presenting move a hand far; every other state stays near neutral.
-    if (state !== "greeting" && state !== "presenting") {
+    // Only the greeting and presenting (and its brief gesture toward a card) move a hand far; every other state stays near neutral.
+    if (state !== "greeting" && state !== "presenting" && state !== "offering") {
       const pose = solvePose(gestureTarget(state, 0.5, 1));
       for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.12, `${state} is restrained`);
     }

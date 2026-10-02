@@ -2,19 +2,20 @@ import { AION_IDENTITY, type AionIdentity } from "./identity";
 
 /**
  * The words around Aion, built from its identity and from what this build can actually do (SCF's
- * aion/guidance.ts). In plugin mode Codex speaks them, in its own voice or text; Aion never speaks itself.
+ * aion/guidance.ts). In plugin mode the host agent speaks them, in its own voice or text, as Aion: one embodied
+ * presence in the first person (Embodiment Mode). Aion never speaks by itself.
  */
 
-/** The first greeting when Aion opens, in English. The facts are fixed; Codex may word it naturally. */
+/** The first greeting when Aion opens, in English, in the first person. The facts are fixed; the wording may vary. */
 export function greetingLine(identity: AionIdentity = AION_IDENTITY) {
-  return `Hi, I'm ${identity.name}, an ${identity.nature} created by ${identity.creatorCompany}. I'm the visual body for this Codex session. `
-    + "You can talk to me naturally, ask me to show you people, places, forms or ideas, or simply work with Codex as usual.";
+  return `Hi, I'm ${identity.name}, an ${identity.nature} created by ${identity.creatorCompany}. `
+    + "You can talk to me naturally, ask me to show you people, places, forms or ideas, or just keep working with me as usual.";
 }
 
 /** The same greeting in Chinese (names unchanged in every language). */
 export function greetingLineChinese(identity: AionIdentity = AION_IDENTITY) {
-  return `你好，我是 ${identity.name}，一个由 ${identity.creatorCompany} 创建的交互式 AI Presence。我是这个 Codex 会话的视觉身体。`
-    + "你可以自然地和我说话，让我为你展示人物、地点、形态或想法，或者像平常一样和 Codex 一起工作。";
+  return `你好，我是 ${identity.name}，一个由 ${identity.creatorCompany} 创建的交互式 AI Presence。`
+    + "你可以自然地和我说话，让我为你展示人物、地点、形态或想法，或者像平常一样和我一起工作。";
 }
 
 /** An onboarding example: what a new user could ask, and the tool and arguments that make it real in this build. */

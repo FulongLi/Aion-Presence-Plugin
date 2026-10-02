@@ -59,7 +59,11 @@ test("show_portrait finds the person and presents a portrait-framed picture, wit
     assert.equal(snapshot.presentation?.kind, "image");
     const presentation = snapshot.presentation as Extract<HubSnapshot["presentation"], { kind: "image" }>;
     assert.equal(presentation.fit, "portrait", "the surface frames it with SCF's portrait crop and sampling");
-    assert.equal(presentation.hold, 14);
+    assert.equal(presentation.route, "hybrid", "a recognizable portrait: particles and the original photograph");
+    assert.equal(presentation.reason, "portrait-hybrid");
+    assert.equal(presentation.bodyHold, 14, "the particle portrait is a moment (SCF's hold)");
+    assert.equal(presentation.cardHold, 30, "the photograph stays a little longer");
+    assert.deepEqual([presentation.width, presentation.height, presentation.origin], [900, 1200, "lookup"], "the card knows the original's size");
     assert.equal(presentation.credit, "Wikipedia · free (Wikimedia Commons)");
     assert.deepEqual(planPresentation(presentation).body, { type: "image", media: presentation.media, fit: "portrait" });
     const missing = await aion.call("show_portrait", { person: "Nobody Atall" }) as Result;

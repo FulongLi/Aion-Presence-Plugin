@@ -1,12 +1,14 @@
 # Aion Presence
 
-**A visual embodiment layer for Codex.** Codex remains the intelligence: it reasons, reads, edits, tests,
-builds and talks with you. Aion becomes its body: a quiet particle presence that listens, reflects what Codex is
-really doing, answers with it, and turns information into visual forms.
+**Aion is how Codex becomes visually present.** Codex remains the intelligence: it reasons, reads, edits, tests,
+builds and talks with you. While Aion is open you meet it *as Aion*: one embodied presence, in the foreground, a
+quiet particle body that listens, reflects what is really happening, visibly answers, and shows you things — as its
+own body, as a high-fidelity card, or both.
 
 ```text
-Codex  = intelligence (reasoning, coding, tools, conversation, voice)
-Aion   = embodiment   (listening, state, body language, visual presentation)
+inside:   Codex = intelligence (reasoning, coding, tools, conversation, voice)
+          Aion  = embodiment   (listening, state, body language, presentation)
+to you:   one presence, speaking in the first person — "Here's Nikola Tesla."
 ```
 
 Aion is not another AI model, assistant or personality. It makes **no model API calls and needs no API key**: no
@@ -37,13 +39,15 @@ fallback).
 ## What it does
 
 ```text
-"Open Aion."                 →  Aion appears, waves once; Codex introduces it
-you speak                    →  Aion listens (locally); you stop → it turns to thinking
+"Open Aion."                 →  Aion comes to the foreground, fills the screen, waves once and says hello;
+                                one click on "Enter Presence" makes it truly fullscreen
+you speak                    →  Aion visibly listens (locally); you stop → it turns to thinking
 Codex works                  →  reading · editing · testing · building (from Codex's lifecycle hooks)
-Codex answers                →  Aion answers with it (a quiet responding motion)
-"What did Nikola Tesla look like?"   →  Aion forms his portrait, then returns to its body
-"What is the terrain of Scotland like?" → Aion forms Scotland's real relief
-"What does Orion look like?" →  Aion draws Orion from its own visual language
+Codex answers                →  Aion visibly answers, for as long as the answer is being said
+"What did Nikola Tesla look like?"   →  his particle portrait forms while the original photograph stands beside it
+"What is the terrain of Scotland like?" → Aion becomes Scotland's real relief
+"What does Orion look like?" →  Aion becomes Orion — no card needed
+"Show me the change."        →  the exact code, in a quiet card beside a body that keeps living
 ```
 
 - **Two persistent bodies**: the original particle **Sphere** and the minimal **Particle Figure**. Every visual
@@ -51,6 +55,12 @@ Codex answers                →  Aion answers with it (a quiet responding motio
 - **SCF Presence's visual language**: portraits and images of almost anything (looked up on open sources), real
   terrain from elevation data, Tao forms (yin-yang, lines, trigrams, bagua), constellations, zodiac and planetary
   signs, clocks, key numbers, short words, symbols and emoji.
+- **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
+  or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
+  overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
+  particle raster, and retire by themselves.
+- **Immersive mode**: "Open Aion" gives the cleanest Aion-only view the environment permits — the host's fullscreen
+  when embedded, a foreground, screen-filling window plus one-click true fullscreen in the companion.
 - **Concise presentation of Codex's work**: results, short text, code excerpts, file-change summaries, SVG
   diagrams and local images. Logs never go into Aion.
 - **Natural visual intent**: you never need to name a tool. The Skill and the tool descriptions (tuned in SCF
@@ -83,30 +93,37 @@ Codex answers                →  Aion answers with it (a quiet responding motio
 Details: [docs/architecture.md](docs/architecture.md). Parity with SCF Presence Realtime, capability by
 capability: [docs/PARITY.md](docs/PARITY.md).
 
-### Presentation modes
+### Surfaces and immersive mode
 
 - **Embedded** when the host declares MCP Apps support (`io.modelcontextprotocol/ui` with
-  `text/html;profile=mcp-app`); fullscreen only through the host's display modes.
-- **Companion** otherwise: a chrome-less Chromium app window when one is installed, else the default browser.
-  Fullscreen is the browser's own (press **F**).
+  `text/html;profile=mcp-app`). Immersive asks the host for its fullscreen display mode; the host decides, and its
+  own composer or voice controls may stay visible — that is the host's UI, not something Aion fights.
+- **Companion** otherwise: a chrome-less Chromium app window (else the default browser) that opens in the
+  foreground and sizes itself to the screen. Browsers allow true fullscreen only from a user gesture, so it offers
+  one quiet **Enter Presence**; after that click Aion stays fullscreen for the whole session (visuals never leave
+  it). Esc always exits and is respected; **F** returns.
 
-Codex currently runs plugin skills, MCP servers and hooks, but its MCP Apps rendering is an experimental flag
-that is off by default, so with a default Codex Aion uses the companion window. Aion never pretends a capability
-exists; `open_presence` reports the mode it used.
+Codex currently runs plugin skills, MCP servers and hooks, but its MCP Apps rendering (`enable_mcp_apps`) is under
+development and off by default, so with a default Codex Aion uses the companion window. Aion never pretends a
+capability exists; `open_presence` reports the mode and the immersive path it used. What every host and browser
+actually allows — assistant audio, fullscreen, foreground, always-on-top — is in [docs/HOST.md](docs/HOST.md).
 
 ## The MCP tools
 
 | Tool | Purpose |
 | --- | --- |
-| `open_presence` | Open Aion (embedded or companion). Reports the mode, whether hooks are active, and `greeting.due` once per newly opened Presence. |
+| `open_presence` | Open Aion (embedded or companion); `display: "immersive"` for "Open Aion". Reports the mode, the immersive path, whether hooks are active, and `greeting.due` once per newly opened Presence. |
 | `set_presence_state` | `idle listening thinking working reading editing testing building responding presenting complete error`. |
 | `set_body_form` | `sphere` or `figure`: the persistent body. |
-| `show_portrait` | A real person's face, from public photos (Wikipedia first), framed head and shoulders. |
-| `show_image` | A picture of almost anything: `query` (+ `intent`) looks it up on open sources; `source` shows a local file. |
-| `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap). |
+| `show_portrait` | A real person's face, from public photos (Wikipedia first): a particle portrait and the original photograph (hybrid). |
+| `show_image` | A picture of almost anything: `query` (+ `intent`) looks it up on open sources; `source` shows a local file; `detail: true` keeps it exact. |
+| `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap); `presentation: "hybrid"` adds a relief map card. |
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
 | `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. |
-| `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image beside the body. |
+| `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
+
+`show_image`, `show_portrait`, `show_terrain`, `show_result` and `show_artifact` accept `presentation`
+(`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
 | `clear_presentation` | Return to the persistent body now. |
 
 ## Lifecycle hooks
@@ -116,18 +133,20 @@ exists; `open_presence` reports the mode it used.
 | `UserPromptSubmit` | thinking (with a small acknowledging nod) |
 | `PreToolUse` | editing · reading · testing · building · working, by tool and command |
 | `PostToolUse` | back to thinking after a short settle |
-| `Stop` | complete (also after responding), then rest |
+| `Stop` | complete, then rest — after `responding`, Aion keeps answering for as long as the answer takes to say |
 | `Interrupt`, `SessionEnd` | idle |
 
-The hook prints nothing, always exits 0 and never blocks a tool. It forwards only the event name, the tool name
-and, for shell tools, the start of the command line. Without trusted hooks Aion still works; the Skill then sets
-the main states itself.
+The hook prints nothing, always exits 0 and never blocks a tool. It forwards only the event name, the tool name,
+for shell tools the start of the command line, and at the end of a turn one number: how many seconds the final
+answer takes to say (computed from its length inside the hook; the text itself is never forwarded). Without trusted
+hooks Aion still works; the Skill then sets the main states itself.
 
 ## Privacy and security
 
 - **No credentials**: no OpenAI key, ChatGPT or Codex token is read, stored or requested.
 - **Microphone**: analysed in the Presence window only, as loudness and voice activity, so Aion can look
-  attentive. Never recorded, stored, uploaded or transcribed; refusing it is fine.
+  attentive. Never recorded, stored, uploaded or transcribed; refusing it is fine. Real-device check:
+  [docs/MICROPHONE.md](docs/MICROPHONE.md).
 - **Network**: the hub listens on `127.0.0.1` only (per-user token, loopback `Host` check). When Codex asks for a
   portrait, picture or terrain, the MCP process sends only the name, search phrase or region to public data
   providers on a fixed allowlist (Wikipedia, Wikimedia Commons, Openverse, OpenStreetMap Nominatim, Photon, the
@@ -135,7 +154,8 @@ the main states itself.
   bytes before the surface sees them; the surface itself never contacts a remote host. Repository and
   conversation content is never sent anywhere. An optional keyed image search
   (`AION_PRESENCE_BRAVE_SEARCH_KEY`) is off unless you set it.
-- Presented content is rendered as text (never as HTML), images only through `<img>` or as particles.
+- Presented content is rendered as text (never as HTML), images only through `<img>` or as particles. Cards and the
+  Presentation Router run locally; card contents are never sent anywhere.
 
 ## Development
 
@@ -151,15 +171,17 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, visuals, listening, embedded (`-- --offline` skips lookups) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded (`-- --offline` skips lookups) |
 | `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes |
 | `npm run release` | The reproducible installable archive in `dist/` |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |
 
 After changing sources, run `npm run build` and commit the runtime (CI checks it). Environment:
 `AION_PRESENCE_SURFACE=companion`, `AION_PRESENCE_BROWSER=default|chrome|none`, `AION_PRESENCE_PORT` (47231),
-`AION_PRESENCE_HOME`, `AION_PRESENCE_AUTO_OPEN=first-run|always|never`. Add `&debug=1` to the companion URL for
-diagnostics, `&renderer=canvas` for the fallback, `&mic=0` to skip listening.
+`AION_PRESENCE_HOME`, `AION_PRESENCE_AUTO_OPEN=first-run|always|never`, `AION_PRESENCE_DEBUG=1` (open the companion
+with diagnostics; `npm run diagnose` prints them). Add `&debug=1` to the companion URL for
+diagnostics (the whole live chain: surface, fullscreen, microphone, RMS, VAD, host → effective activity, Aion state,
+user amplitude, responding, route, card, hooks), `&renderer=canvas` for the fallback, `&mic=0` to skip listening.
 
 ## Relationship to SCF Presence Realtime
 

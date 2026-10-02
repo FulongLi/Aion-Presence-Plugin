@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { HOOK_HEARTBEAT_FILE, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { estimateSpeechSeconds } from "./speech";
 
 /**
  * The Codex lifecycle hook command (hooks/hooks.json runs it for SessionStart, UserPromptSubmit, PreToolUse,
@@ -10,13 +11,14 @@ import { HOOK_HEARTBEAT_FILE, HUB_FILE, presenceHome, TOKEN_FILE } from "../path
  *   - it notes that hooks are running (a timestamp file), so Aion can tell the agent it need not report
  *     routine states itself;
  *   - when Aion is open it forwards the event name, the tool name and, for shell tools, the first part of the
- *     command line to the local presence hub — nothing else from the tool input or output;
+ *     command line to the local presence hub — nothing else from the tool input or output; at the end of a
+ *     turn, only how many seconds the final answer takes to say (never its text);
  *   - when Aion is not open, or anything at all goes wrong, it simply stops.
  */
 const STDIN_LIMIT = 256 * 1024;
 const POST_TIMEOUT_MS = 400;
 
-export interface ForwardedEvent { hook_event_name: string; tool_name?: string; command?: string; session_id?: string }
+export interface ForwardedEvent { hook_event_name: string; tool_name?: string; command?: string; session_id?: string; speech_seconds?: number }
 
 /** The fields Aion needs from a hook payload, and nothing more. */
 export function pickEvent(payload: unknown): ForwardedEvent | null {
@@ -30,6 +32,10 @@ export function pickEvent(payload: unknown): ForwardedEvent | null {
   const command = input && typeof input === "object" ? input.command ?? input.cmd : undefined;
   const line = Array.isArray(command) ? command.filter(part => typeof part === "string").join(" ") : command;
   if (typeof line === "string" && line.trim()) event.command = line.trim().slice(0, 300);
+  if (event.hook_event_name === "Stop") {
+    const seconds = estimateSpeechSeconds(value.last_assistant_message);
+    if (seconds > 0) event.speech_seconds = seconds;
+  }
   return event;
 }
 

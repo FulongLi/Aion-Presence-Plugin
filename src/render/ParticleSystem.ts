@@ -51,10 +51,12 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
     const column = base.x.div(3.2).add(0.5).clamp(0, 0.999).mul(SPECTRUM_BANDS).floor().toInt();
     const twinkle = sin(s.x.mul(40).add(u.voicePhase.mul(9))).mul(u.voiceArticulation).mul(0.012);
     const shimmer = u.spectrum.element(column).mul(0.03).add(u.voiceBody.mul(0.022)).add(twinkle).mul(u.formedShimmer);
-    const ripple = vec3(0, 0, sin(u.clock.mul(0.85).add(base.x.mul(2))).mul(0.016).add(shimmer))
+    // Listening and answering keep a formed visual alive too (a little deeper ripple), so it never freezes.
+    const alive = float(1).add(u.responding.mul(0.9)).add(u.listeningAudio.mul(1.4));
+    const ripple = vec3(0, 0, sin(u.clock.mul(0.85).add(base.x.mul(2))).mul(0.016).mul(alive).add(shimmer))
       .mul(m).mul(u.stiffness).mul(u.motion);
     // The figure glimmers with the voice along the view axis, never scattering its outline.
-    const glimmer = vec3(0, 0, u.voiceBody.mul(0.02).add(twinkle.mul(1.5)))
+    const glimmer = vec3(0, 0, u.voiceBody.mul(0.02).add(twinkle.mul(1.5)).add(sin(s.y.mul(30).add(u.clock.mul(5))).mul(u.listeningAudio).mul(0.01)))
       .mul(b.mul(float(1).sub(m))).mul(u.stiffness).mul(u.motion);
     const pointerScale = float(1).sub(m.mul(0.94));
     const force = pusherForce(base.add(o), s, u).mul(pointerScale).add(sphereForce).add(ripple).add(glimmer);

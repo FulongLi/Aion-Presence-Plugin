@@ -22,13 +22,18 @@ export const ACTIVITY_STATES = [
 ] as const;
 export type ActivityState = typeof ACTIVITY_STATES[number];
 
-/** How long each one-shot gesture lasts (seconds). */
-export const GESTURE_SECONDS = { greeting: 2.8, acknowledging: 0.9 } as const;
+/**
+ * How long each one-shot gesture lasts (seconds). `offering`: the body turns a little toward a card it has
+ * just put beside itself, then goes back to what it was doing (a card never freezes the body).
+ */
+export const GESTURE_SECONDS = { greeting: 2.8, acknowledging: 0.9, offering: 1.8 } as const;
+/** A nod is not repeated within this many seconds (a user pausing between phrases is not a new task each time). */
+export const NOD_COOLDOWN = 5;
 export type AionGesture = keyof typeof GESTURE_SECONDS;
 export const isGesture = (state: string): state is AionGesture => state in GESTURE_SECONDS;
 
 /** Everything the body can express: the activities, the gestures, and host speech. */
-export const AION_STATES = [...ACTIVITY_STATES, "speaking", "greeting", "acknowledging"] as const;
+export const AION_STATES = [...ACTIVITY_STATES, "speaking", "greeting", "acknowledging", "offering"] as const;
 export type AionState = typeof AION_STATES[number];
 
 export const isActivityState = (value: unknown): value is ActivityState =>
@@ -60,6 +65,7 @@ export class AionStateMachine {
   private gesture: { name: AionGesture; until: number } | null = null;
   private pending: AionGesture | null = null;
   private lastActivity = "idle";
+  private lastNod = -Infinity;
 
   /** Requests a one-shot gesture; it starts on the next update. */
   trigger(gesture: AionGesture) { if (isGesture(gesture)) this.pending = gesture; }
@@ -70,9 +76,12 @@ export class AionStateMachine {
   update(inputs: StateInputs, now: number): AionState {
     const activity: AionState = isActivityState(inputs.activity) ? inputs.activity : "idle";
     // The host takes up a new task after resting: one small nod. (A real transition, never a guess.)
-    if (RESTING.includes(this.lastActivity) && (WORK_STATES as readonly string[]).includes(activity) && !this.gesture) this.pending ??= "acknowledging";
+    if (RESTING.includes(this.lastActivity) && (WORK_STATES as readonly string[]).includes(activity) && !this.gesture && now - this.lastNod >= NOD_COOLDOWN) {
+      this.pending ??= "acknowledging";
+    }
     this.lastActivity = activity;
     if (this.pending) {
+      if (this.pending === "acknowledging") this.lastNod = now;
       // The greeting outranks a nod; a nod never interrupts a greeting.
       if (!this.gesture || this.pending === "greeting" || this.gesture.name !== "greeting") {
         this.gesture = { name: this.pending, until: now + GESTURE_SECONDS[this.pending] };

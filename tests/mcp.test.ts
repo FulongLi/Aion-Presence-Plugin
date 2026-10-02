@@ -101,9 +101,13 @@ test("state, body, forms, text and results produce structured output and update 
     assert.match(output.presentation!.description, /Later Heaven/);
     output = structured(await aion.call("show_text", { text: "48/48" }));
     assert.equal(output.presentation?.kind, "text");
+    assert.equal(output.presentation?.route, "body", "a short word becomes the body");
+    output = structured(await aion.call("show_text", { text: "A longer explanation. ".repeat(20).trim(), presentation: "body" }));
+    assert.deepEqual([output.presentation?.route, output.presentation?.reason], ["card", "too-detailed-for-body"], "long text asked as body: a safe card");
     output = structured(await aion.call("show_result", { title: "Done", summary: "48 / 48 tests passed", status: "success", details: ["8 files changed", "Build successful"] }));
     assert.equal(output.presentation?.kind, "result");
-    assert.equal(output.presentation?.hold_seconds, 16);
+    assert.equal(output.presentation?.route, "card", "a result is a card beside the living body");
+    assert.equal(output.presentation?.hold_seconds, 24);
     assert.equal(output.body, "figure", "the persistent body is unchanged by a presentation");
     const state = await aion.link.run(backend => backend.state());
     assert.deepEqual(state.presentation && state.presentation.kind === "result" && state.presentation.details, ["8 files changed", "Build successful"]);

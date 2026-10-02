@@ -4,6 +4,7 @@ import {
   cleanCode, cleanLine, cleanText, HOLD_SECONDS, holdFor, isGlyphText, LIMITS, planPresentation, type PresentationContent,
 } from "../src/core/presentation";
 import { ACTIVITY_TTL, PresenceStore, type StoreClock, FORMING_SECONDS } from "../src/core/store";
+import { CARD_SECONDS } from "../src/core/presentationRouter";
 
 /** A manual clock: time moves only when the test says so. */
 function manualClock() {
@@ -62,10 +63,11 @@ test("temporary visual lifecycle: present → hold → expire, back to the body"
   const { clock, advance } = manualClock();
   const store = new PresenceStore(clock);
   const shown = store.present(result);
-  assert.equal(shown.hold, HOLD_SECONDS.result);
+  assert.equal(shown.route, "card", "a result is a card");
+  assert.equal(shown.hold, CARD_SECONDS.result);
   assert.equal(store.snapshot().presentation?.id, shown.id);
   // The hold is time spent formed, so the store keeps it for the forming time too.
-  advance(HOLD_SECONDS.result + FORMING_SECONDS - 1);
+  advance(CARD_SECONDS.result + FORMING_SECONDS - 1);
   assert.ok(store.snapshot().presentation);
   advance(2);
   assert.equal(store.snapshot().presentation, null);
@@ -144,12 +146,13 @@ test("hold durations default per kind (SCF's for its visuals) and are clamped", 
 });
 
 test("the body itself becomes short information; long content is presented beside it", () => {
-  assert.deepEqual(planPresentation(orion), { body: { type: "form", form: "astronomy.orion", variant: undefined }, panel: false });
-  assert.deepEqual(planPresentation({ kind: "text", text: "Build passed" }), { body: { type: "text", text: "Build passed" }, panel: false });
-  assert.equal(planPresentation({ kind: "text", text: "A longer sentence that cannot be particles" }).body.type, "none");
-  assert.deepEqual(planPresentation(result).body, { type: "form", form: "symbol.check" });
-  assert.equal(planPresentation({ ...result, status: "failure" } as PresentationContent).body.type, "form");
-  assert.deepEqual(planPresentation({ ...result, status: "info" } as PresentationContent), { body: { type: "none" }, panel: true });
-  assert.equal(planPresentation({ kind: "artifact", type: "code", title: "x", content: "y" }).panel, true);
+  assert.deepEqual(planPresentation(orion), { body: { type: "form", form: "astronomy.orion", variant: undefined }, card: false });
+  assert.deepEqual(planPresentation({ kind: "text", text: "Build passed" }), { body: { type: "text", text: "Build passed" }, card: false });
+  assert.deepEqual(planPresentation({ kind: "text", text: "A longer sentence that cannot be particles" }), { body: { type: "none" }, card: true });
+  assert.deepEqual(planPresentation(result), { body: { type: "none" }, card: true }, "a result is a card");
+  assert.deepEqual(planPresentation(result, "hybrid").body, { type: "form", form: "symbol.check" }, "with the body, its mark forms");
+  assert.equal(planPresentation({ ...result, status: "failure" } as PresentationContent, "hybrid").body.type, "form");
+  assert.deepEqual(planPresentation({ ...result, status: "info" } as PresentationContent, "hybrid"), { body: { type: "none" }, card: true });
+  assert.equal(planPresentation({ kind: "artifact", type: "code", title: "x", content: "y" }).card, true);
   assert.ok(isGlyphText("48/48") && isGlyphText("12:30") && !isGlyphText("a\nb") && !isGlyphText("<b>"));
 });

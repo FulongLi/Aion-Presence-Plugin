@@ -41,17 +41,21 @@ export interface BrowserLaunch { command: string; args: string[] }
 
 /**
  * How to open the companion window on this platform. A Chromium-family browser in app mode gives a quiet,
- * chrome-less window (and WebGPU); otherwise the default browser opens the page.
+ * chrome-less window (and WebGPU) that opens in the foreground; otherwise the default browser opens the page.
  * AION_PRESENCE_BROWSER = default | chrome | none.
+ *
+ * Window size flags only apply when the browser is not already running (a running Chromium forwards the URL to
+ * its existing process and ignores them), so an immersive page also sizes its own app window to the screen (see
+ * surface/immersive.ts). True fullscreen always waits for the user's first click: no flag bypasses that.
  */
 export function browserLaunch(url: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env,
-  exists: (path: string) => boolean = existsSync): BrowserLaunch | null {
+  exists: (path: string) => boolean = existsSync, options: { immersive?: boolean } = {}): BrowserLaunch | null {
   const preference = env.AION_PRESENCE_BROWSER ?? "chrome";
   if (preference === "none") return null;
   if (platform === "darwin") {
     if (preference === "chrome") {
       for (const app of ["Google Chrome", "Microsoft Edge", "Chromium", "Brave Browser"]) {
-        if (exists(`/Applications/${app}.app`)) return { command: "open", args: ["-na", app, "--args", `--app=${url}`, "--window-size=880,980"] };
+        if (exists(`/Applications/${app}.app`)) return { command: "open", args: ["-na", app, "--args", `--app=${url}`, options.immersive ? "--start-maximized" : "--window-size=880,980"] };
       }
     }
     return { command: "open", args: [url] };
@@ -61,8 +65,8 @@ export function browserLaunch(url: string, platform: NodeJS.Platform = process.p
 }
 
 /** Opens the companion window; false when it could not be launched (the URL is still returned to the agent). */
-export function openBrowser(url: string): Promise<boolean> {
-  const launch = browserLaunch(url);
+export function openBrowser(url: string, options: { immersive?: boolean } = {}): Promise<boolean> {
+  const launch = browserLaunch(url, process.platform, process.env, existsSync, options);
   if (!launch) return Promise.resolve(false);
   return new Promise(resolve => {
     try {

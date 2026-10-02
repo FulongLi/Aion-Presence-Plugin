@@ -44,10 +44,17 @@ export class MicrophoneListener implements MicInput {
   private sum = 0;
   private count = 0;
   private lastRms = 0;
-  private readonly frame: MicFrame = { voiced: false, level: 0, utterance: 0, emphasis: 0 };
+  private frames = 0;
+  private readonly frame: MicFrame = { voiced: false, level: 0, utterance: 0, emphasis: 0, rms: 0 };
+  /** Diagnostics: the input device's name as the browser reports it (never sent anywhere). */
+  deviceLabel = "";
   constructor(private readonly onEnded: () => void = () => {}) {}
 
   get running() { return Boolean(this.track); }
+  /** Diagnostics: how samples are read — straight from the track, or through an AnalyserNode. */
+  get path(): "track-processor" | "analyser" | "none" { return this.reader ? "track-processor" : this.analyser ? "analyser" : "none"; }
+  /** Diagnostics: "running" while samples flow; an AnalyserNode may wait "suspended" for a first click. */
+  get audioState(): string { return this.reader ? (this.frames > 0 ? "running" : "starting") : this.context?.state ?? "off"; }
 
   /** Analyses a clone of the stream's audio track; stopping the analysis never stops the original. */
   attach(stream: MediaStream) {
@@ -56,6 +63,7 @@ export class MicrophoneListener implements MicInput {
     if (!original) throw new Error("microphone-unavailable");
     const track = original.clone();
     this.track = track;
+    this.deviceLabel = original.label;
     // The clone ends with its source (device unplugged, permission revoked).
     original.addEventListener("ended", () => { if (this.track === track) { this.stop(); this.onEnded(); } }, { once: true });
     const Processor = (window as unknown as { MediaStreamTrackProcessor?: TrackProcessor }).MediaStreamTrackProcessor;
@@ -86,6 +94,7 @@ export class MicrophoneListener implements MicInput {
           value.copyTo(view, { planeIndex: 0, format: "f32-planar" });
           for (let i = 0; i < view.length; i++) this.sum += view[i] * view[i];
           this.count += view.length;
+          this.frames++;
         } finally { value.close(); }
       }
     } catch { /* the track stopped */ }
@@ -111,6 +120,7 @@ export class MicrophoneListener implements MicInput {
     this.frame.level = vad.level;
     this.frame.utterance = vad.utterance;
     this.frame.emphasis = this.emphasis.sample(vad.level, vad.voiced, vad.utterance, dt);
+    this.frame.rms = energy;
     return this.frame;
   }
 
@@ -120,7 +130,7 @@ export class MicrophoneListener implements MicInput {
     this.source?.disconnect();
     void this.context?.close().catch(() => {});
     this.track = this.source = this.analyser = this.context = this.samples = this.reader = undefined;
-    this.sum = this.count = this.lastRms = 0;
+    this.sum = this.count = this.lastRms = this.frames = 0;
     this.vad.reset(); this.emphasis.reset();
   }
 }
