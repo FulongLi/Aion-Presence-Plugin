@@ -10,10 +10,12 @@ export function presenceForce(rest: VectorNode, seed: VectorNode, u: PhysicsUnif
   // Shared rhythm with a travelling phase: different regions inhale in succession.
   // Listening breathes smaller and slower; attention and focus impulses gather the body inward.
   const breathing = sin(cycle.add(rest.y.mul(0.65)).add(rest.x.mul(0.25)))
-    .add(sin(cycle.mul(1.71).add(rest.z)).mul(0.22)).mul(u.breath).mul(float(1).sub(u.attention.mul(u.listeningBreath)));
+    .add(sin(cycle.mul(1.71).add(rest.z)).mul(0.22)).mul(u.breath).mul(float(1).sub(u.attention.mul(u.listeningBreath)).sub(u.responding.mul(u.responseBreath)));
   // The user's voice draws the listening body slightly further in, following their loudness.
   const gather = u.attention.mul(u.contraction).add(u.focusPulse.mul(u.focusContraction)).add(u.listeningAudio.mul(u.inputResponse));
   const target = rest.mul(breathing.sub(gather));
+  // While the user speaks, a soft ripple travels inward with their loudness: the body is taking it in.
+  const listenWave = normal.mul(sin(rest.length().mul(9).add(u.clock.mul(6.5))).mul(u.listeningAudio).mul(u.listeningRipple));
   const time = u.clock.mul(u.idleSpeed);
   const slowNoise = mx_fractal_noise_vec3(
     rest.mul(1.8).add(seed.mul(0.12)).add(vec3(time, time.mul(0.61), time.mul(0.73))),
@@ -65,9 +67,16 @@ export function presenceForce(rest: VectorNode, seed: VectorNode, u: PhysicsUnif
   const speechTarget = normal.mul(localLift).add(circulation).add(texture).add(spectrumTarget).mul(u.speechGain);
   // Assistant speech radiates outward.
   const voice = normal.mul(u.voiceBody.mul(u.audioForce)).mul(u.speechGain);
-  // Responding (semantic, no audio): a slow, even swell rises through the body. No amplitude, no spectrum.
+  // Responding (semantic, no audio): a slow swell rises through the body, a second crosses it out of step, the
+  // field's own noise varies their depth, and a gentle current flows around the vertical axis. No amplitude,
+  // no spectrum: nothing here pretends to be the voice.
   const swell = sin(u.clock.mul(u.responseSpeed).sub(rest.y.mul(1.2))).mul(0.5).add(0.5);
-  const response = normal.mul(swell.mul(u.responding).mul(u.responseSwell)).mul(u.speechGain);
-  return target.add(drift).add(flow).add(travel).add(speechTarget).add(response).mul(u.stiffness)
+  const crossing = sin(u.clock.mul(u.responseSpeed.mul(0.61)).add(rest.x.mul(1.4)).add(1.7)).mul(0.5).add(0.5);
+  const depth = slowNoise.x.mul(0.35).add(0.75);
+  // The outer shell carries it (that is what the eye reads); the core moves less.
+  const outer = smoothstep(0.4, 1.35, rest.length()).mul(0.7).add(0.3);
+  const response = normal.mul(swell.mul(0.65).add(crossing.mul(0.35)).mul(depth).mul(outer).mul(u.responding).mul(u.responseSwell)).mul(u.speechGain);
+  const current = vec3(rest.z, 0, rest.x.negate()).mul(sin(u.clock.mul(0.7).add(rest.y.mul(1.6)))).mul(u.responding.mul(u.responseFlow)).mul(u.speechGain);
+  return target.add(drift).add(flow).add(travel).add(speechTarget).add(response).add(current).add(listenWave).mul(u.stiffness)
     .add(thought).add(voice).mul(u.motion);
 }

@@ -3,6 +3,7 @@ import { AION_BODIES } from "../core/body";
 import { AION_IDENTITY } from "../core/identity";
 import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, RESULT_STATUSES } from "../core/presentation";
 import { ACTIVITY_STATES } from "../core/state";
+import { PRESENTATION_PREFERENCES } from "../core/presentationRouter";
 import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
 import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
 
@@ -23,6 +24,11 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
 });
 const hold = z.number().min(0).max(LIMITS.hold.max)
   .describe(`Seconds to hold the presentation before Aion returns to its body (${LIMITS.hold.min}–${LIMITS.hold.max}; 0 = until cleared). Omit for a sensible default.`);
+
+/** How the user should see it (the Presentation Router decides by default; see core/presentationRouter.ts). */
+const presentation = z.enum(PRESENTATION_PREFERENCES).describe(
+  "auto (default, recommended): Aion decides. body: Aion's particle body becomes it. card: a high-fidelity card beside the body. "
+  + "hybrid: both (e.g. a particle portrait and the photograph). Clearly unsuitable choices are overridden (long text never becomes particles).");
 
 /** A free-text field checked by one of SCF's validators after its whitespace is tidied. */
 const checked = (max: number, valid: (value: string) => boolean, what: string) => z.string().max(max * 4).transform((value, ctx) => {
@@ -55,6 +61,7 @@ export const showVisualFormInput = showFormInput;
 export const showTextInput = z.object({
   text: text(LIMITS.text, "text").describe(`Concise text (≤ ${LIMITS.text} characters). Up to 16 plain characters become the particle body itself; longer text is shown beside it.`),
   title: line(LIMITS.title, "title").optional().describe(`Optional short heading (≤ ${LIMITS.title} characters); text with a title is always shown beside the body.`),
+  presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
 
@@ -65,12 +72,15 @@ export const showImageInput = z.object({
   source: z.string().min(1).max(12_000_000).optional()
     .describe("Instead of query: an image on this machine — an absolute path to a PNG, JPEG, WebP, GIF or SVG file (or a file:// URL), or a data:image/…;base64 URL. Remote URLs are not accepted here; use query to look something up."),
   alt: line(LIMITS.alt, "alt").optional().describe("Short description of the image."),
-  mode: z.enum(IMAGE_MODES).optional().describe("particles (default): the body becomes the image. framed: the exact image is shown beside the body — use for diagrams and screenshots where detail matters."),
+  mode: z.enum(IMAGE_MODES).optional().describe("Older form of presentation (particles = body, framed = card). Prefer presentation."),
+  presentation: presentation.optional(),
+  detail: z.boolean().optional().describe("true when the user wants to inspect the picture's exact detail: it is shown as a card, not dissolved into particles."),
   hold_seconds: hold.optional(),
 }).strict();
 
 export const showPortraitInput = z.object({
   person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).describe("Full, unambiguous name of the person, e.g. \"Nikola Tesla\"."),
+  presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
 
@@ -78,6 +88,7 @@ export const showTerrainInput = z.object({
   region: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `region: a place name of at most ${VISUAL_LIMITS.region} characters`)
     .describe(`The place, e.g. "Wales", "United Kingdom", "Swiss Alps", "Grand Canyon". At most ${VISUAL_LIMITS.region} characters.`),
   style: z.enum(TERRAIN_STYLES).optional().describe("Shading: terrain (default), topography (contour bands), relief (strong shading), heightmap (height only)."),
+  presentation: presentation.optional().describe("auto (default): the body becomes the relief. hybrid or card: also a relief map card with the elevation range, when exact geography matters."),
   hold_seconds: hold.optional(),
 }).strict();
 
@@ -116,6 +127,7 @@ export const showResultInput = z.object({
   status: z.enum(RESULT_STATUSES).optional().describe("success (a check), failure (a cross), partial (an exclamation) or info (no mark). Default info."),
   details: z.array(line(LIMITS.detail, "detail")).max(LIMITS.details).optional()
     .describe(`Up to ${LIMITS.details} short lines, e.g. ["8 files changed", "Build successful"]. Never paste logs.`),
+  presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
 
@@ -134,13 +146,16 @@ export const showArtifactInput = z.object({
   items: z.array(line(LIMITS.item, "item")).min(1).max(LIMITS.items).optional().describe("For list: the items."),
   changes: z.array(fileChangeSchema).min(1).max(LIMITS.changes).optional().describe("For changes: one entry per file."),
   source: z.string().min(1).max(12_000_000).optional().describe("For image: an absolute local path or a data:image URL, as in show_image."),
+  presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
 
 export const openPresenceInput = z.object({
   body: bodySchema.optional().describe("Optionally choose the persistent body as Aion opens."),
-  display: z.enum(["auto", "inline", "fullscreen"]).optional()
-    .describe("Embedded hosts only: ask for fullscreen or inline presentation. Ignored where the host offers no such mode."),
+  display: z.enum(["immersive", "auto", "inline", "fullscreen"]).optional()
+    .describe("immersive (use it when the user says \"Open Aion\"): Aion becomes the foreground, Aion-only view — host fullscreen when embedded, a "
+      + "foreground window that enters fullscreen at the user's first click in the companion. auto: a calm window or inline view. "
+      + "inline / fullscreen: an explicit host display mode."),
   surface: z.enum(["auto", "companion"]).optional()
     .describe("auto (default): embedded in the host when it renders MCP Apps, otherwise the companion window. companion: always open the companion window."),
 }).strict();

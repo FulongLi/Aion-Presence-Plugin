@@ -1,12 +1,16 @@
 import { IMAGE_FITS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type SymbolName, type TerrainStyle } from "../visual/types";
+import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
+
+export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
 
 /**
  * The presentation model: what Aion is showing, independent of how it is drawn. The host adapter validates
  * tool input into these shapes; the store holds at most one; every surface renders the same one.
  *
- * A presentation is temporary. The persistent body (sphere or figure) becomes the information, holds it,
- * and returns to the same persistent body. Long or exact content (a result card, an artifact, a framed
- * image) is shown beside a presenting body instead, kept short: details stay in the host conversation.
+ * A presentation is temporary. The Presentation Router (presentationRouter.ts) decides how it is shown: the
+ * persistent body (sphere or figure) becomes the information, holds it and returns to the same body (BODY);
+ * exact content stands beside the living body as a quiet card (CARD); or both (HYBRID). Body visuals and cards
+ * have their own lifetimes. Content stays concise: details stay in the host conversation.
  */
 export const RESULT_STATUSES = ["success", "failure", "partial", "info"] as const;
 export type ResultStatus = typeof RESULT_STATUSES[number];
@@ -58,10 +62,15 @@ export type PresentationContent =
   | { kind: "form"; form: string; variant?: string; label: string }
   | { kind: "text"; text: string; title?: string }
   | { kind: "result"; title: string; summary: string; status: ResultStatus; details: string[] }
-  /** `fit`: how the body frames it (a portrait's head-and-shoulders band, an object, a map, a logo). `credit`: where a looked-up picture came from. */
-  | { kind: "image"; media: MediaRef; alt?: string; mode: ImageMode; fit?: ImageFit; credit?: string }
+  /**
+   * `fit`: how the body frames it (a portrait's head-and-shoulders band, an object, a map, a logo). `credit`: where
+   * a looked-up picture came from. `width`/`height`: the original picture's size (the card shows the original,
+   * never the particle raster). `origin`: looked up on public sources, or a file on this machine. `mode`: the
+   * v0.2 preference (particles → body, framed → card), still honoured when no presentation preference is given.
+   */
+  | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local" }
   /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
-  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string }
+  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string }
   | { kind: "clock"; time: string }
   | { kind: "number"; value: string }
   | { kind: "symbol"; symbol: SymbolName }
@@ -75,9 +84,19 @@ export type Presentation = PresentationContent & {
   id: string;
   /** Milliseconds since the epoch when it was shown. */
   at: number;
-  /** Seconds it is held (0: until cleared). */
+  /** Seconds the whole presentation lasts (0: until cleared). */
   hold: number;
+  /** How it is shown (see presentationRouter.ts), and why. */
+  route: PresentationRoute;
+  reason: RouteReason;
+  /** Seconds the body holds its visual formed (0: until cleared; unused when the route is card). */
+  bodyHold: number;
+  /** Seconds the card stays (0: until cleared; unused when the route is body). */
+  cardHold: number;
 };
+
+/** How a presentation was asked for: a route preference and whether exact detail matters. */
+export interface PresentationRequest { preference?: PresentationPreference; detail?: boolean; capabilities?: PresentationCapabilities }
 
 /** Control, zero-width and bidirectional-override characters. Newlines and tabs are handled separately. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
@@ -105,32 +124,50 @@ export function cleanCode(value: unknown, max: number): string | null {
   return text && graphemes(text) <= max && !CONTROL.test(text) ? text : null;
 }
 
-/** Hold seconds: default per kind, 0 for "until cleared", otherwise clamped into LIMITS.hold. */
-export function holdFor(content: PresentationContent, requested?: number): number {
-  if (requested === 0) return 0;
-  if (typeof requested === "number" && Number.isFinite(requested)) return Math.max(LIMITS.hold.min, Math.min(LIMITS.hold.max, requested));
+const clampHold = (seconds: number) => Math.max(LIMITS.hold.min, Math.min(LIMITS.hold.max, seconds));
+
+/** The body's default hold for a kind (SCF's tuned times, see HOLD_SECONDS). */
+function bodySeconds(content: PresentationContent): number {
   switch (content.kind) {
-    case "text":
-      return planPresentation(content).panel ? Math.min(30, Math.max(HOLD_SECONDS.panelText, 5 + graphemes(content.text) / 16)) : HOLD_SECONDS.text;
+    case "text": return HOLD_SECONDS.text;
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
+    case "result": case "artifact": return HOLD_SECONDS.image;
     default: return HOLD_SECONDS[content.kind];
   }
 }
 
-/** Text short and plain enough for the particle body itself to become it (one line of glyphs). */
-const GLYPH_TEXT = /^[\p{L}\p{M}\p{N} .,!?'’\-&·:()/%+#°]+$/u;
-export const GLYPH_TEXT_MAX = 16;
-export const isGlyphText = (text: string) => graphemes(text) <= GLYPH_TEXT_MAX && !text.includes("\n") && GLYPH_TEXT.test(text);
+/**
+ * Lifetimes for a routed presentation, in seconds (0: until cleared). The body holds its visual for a moment;
+ * a card may stay longer. A requested hold applies to what the user looks at longest: the body's visual when it
+ * is the body alone, the card otherwise — a hybrid's particle portrait still returns after its moment.
+ */
+export function holdsFor(content: PresentationContent, route: PresentationRoute, requested?: number): { total: number; body: number; card: number } {
+  const asked = requested === undefined || !Number.isFinite(requested) ? undefined : requested === 0 ? 0 : clampHold(requested);
+  const bodyDefault = bodySeconds(content), cardDefault = cardSeconds(content) || HOLD_SECONDS.image;
+  if (route === "body") { const body = asked ?? bodyDefault; return { total: body, body, card: 0 }; }
+  const card = asked ?? cardDefault;
+  if (route === "card") return { total: card, body: 0, card };
+  const body = asked === undefined || asked === 0 ? bodyDefault : Math.min(asked, bodyDefault);
+  return { total: card === 0 ? 0 : Math.max(card, body), body, card };
+}
+
+/** Hold seconds of the whole presentation under the automatic route (v0.2's single hold). */
+export function holdFor(content: PresentationContent, requested?: number): number {
+  return holdsFor(content, routePresentation({ content }).route, requested).total;
+}
+
+/** The v0.2 image mode as a route preference, when no explicit preference was given. */
+export function legacyPreference(content: PresentationContent): PresentationPreference | undefined {
+  if (content.kind !== "image" || !content.mode) return undefined;
+  return content.mode === "framed" ? "card" : "body";
+}
 
 /** The symbol form each result status becomes (see the symbol pack in the visual forms). */
 export const RESULT_SYMBOL: Record<ResultStatus, string | null> = {
   success: "symbol.check", failure: "symbol.cross", partial: "symbol.exclamation", info: null,
 };
 
-/**
- * What the particle body itself becomes for a presentation. Anything else is shown beside a body in the
- * presenting pose ("panel"): the body is still the one presenting, but long text is not particles.
- */
+/** What the particle body itself becomes for a presentation (none: the body keeps living beside a card). */
 export type BodyVisual =
   | { type: "form"; form: string; variant?: string }
   | { type: "text"; text: string }
@@ -139,30 +176,28 @@ export type BodyVisual =
   | { type: "emoji"; emoji: string }
   | { type: "none" };
 
-export interface PresentationPlan { body: BodyVisual; panel: boolean }
+export interface PresentationPlan { body: BodyVisual; card: boolean }
 
-export function planPresentation(presentation: PresentationContent): PresentationPlan {
+/** The body visual a content becomes when its route includes the body. */
+function bodyVisual(presentation: PresentationContent): BodyVisual {
   switch (presentation.kind) {
-    case "form": return { body: { type: "form", form: presentation.form, variant: presentation.variant }, panel: false };
-    case "text": {
-      const glyph = !presentation.title && isGlyphText(presentation.text);
-      return { body: glyph ? { type: "text", text: presentation.text } : { type: "none" }, panel: !glyph };
-    }
-    case "result": {
-      const symbol = RESULT_SYMBOL[presentation.status];
-      return { body: symbol ? { type: "form", form: symbol } : { type: "none" }, panel: true };
-    }
-    case "image":
-      return presentation.mode === "particles"
-        ? { body: { type: "image", media: presentation.media, fit: presentation.fit ?? "object" }, panel: false }
-        : { body: { type: "none" }, panel: true };
-    case "terrain": return { body: { type: "terrain", media: presentation.media, style: presentation.style }, panel: false };
-    case "clock": return { body: { type: "text", text: presentation.time }, panel: false };
-    case "number": return { body: { type: "text", text: presentation.value }, panel: false };
-    case "symbol": return { body: { type: "form", form: `symbol.${presentation.symbol}` }, panel: false };
-    case "emoji": return { body: { type: "emoji", emoji: presentation.emoji }, panel: false };
-    case "artifact": return { body: { type: "none" }, panel: true };
+    case "form": return { type: "form", form: presentation.form, variant: presentation.variant };
+    case "text": return isGlyphText(presentation.text) ? { type: "text", text: presentation.text } : { type: "none" };
+    case "result": { const symbol = RESULT_SYMBOL[presentation.status]; return symbol ? { type: "form", form: symbol } : { type: "none" }; }
+    case "image": return { type: "image", media: presentation.media, fit: presentation.fit ?? "object" };
+    case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
+    case "clock": return { type: "text", text: presentation.time };
+    case "number": return { type: "text", text: presentation.value };
+    case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
+    case "emoji": return { type: "emoji", emoji: presentation.emoji };
+    case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
   }
+}
+
+/** Rendering only: a routed presentation becomes a body visual, a card, or both. The decision was the router's. */
+export function planPresentation(presentation: PresentationContent, route: PresentationRoute = routePresentation({ content: presentation }).route): PresentationPlan {
+  const body = route === "card" ? { type: "none" as const } : bodyVisual(presentation);
+  return { body, card: route !== "body" || body.type === "none" };
 }
 
 /** A one-line description for logs and tool results ("result: Tests passed"). */

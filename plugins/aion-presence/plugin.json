@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "aion-presence",
-  "version": "0.2.0",
-  "description": "A visual embodiment layer for Codex. Codex does the reasoning and the work; Aion gives it a quiet particle body that listens, reflects real activity, answers with it and turns information into visual forms. No API key, no second model.",
+  "version": "0.3.0",
+  "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a quiet particle body that listens, reflects real activity, answers, and shows things as particles or high-fidelity cards. No API key, no second model.",
   "author": {
     "name": "Spirit Connect",
     "url": "https://github.com/FulongLi"
@@ -15,7 +15,7 @@
       "interface": {
         "displayName": "Aion Presence",
         "shortDescription": "A visual body for Codex",
-        "longDescription": "Aion is the embodied presence of the Codex agent you are already using. Codex remains the intelligence; Aion is its body: a particle sphere or figure that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), answers with Codex, and turns information into visual forms: portraits, real terrain, constellations, Tao symbols, clocks, results and images. Aion makes no model API calls and needs no API key.",
+        "longDescription": "Aion is the embodied interface of the Codex agent you are already using. Codex remains the intelligence; while Aion is open you talk to it as Aion: an immersive particle sphere or figure that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), visibly answers, and presents information the best way for it — as its own body (portraits, real terrain, constellations, Tao symbols, clocks), as quiet high-fidelity cards (photographs, code, results), or both. Aion makes no model API calls and needs no API key.",
         "developerName": "Spirit Connect",
         "category": "Developer Tools",
         "capabilities": ["Interactive"],

@@ -117,3 +117,19 @@ Plugin:  Codex (the host agent)     ─► Presence Core
 | Terrain relief-image fallback | It approximates height from a JPEG relief map, which would need a JPEG decoder in Node. | Real elevation only (the primary SCF path); unavailable data fails as `terrain-unavailable`. |
 | Symbols | SCF drew them with canvas paths; the resolver now runs where there is no canvas. | The same 12 symbols as ink forms (SCF's own ink style). |
 | Greeting voice | SCF's voice session spoke the line. | Codex gives the introduction in its own text or voice. |
+
+## v0.3: where the plugin deliberately departs from SCF's tuning
+
+SCF heard its own assistant through the Realtime session, so its body always had real speech to move with. The
+plugin has no assistant audio (see [HOST.md](HOST.md)), and real use showed SCF's quieter states read as frozen
+without it. These are **adapted**, not regressions:
+
+| Area | SCF | Plugin v0.3 | Proof |
+| --- | --- | --- | --- |
+| Listening (sphere) | contraction 0.04, response 0.03 | contraction 0.07, response 0.12, an inward ripple with loudness, a brighter body | smoke `listening`: the body visibly gathers |
+| Listening (figure) | lean and tilt only | plus loudness-linked lean and nods | tests/liveState.test.ts |
+| Listening turn | utterance end → thinking | short pauses keep the turn open (no flicker) | tests/liveState.test.ts |
+| Listening during a visual | not applicable | effective listening and loudness kept; the formed visual shimmers | smoke `listening` |
+| Responding | not applicable (real speech) | semantic travelling swell, current, light; figure articulation | smoke `responding` (measured motion) |
+| Answer duration | the audio itself | the Stop hook's spoken-length estimate (no text forwarded) | tests/liveState.test.ts |
+| Presentation | body or a framed panel | Presentation Router: body · card · hybrid | tests/presentationRouter.test.ts |

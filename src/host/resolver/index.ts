@@ -2,6 +2,7 @@ import { errorCode, ResolveError } from "../../visual/errors";
 import { buildHeightField, encodeHeightField, HEIGHTFIELD_MIME } from "../../visual/heightfield";
 import { fitForIntent, type HeightField, type ImageFit, type ImageIntent, type TerrainStyle } from "../../visual/types";
 import { loadLocalAsset, matchLocalAsset } from "./assets";
+import { imageSize } from "./imageInfo";
 import { resolveImage } from "./images";
 import { timeoutSignal, type Fetcher } from "./net";
 import { braveProvider } from "./sources/brave";
@@ -43,6 +44,9 @@ export interface ResolvedPicture {
   /** What was found (an article title, a file name, a brand): for the body's label and the tool result. */
   label: string;
   source: { provider: string; page?: string; license?: string };
+  /** The picture's own size (from its header), when known: it decides whether a card is worth showing. */
+  width?: number;
+  height?: number;
 }
 
 export interface ResolvedTerrain {
@@ -80,7 +84,7 @@ export class VisualResolver {
         if (!this.options.assetsDir) throw new ResolveError("image-unavailable");
         const loaded = await loadLocalAsset(asset, this.options.assetsDir);
         trace.chain.push({ provider: "local-assets", outcome: `selected (${asset.id})`, ms: 0 });
-        return { ...loaded, fit: asset.type === "logo" ? "logo" : fitForIntent(intent), label: asset.brand, source: { provider: "local-assets" } };
+        return { ...loaded, ...imageSize(loaded.bytes), fit: asset.type === "logo" ? "logo" : fitForIntent(intent), label: asset.brand, source: { provider: "local-assets" } };
       }
       const found = await resolveImage(query, intent, { providers: this.images, request: this.options.request }, bounded, trace, "image");
       return picture(found, fitForIntent(intent), query);
@@ -155,7 +159,7 @@ export class VisualResolver {
 function picture(found: Awaited<ReturnType<typeof resolveImage>>, fit: ImageFit, query: string): ResolvedPicture {
   const { candidate } = found;
   return {
-    bytes: found.bytes, mime: found.mime, fit, label: candidate.title || query,
+    bytes: found.bytes, mime: found.mime, fit, label: candidate.title || query, width: found.width, height: found.height,
     source: { provider: candidate.provider, ...(candidate.pageUrl ? { page: candidate.pageUrl } : {}), ...(candidate.license ? { license: candidate.license } : {}) },
   };
 }

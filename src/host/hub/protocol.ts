@@ -6,6 +6,7 @@ import {
 } from "../../core/presentation";
 import { CLOCK_TIME, isSingleEmojiGrapheme, validNumber } from "../../visual/validate";
 import { ACTIVITY_STATES } from "../../core/state";
+import { PRESENTATION_PREFERENCES, type PresentationPreference } from "../../core/presentationRouter";
 import type { PresenceSnapshot } from "../../core/store";
 
 /**
@@ -13,7 +14,12 @@ import type { PresenceSnapshot } from "../../core/store";
  * server, other Aion MCP processes and the hooks send. Commands arriving over HTTP are validated again
  * here, whoever sent them.
  */
-export const DISPLAY_PREFERENCES = ["auto", "inline", "fullscreen"] as const;
+/**
+ * How Aion asks to be shown. `immersive` is the product-level preference ("Open Aion"): the cleanest Aion-only
+ * presentation this environment permits — host fullscreen when embedded, a foreground app window entering true
+ * fullscreen at the user's first gesture in the companion. `fullscreen` is kept for v0.2 callers.
+ */
+export const DISPLAY_PREFERENCES = ["auto", "inline", "fullscreen", "immersive"] as const;
 export type DisplayPreference = typeof DISPLAY_PREFERENCES[number];
 
 export interface HubInfo {
@@ -28,6 +34,11 @@ export interface HubInfo {
   hooksActive: boolean;
   /** Aion opened by itself (first run) and Codex has not introduced it yet. */
   introduction: boolean;
+  /**
+   * What the companion windows report about themselves: is one of them focused, on screen (not covered or
+   * minimized), or in true fullscreen? A window that has not reported yet counts as visible.
+   */
+  surface: { focused: boolean; visible: boolean; fullscreen: boolean };
 }
 
 export interface HubSnapshot extends Omit<PresenceSnapshot, "revision"> {
@@ -39,12 +50,14 @@ export interface HubSnapshot extends Omit<PresenceSnapshot, "revision"> {
 export type HubCommand =
   | { type: "activity"; state: (typeof ACTIVITY_STATES)[number]; label?: string }
   | { type: "body"; body: (typeof AION_BODIES)[number] }
-  | { type: "present"; content: PresentationContent; hold?: number }
+  | { type: "present"; content: PresentationContent; hold?: number; presentation?: PresentationPreference; detail?: boolean }
   | { type: "clear" }
   /** `greet`: a newly opened Presence waves once (default: when no companion window is connected). */
   | { type: "open"; display?: DisplayPreference; greet?: boolean; introduce?: boolean }
   /** Codex has given (or is giving) Aion's introduction. */
-  | { type: "introduced" };
+  | { type: "introduced" }
+  /** A new companion window is on its way to the foreground: the open ones retire once it has connected. */
+  | { type: "supersede" };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -59,10 +72,15 @@ const presentationSchema = z.discriminatedUnion("kind", [
     details: z.array(clean(cleanLine, LIMITS.detail)).max(LIMITS.details),
   }).strict(),
   z.object({
-    kind: z.literal("image"), media: mediaRef, alt: clean(cleanLine, LIMITS.alt).optional(), mode: z.enum(IMAGE_MODES),
+    kind: z.literal("image"), media: mediaRef, alt: clean(cleanLine, LIMITS.alt).optional(), mode: z.enum(IMAGE_MODES).optional(),
     fit: z.enum(IMAGE_FITS).optional(), credit: clean(cleanLine, LIMITS.title).optional(),
+    width: z.number().int().positive().max(100_000).optional(), height: z.number().int().positive().max(100_000).optional(),
+    origin: z.enum(["lookup", "local"]).optional(),
   }).strict(),
-  z.object({ kind: z.literal("terrain"), media: heightFieldRef, style: z.enum(TERRAIN_STYLES), label: clean(cleanLine, LIMITS.title) }).strict(),
+  z.object({
+    kind: z.literal("terrain"), media: heightFieldRef, style: z.enum(TERRAIN_STYLES), label: clean(cleanLine, LIMITS.title),
+    elevation: z.object({ min: z.number().finite(), max: z.number().finite() }).strict().optional(), credit: clean(cleanLine, LIMITS.title).optional(),
+  }).strict(),
   z.object({ kind: z.literal("clock"), time: z.string().regex(CLOCK_TIME) }).strict(),
   z.object({ kind: z.literal("number"), value: z.string().refine(validNumber) }).strict(),
   z.object({ kind: z.literal("symbol"), symbol: z.enum(SYMBOL_NAMES) }).strict(),
@@ -81,17 +99,33 @@ const presentationSchema = z.discriminatedUnion("kind", [
 export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("activity"), state: z.enum(ACTIVITY_STATES), label: clean(cleanLine, LIMITS.label).optional() }).strict(),
   z.object({ type: z.literal("body"), body: z.enum(AION_BODIES) }).strict(),
-  z.object({ type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional() }).strict(),
+  z.object({
+    type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional(),
+    presentation: z.enum(PRESENTATION_PREFERENCES).optional(), detail: z.boolean().optional(),
+  }).strict(),
   z.object({ type: z.literal("clear") }).strict(),
   z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional() }).strict(),
   z.object({ type: z.literal("introduced") }).strict(),
+  z.object({ type: z.literal("supersede") }).strict(),
 ]);
+
+/** A companion window describing itself (focus, fullscreen, visibility): nothing else. */
+export const surfaceReportSchema = z.object({
+  window: z.string().regex(/^[a-z0-9]{8,32}$/), focused: z.boolean(), fullscreen: z.boolean(), visible: z.boolean(),
+}).strict();
+export type SurfaceReport = z.infer<typeof surfaceReportSchema>;
+
+/** A window's ?debug=1 diagnostics (short labelled lines of numbers and states), for `npm run diagnose`. */
+export const diagnosticsSchema = z.object({
+  window: z.string().regex(/^[a-z0-9]{8,32}$/), lines: z.record(z.string().regex(/^[a-z]{2,16}$/), z.string().max(240)),
+}).strict().refine(value => Object.keys(value.lines).length <= 16);
 
 export const hookEventSchema = z.object({
   hook_event_name: z.string().max(40),
   tool_name: z.string().max(200).optional(),
   command: z.string().max(400).optional(),
   session_id: z.string().max(200).optional(),
+  speech_seconds: z.number().min(0).max(120).optional(),
 }).strip();
 
 export const mediaUploadSchema = z.object({ mime: z.string(), data: z.string().max(12_000_000) }).strict();

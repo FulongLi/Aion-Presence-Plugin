@@ -9,34 +9,60 @@ body { overflow: hidden; background: #090e16; }
 .stage { position: absolute; inset: 0; touch-action: none; }
 .stage canvas { display: block; width: 100%; height: 100%; }
 
-/* When words accompany the body, the body steps aside (the renderer frames it) and the panel stands beside it. */
-.panel { position: absolute; right: max(28px, 4vw); top: 50%; width: min(420px, 38vw); max-height: min(78vh, 680px);
-  transform: translateY(-50%); overflow: auto; padding: 22px 24px; border-radius: 18px;
-  background: #0b121bcc; border: 1px solid #ffffff10; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  color: #c9d5e0; font-size: 14px; line-height: 1.55; opacity: 0; transition: opacity .9s ease .35s; scrollbar-width: thin; }
-.presence.with-panel .panel { opacity: 1; }
-.panel[hidden] { display: block; visibility: hidden; }
-.panel h2 { margin: 0 0 6px; font-size: 13px; font-weight: 500; letter-spacing: .06em; text-transform: uppercase; color: #8fa3b6; }
-.panel .summary { margin: 0; font-size: 20px; line-height: 1.35; font-weight: 400; color: #e6eef5; letter-spacing: .01em; }
-.panel .mark { display: inline-block; width: 8px; height: 8px; margin-right: 10px; border-radius: 50%; vertical-align: 3px; background: #a8bed1; }
-.panel .mark.success { background: #a9d1b8; } .panel .mark.failure { background: #d9a7a2; } .panel .mark.partial { background: #dcc9a0; }
-.panel ul { margin: 14px 0 0; padding: 0; list-style: none; }
-.panel li { padding: 6px 0; border-top: 1px solid #ffffff0c; color: #b7c5d2; }
-.panel li:first-child { border-top: 0; }
-.panel p { margin: 10px 0 0; white-space: pre-wrap; }
-.panel pre { margin: 12px 0 0; padding: 12px 14px; border-radius: 10px; background: #060a10; color: #cfdbe6;
-  font: 12px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
-.panel .lang { margin-top: 4px; font-size: 11px; color: #74879a; }
-.panel img { display: block; max-width: 100%; max-height: 60vh; margin: 12px auto 0; border-radius: 8px; background: #0e1620; }
-.panel table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 12.5px; }
-.panel td { padding: 5px 0; border-top: 1px solid #ffffff0c; }
-.panel td.path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #cfdbe6; word-break: break-all; }
-.panel td.kind { width: 1%; padding-right: 10px; color: #8fa3b6; white-space: nowrap; }
-.panel td.delta { width: 1%; padding-left: 10px; white-space: nowrap; text-align: right; color: #8fa3b6; }
-.panel .add { color: #a9d1b8; } .panel .del { color: #d9a7a2; }
+/* A card: information Aion presents beside its living body. The body steps aside (the renderer frames it);
+   the card floats in the space it leaves — quiet type, generous space, no dashboard chrome. */
+.card { position: absolute; right: max(32px, 5vw); top: 50%; width: min(400px, 36vw); max-height: min(80vh, 760px);
+  transform: translateY(calc(-50% + 10px)); overflow: auto; padding: 26px 28px 24px; border-radius: 20px;
+  background: linear-gradient(180deg, #0d1520d9, #0a1018d9); border: 1px solid #ffffff0d;
+  box-shadow: 0 30px 80px -30px #000c; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  color: #c9d5e0; font-size: 14px; line-height: 1.6; opacity: 0;
+  transition: opacity .9s ease .3s, transform 1.1s cubic-bezier(.2,.7,.2,1) .3s; scrollbar-width: thin; scrollbar-color: #ffffff1a transparent; }
+.presence.with-card .card { opacity: 1; transform: translateY(-50%); }
+.card[hidden] { display: block; visibility: hidden; }
+.card h2 { margin: 0 28px 8px 0; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #8597a9; }
+.card .summary { margin: 0; font-size: 21px; line-height: 1.38; font-weight: 300; color: #e8eff6; letter-spacing: .005em; }
+.card .prose { margin: 12px 0 0; white-space: pre-wrap; color: #c9d5e0; }
+.card .figure-value { margin: 4px 0; font-size: 56px; line-height: 1.1; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
+.card .mark { display: inline-block; width: 8px; height: 8px; margin-right: 12px; border-radius: 50%; vertical-align: 4px; background: #a8bed1; }
+.card .mark.success { background: #a9d1b8; } .card .mark.failure { background: #d9a7a2; } .card .mark.partial { background: #dcc9a0; }
+.card ul { margin: 16px 0 0; padding: 0; list-style: none; }
+.card li { padding: 7px 0; border-top: 1px solid #ffffff0b; color: #b7c5d2; }
+.card li:first-child { border-top: 0; }
+.card p { margin: 10px 0 0; white-space: pre-wrap; }
+.card pre { margin: 14px 0 0; padding: 14px 16px; border-radius: 12px; background: #05080dcc; color: #cfdbe6;
+  font: 12px/1.6 ui-monospace, "SF Mono", Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+.card .lang { margin-top: 6px; font-size: 11px; color: #6f8296; }
+.card .picture { display: block; width: 100%; height: auto; max-height: 66vh; object-fit: contain; margin: 4px auto 0; border-radius: 12px; background: #0b121b; }
+.card .picture.relief { image-rendering: auto; background: transparent; margin-top: 10px; }
+.card .caption { margin: 12px 0 0; font-size: 12px; letter-spacing: .03em; color: #7f91a3; }
+.card table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 12.5px; }
+.card td { padding: 6px 0; border-top: 1px solid #ffffff0b; }
+.card td.path { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: #cfdbe6; word-break: break-all; }
+.card td.kind { width: 1%; padding-right: 12px; color: #8597a9; white-space: nowrap; }
+.card td.delta { width: 1%; padding-left: 12px; white-space: nowrap; text-align: right; color: #8597a9; }
+.card .add { color: #a9d1b8; } .card .del { color: #d9a7a2; }
+/* A picture or code is the information itself: more room, the body further aside. */
+.card.wide { width: min(560px, 46vw); }
+/* A photograph: the card is the picture's own shape, never letterboxed. */
+.card[data-kind="image"] { width: auto; max-width: min(560px, 46vw); padding: 14px 14px 16px; }
+.card[data-kind="image"] .picture { width: auto; max-width: 100%; background: none; }
+.card[data-kind="image"] .caption { margin: 12px 8px 0; }
+.card .dismiss { position: absolute; top: 12px; right: 12px; width: 26px; height: 26px; border: 0; border-radius: 50%;
+  background: transparent; color: #8597a9; font-size: 17px; line-height: 26px; cursor: pointer; opacity: 0; transition: opacity .3s, background .2s; z-index: 1; }
+.card:hover .dismiss, .card .dismiss:focus-visible { opacity: .75; }
+.card .dismiss:hover { background: #ffffff10; opacity: 1; }
+.card[data-kind="image"] .dismiss { background: #0a1018aa; }
 
-/* A framed image is the information itself: larger, and the body stays quiet beside it. */
-.panel.wide { width: min(640px, 52vw); }
+/* Immersive entry: one quiet invitation beneath the body. One click enters fullscreen (a browser rule). */
+.entry { position: absolute; left: 50%; bottom: max(9vh, 64px); transform: translateX(-50%); display: flex; flex-direction: column;
+  align-items: center; gap: 14px; animation: entry 2.4s ease both .6s; }
+.entry[hidden] { display: none; }
+.entry .wordmark { margin: 0; font-size: 12px; font-weight: 400; letter-spacing: .6em; text-indent: .6em; color: #8597a9; }
+.entry .enter { padding: 10px 26px; border: 1px solid #ffffff22; border-radius: 999px; background: #ffffff07; color: #dbe5ee;
+  font: inherit; font-size: 13px; letter-spacing: .14em; cursor: pointer; transition: background .3s, border-color .3s; }
+.entry .enter:hover { background: #ffffff12; border-color: #ffffff40; }
+.entry .enter:focus-visible { outline: 1px solid #9dadbf; outline-offset: 3px; }
+@keyframes entry { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 /* Transient status: one quiet line that fades. */
 .status { position: absolute; left: 50%; bottom: max(22px, env(safe-area-inset-bottom)); transform: translateX(-50%);
@@ -56,8 +82,14 @@ body { overflow: hidden; background: #090e16; }
 
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
-/* Narrow embeds and phones: the panel sits below the body. */
+/* Narrow windows, portrait displays and phones: the card sits below the body, which moves up. */
 @media (max-width: 720px), (max-aspect-ratio: 4/5) {
-  .panel, .panel.wide { left: 16px; right: 16px; top: auto; bottom: 16px; width: auto; max-height: 46%; transform: none; }
+  .card, .card.wide { left: 16px; right: 16px; top: auto; bottom: 16px; width: auto; max-height: 46%; transform: translateY(10px); }
+  .presence.with-card .card { transform: none; }
+  .card .picture { max-height: 34vh; }
+}
+/* Large fullscreen displays: a little more air. */
+@media (min-width: 1600px) and (min-aspect-ratio: 4/3) {
+  .card { right: 7vw; width: min(440px, 30vw); } .card.wide { width: min(680px, 40vw); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

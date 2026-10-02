@@ -24,6 +24,8 @@ export interface HookEvent {
   /** The shell command line, when the tool is a shell (truncated by the hook). */
   command?: string;
   session_id?: string;
+  /** Stop only: how long the final answer takes to say (from its length; the text is never forwarded). */
+  speech_seconds?: number;
 }
 
 export type HookDecision =

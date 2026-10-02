@@ -1,5 +1,6 @@
 import { DEFAULT_BODY, isBodyId, type AionBodyId } from "./body";
-import { holdFor, type Presentation, type PresentationContent } from "./presentation";
+import { holdsFor, legacyPreference, type Presentation, type PresentationContent, type PresentationRequest } from "./presentation";
+import { routePresentation } from "./presentationRouter";
 import { isActivityState, type ActivityState } from "./state";
 
 /**
@@ -24,8 +25,9 @@ export interface PresenceSnapshot {
 /** Seconds a state lasts unless something replaces it (null: indefinitely). */
 export const ACTIVITY_TTL: Record<ActivityState, number | null> = {
   idle: null, listening: 120, thinking: 600, working: 600, reading: 600, editing: 600, testing: 600, building: 600,
-  // An answer is short; if the turn's end never arrives (no hooks), responding settles by itself.
-  responding: 60, presenting: 600, complete: 6, error: 20,
+  // If the turn's end never arrives (no hooks), responding settles by itself. With hooks, the hub keeps it for as
+  // long as the answer takes to say (see PresenceHub.hook), whatever this says.
+  responding: 30, presenting: 600, complete: 6, error: 20,
 };
 
 export interface StoreClock {
@@ -70,14 +72,15 @@ export class PresenceStore {
   }
 
   /** Sets the host's activity. Invalid states are rejected (false), never coerced. */
-  setActivity(state: ActivityState, options: { label?: string; source?: ActivitySource } = {}): boolean {
+  /** `ttl` (seconds) overrides how long this state lasts before it settles to idle. */
+  setActivity(state: ActivityState, options: { label?: string; source?: ActivitySource; ttl?: number } = {}): boolean {
     if (!isActivityState(state)) return false;
     const now = this.clock.now();
     const current = this.state.activity;
     const label = options.label || undefined;
-    if (current.state === state && current.label === label) { this.armActivity(state); return true; }
+    if (current.state === state && current.label === label) { this.armActivity(state, options.ttl); return true; }
     this.commit({ activity: { state, ...(label ? { label } : {}), source: options.source ?? "model", since: now } });
-    this.armActivity(state);
+    this.armActivity(state, options.ttl);
     return true;
   }
 
@@ -92,20 +95,39 @@ export class PresenceStore {
     return true;
   }
 
-  /** Shows a presentation, replacing any other. `holdSeconds` 0 holds it until cleared. */
-  present(content: PresentationContent, holdSeconds?: number): Presentation {
+  /**
+   * Shows a presentation, replacing any other: the Presentation Router decides body, card or hybrid (from the
+   * request's preference, the v0.2 image mode, or automatically), and each part gets its lifetime.
+   * `holdSeconds` 0 keeps it until cleared.
+   */
+  present(content: PresentationContent, holdSeconds?: number, request: PresentationRequest = {}): Presentation {
     const now = this.clock.now();
-    const hold = holdFor(content, holdSeconds);
-    const presentation = { ...content, id: presentationId(now), at: now, hold } as Presentation;
+    const decision = routePresentation({ content, preference: request.preference ?? legacyPreference(content), detail: request.detail, capabilities: request.capabilities });
+    const holds = holdsFor(content, decision.route, holdSeconds);
+    const presentation = { ...content, id: presentationId(now), at: now, hold: holds.total, route: decision.route, reason: decision.reason, bodyHold: holds.body, cardHold: holds.card } as Presentation;
     this.cancelPresentation?.();
     this.cancelPresentation = null;
     this.commit({ presentation });
-    if (hold > 0) {
-      this.cancelPresentation = this.clock.schedule(() => {
-        if (this.state.presentation?.id === presentation.id) this.commit({ presentation: null });
-      }, (hold + FORMING_SECONDS) * 1000);
-    }
+    if (holds.total > 0) this.expire(presentation.id, holds.total + FORMING_SECONDS);
     return presentation;
+  }
+
+  /**
+   * A new topic began (a new prompt): a temporary presentation still on show ends within `maxSeconds`, so stale
+   * cards never accumulate. One kept until cleared (hold 0) stays.
+   */
+  shorten(maxSeconds: number) {
+    const presentation = this.state.presentation;
+    if (!presentation || presentation.hold === 0) return;
+    const left = (presentation.at - this.clock.now()) / 1000 + presentation.hold + FORMING_SECONDS;
+    if (left > maxSeconds) this.expire(presentation.id, maxSeconds);
+  }
+
+  private expire(id: string, seconds: number) {
+    this.cancelPresentation?.();
+    this.cancelPresentation = this.clock.schedule(() => {
+      if (this.state.presentation?.id === id) this.commit({ presentation: null });
+    }, seconds * 1000);
   }
 
   /** Ends the presentation: Aion returns to its persistent body. False when nothing was shown. */
@@ -133,10 +155,10 @@ export class PresenceStore {
     this.listeners.clear();
   }
 
-  private armActivity(state: ActivityState) {
+  private armActivity(state: ActivityState, override?: number) {
     this.cancelActivity?.();
     this.cancelActivity = null;
-    const ttl = ACTIVITY_TTL[state];
+    const ttl = override !== undefined && Number.isFinite(override) && override > 0 ? override : ACTIVITY_TTL[state];
     if (ttl === null) return;
     const since = this.state.activity.since;
     this.cancelActivity = this.clock.schedule(() => {

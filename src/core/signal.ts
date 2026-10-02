@@ -1,6 +1,6 @@
 import { NO_HOST_AUDIO, SPECTRUM_BANDS, type HostAudioSource } from "./audio";
 import { FocusImpulse } from "./focus";
-import type { MicInput } from "./listening/frame";
+import type { MicFrame, MicInput } from "./listening/frame";
 import { sanitizeState, type ActivityState, type AionState } from "./state";
 
 export const PRESENCE_MODES = ["idle", "listening", "thinking", "speaking"] as const;
@@ -65,7 +65,7 @@ export const FIELD_TARGETS: Record<AionState, FieldTarget> = {
   testing: { mode: "thinking", energy: 0.22, warmth: 0.34, focus: 0.55, thinking: 0.2 },
   building: { mode: "thinking", energy: 0.34, warmth: 0.38, focus: 0, thinking: 0.55 },
   // Semantic answering: speaking's warmth and a little of its energy, never its audio-driven motion.
-  responding: { mode: "idle", energy: 0.22, warmth: 0.5, focus: 0.05, thinking: 0.06, responding: 1 },
+  responding: { mode: "idle", energy: 0.3, warmth: 0.5, focus: 0, thinking: 0.08, responding: 1 },
   presenting: { mode: "idle", energy: 0.12, warmth: 0.45, focus: 0.2, thinking: 0 },
   complete: { mode: "idle", energy: 0.14, warmth: 0.55, focus: 0, thinking: 0 },
   error: { mode: "idle", energy: 0.05, warmth: 0.12, focus: 0.3, thinking: 0 },
@@ -73,6 +73,7 @@ export const FIELD_TARGETS: Record<AionState, FieldTarget> = {
   speaking: { mode: "idle", energy: 0.28, warmth: 0.55, focus: 0, thinking: 0 },
   greeting: { mode: "idle", energy: 0.12, warmth: 0.45, focus: 0.2, thinking: 0 },
   acknowledging: { mode: "listening", energy: 0.16, warmth: 0.4, focus: 0.3, thinking: 0 },
+  offering: { mode: "idle", energy: 0.14, warmth: 0.46, focus: 0.15, thinking: 0 },
 };
 
 /** Impulses: a brief inward gathering when a task is taken up or finished. */
@@ -91,12 +92,27 @@ export const engineDefaults = {
   /** Microphone activity is ignored this long after real host audio ends (speaker echo, SCF). */
   echoGuard: 0.4,
   /**
-   * Without real host audio, Codex's voice may still be playing after its turn ends; the microphone is
-   * ignored this long after responding (an echo hold), so Aion does not hear Codex as the user.
+   * Without real host audio, Codex's voice may still be playing after its turn ends: the microphone is ignored
+   * this long after responding, and for as long after that as the sound it was already hearing continues
+   * without a pause (the audible tail of the answer). See `echoGap` and `echoTailMax`.
    */
-  echoHold: 2.5,
+  echoHold: 1.2,
+  /** A pause this long ends the audible tail of an answer: what follows is the user. */
+  echoGap: 0.6,
+  /** The audible tail of an answer never lasts longer than this. */
+  echoTailMax: 20,
+  /**
+   * A host that has said "responding" for this long no longer silences the microphone: a stale state (a turn
+   * end that never arrived) must not stop Aion from hearing the user indefinitely.
+   */
+  respondingEchoMax: 45,
   /** A user utterance this long is treated as a conversational turn. */
   minTurn: 0.5,
+  /**
+   * A pause this long (after the VAD's own hangover) ends the user's turn. Shorter pauses between phrases keep
+   * Aion listening, so it does not flicker between listening and thinking mid-sentence.
+   */
+  turnGap: 0.7,
   /** An inferred thinking lasts at most this long unless the host confirms or replaces it. */
   inferredThinking: 6,
 };
@@ -134,23 +150,37 @@ export class PresenceEngine implements PresenceSignalSource {
   activity: ActivityState = "idle";
   /** The local microphone hears the user right now (after the echo guard). */
   userVoiced = false;
+  /** Diagnostics: the latest microphone frame (null without a microphone) and why it is being ignored, if it is. */
+  lastFrame: MicFrame | null = null;
+  echo: "none" | "host-audio" | "responding" | "answer-tail" = "none";
   private readonly host: () => ActivityState;
   private readonly audio: HostAudioSource;
   private last: AionState = "idle";
   private sounding = false;
   private quiet = 0;
   private speakingEnded = -Infinity;
+  private respondingSince = -Infinity;
   private respondingSeen = -Infinity;
+  private tailVoiceAt = -Infinity;
   private thinkingUntil = -Infinity;
   private lastHost: ActivityState = "idle";
+  /** The user's current turn: voiced seconds so far, and when the voice last stopped (null while speaking). */
+  private turnVoiced = 0;
+  private turnPause: number | null = null;
 
   constructor(private readonly inputs: EngineInputs, private readonly config: EngineConfig = engineDefaults) {
     this.host = inputs.host ?? (() => "idle");
     this.audio = inputs.audio ?? NO_HOST_AUDIO;
   }
 
+  /** Diagnostics: the host audio adapter in use ("none" while no host exposes its assistant audio). */
+  get hostAudio() { return this.audio.name; }
+
   /** Attaches (or with null, detaches) the local microphone analysis. */
-  setMicrophone(input: MicInput | null) { this.mic = input; if (!input) this.userVoiced = false; }
+  setMicrophone(input: MicInput | null) {
+    this.mic = input;
+    if (!input) { this.userVoiced = false; this.lastFrame = null; this.turnVoiced = 0; this.turnPause = null; }
+  }
 
   sample(elapsed: number, now: number): PresenceSignal {
     const dt = Number.isFinite(elapsed) ? Math.max(0, Math.min(0.1, elapsed)) : 0;
@@ -160,9 +190,12 @@ export class PresenceEngine implements PresenceSignalSource {
     if (host !== this.lastHost) {
       // The host moved on (a prompt arrived, work began): an inferred thought gives way to the real state.
       if (!RESTING.includes(host)) this.thinkingUntil = -Infinity;
+      if (host === "responding") this.respondingSince = now;
       this.lastHost = host;
     }
-    if (host === "responding") this.respondingSeen = now;
+    // A host that says "responding" is answering (its voice may be audible), unless that state has gone stale.
+    const answering = host === "responding" && now - this.respondingSince < c.respondingEchoMax;
+    if (answering) this.respondingSeen = now;
 
     // Real host audio: an audible gate with a release, so syllable gaps do not flicker (SCF).
     const frameAudio = this.audio.read(now);
@@ -175,16 +208,29 @@ export class PresenceEngine implements PresenceSignalSource {
 
     // The microphone, minus anything that may be Codex's own voice.
     const frame = this.mic?.read(dt) ?? null;
-    const echo = this.sounding || now - this.speakingEnded < c.echoGuard
-      || host === "responding" || now - this.respondingSeen < c.echoHold;
-    const voiced = Boolean(frame?.voiced) && !echo;
-    if (this.userVoiced && !voiced && !echo && (frame?.utterance ?? 0) >= c.minTurn && RESTING.includes(host)) {
-      this.thinkingUntil = now + c.inferredThinking;
+    this.lastFrame = frame;
+    const heard = Boolean(frame?.voiced);
+    // The audible tail of an answer: sound that was already playing when Codex's turn ended and has not paused.
+    if (answering) this.tailVoiceAt = now;
+    else if (heard && now - this.tailVoiceAt < c.echoGap + 0.05 && now - this.respondingSeen < c.echoTailMax) this.tailVoiceAt = now;
+    this.echo = this.sounding || now - this.speakingEnded < c.echoGuard ? "host-audio"
+      : answering ? "responding"
+        : now - this.respondingSeen < c.echoHold || now - this.tailVoiceAt < c.echoGap ? "answer-tail" : "none";
+    const voiced = heard && this.echo === "none";
+
+    // The user's turn: short pauses between phrases keep it open; a longer one ends it (inferred thinking).
+    if (voiced) { this.turnVoiced += dt; this.turnPause = null; }
+    else if (this.userVoiced) this.turnPause = now;
+    if (this.turnPause !== null && now - this.turnPause >= c.turnGap) {
+      if (this.turnVoiced >= c.minTurn && RESTING.includes(host)) this.thinkingUntil = now + c.inferredThinking;
+      this.turnPause = null; this.turnVoiced = 0;
     }
+    if (this.echo !== "none") { this.turnPause = null; this.turnVoiced = 0; }
     this.userVoiced = voiced;
     if (frame?.emphasis && voiced) this.focusImpulse.trigger(frame.emphasis, now);
 
-    this.activity = voiced && LISTENABLE.includes(host) ? "listening"
+    const inTurn = voiced || this.turnPause !== null;
+    this.activity = inTurn && LISTENABLE.includes(host) ? "listening"
       : RESTING.includes(host) && now < this.thinkingUntil ? "thinking"
         : host;
     if (this.activity === "listening") this.thinkingUntil = -Infinity;
@@ -201,8 +247,14 @@ export class PresenceEngine implements PresenceSignalSource {
     s.warmth = approach(s.warmth, target.warmth, 2, dt);
     s.focus = approach(s.focus, target.focus, target.focus > s.focus ? 3.5 : 2.2, dt);
     s.thinking = approach(s.thinking, target.thinking, target.thinking > s.thinking ? 2.2 : 3, dt);
-    s.responding = approach(s.responding, target.responding ?? 0, (target.responding ?? 0) > s.responding ? 1.5 : 2.5, dt);
-    const user = state === "listening" && voiced ? clamp01(frame?.level ?? 0) : 0;
+    // A visual or a card on show outranks the answering pose, but not the answer itself: while Codex answers, the
+    // formed visual keeps answering's life (renderer: a deeper ripple; the sphere's own field stays masked by it).
+    const answeringBeside = (state === "presenting" || state === "offering") && this.activity === "responding" ? 1 : 0;
+    const respond = Math.max(target.responding ?? 0, answeringBeside);
+    s.responding = approach(s.responding, respond, respond > s.responding ? 1.5 : 2.5, dt);
+    // The user's loudness follows whenever Aion is really listening, also while a visual is formed (the formed
+    // visual shimmers with it) — only real host speech takes the body over completely.
+    const user = this.activity === "listening" && voiced && !this.sounding ? clamp01(frame?.level ?? 0) : 0;
     s.userAmplitude = approach(s.userAmplitude, user, user > s.userAmplitude ? 20 : 7, dt);
     s.assistantAmplitude = approach(s.assistantAmplitude, this.sounding ? level : 0, 18, dt);
     const decay = Math.exp(-dt * 6);

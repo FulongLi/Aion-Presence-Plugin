@@ -4,8 +4,9 @@ import { z } from "zod";
 import { AION_BODIES, bodyLabel, PERSISTENT_BODIES } from "../../core/body";
 import { AION_IDENTITY, embodimentStatement } from "../../core/identity";
 import {
-  cleanCode, cleanText, describePresentation, LIMITS, type PresentationContent,
+  cleanCode, cleanText, describePresentation, LIMITS, type Presentation, type PresentationContent,
 } from "../../core/presentation";
+import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
@@ -14,6 +15,7 @@ import { clockText } from "../../visual/validate";
 import type { PresenceBackend, PresenceLink } from "../hub/link";
 import type { DisplayPreference, HubSnapshot } from "../hub/protocol";
 import { loadImageSource, MediaError } from "../media";
+import { imageSize } from "../resolver/imageInfo";
 import { VisualResolver } from "../resolver";
 import {
   mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
@@ -31,14 +33,16 @@ export interface AionServerOptions {
   /** The single-file presence surface (also served by the hub as the companion page). */
   page: () => string;
   version: string;
-  /** Opens the companion window (injectable for tests). */
-  openWindow?: (url: string) => Promise<boolean>;
+  /** Opens the companion window (injectable for tests). `immersive`: as a foreground, full-screen-sized app window. */
+  openWindow?: (url: string, options?: { immersive?: boolean }) => Promise<boolean>;
   /** Looks up portraits, images and terrain on public data sources (injectable for tests). */
   resolver?: VisualResolver;
   /** The plugin's assets/ directory, for curated first-party assets. */
   assetsDir?: string;
   /** The local clock (injectable for tests). */
   now?: () => Date;
+  /** A companion window launched this recently is never replaced (it may still be loading). Default 15 s. */
+  relaunchQuietMs?: number;
   /** Called once the host has connected and declared its capabilities (first-run opening). */
   onReady?: (host: { embedded: boolean; client?: string }) => void;
   env?: NodeJS.ProcessEnv;
@@ -52,7 +56,11 @@ export const presenceOutput = z.object({
   message: z.string(),
   state: z.enum(ACTIVITY_STATES),
   body: z.enum(AION_BODIES),
-  presentation: z.object({ id: z.string(), kind: z.enum(PRESENTATION_KINDS), description: z.string(), hold_seconds: z.number() }).nullable(),
+  presentation: z.object({
+    id: z.string(), kind: z.enum(PRESENTATION_KINDS), description: z.string(), hold_seconds: z.number(),
+    route: z.enum(PRESENTATION_ROUTES).describe("body: Aion's particle body became it. card: a high-fidelity card beside the body. hybrid: both."),
+    reason: z.string().describe("Why this route (e.g. portrait-hybrid, fidelity, body-native, too-detailed-for-body)."),
+  }).nullable(),
   surface: z.object({
     mode: z.enum(["embedded", "companion"]),
     open: z.boolean().describe("A companion window is connected, or the host is embedding Aion."),
@@ -69,6 +77,14 @@ export const presenceOutput = z.object({
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
+  immersive: z.object({
+    requested: z.boolean(),
+    path: z.enum(["host-fullscreen", "companion-fullscreen", "companion-window", "none"])
+      .describe("host-fullscreen: asked the host for its fullscreen display mode (the host's own composer or voice controls may stay). "
+        + "companion-fullscreen: a foreground window that enters true fullscreen at the user's first click on Enter Presence. "
+        + "companion-window: a foreground window only. none: not requested."),
+    needs_gesture: z.boolean().describe("The browser requires one click (Enter Presence) before true fullscreen."),
+  }).optional(),
 });
 type PresenceOutput = z.infer<typeof presenceOutput>;
 
@@ -135,6 +151,16 @@ export const TOOL_DESCRIPTIONS = {
     + "never use show_image or show_portrait for it.",
 } as const;
 
+/** The route in a few words, for the tool result. */
+function routeWords(presentation: Presentation): string {
+  const seconds = (value: number) => value ? `${Math.round(value)} s` : "until cleared";
+  switch (presentation.route) {
+    case "body": return `the body becomes it (${seconds(presentation.bodyHold)}; ${presentation.reason})`;
+    case "card": return `a card beside the body (${seconds(presentation.cardHold)}; ${presentation.reason})`;
+    case "hybrid": return `the body forms it (${seconds(presentation.bodyHold)}) and a card shows the original (${seconds(presentation.cardHold)}; ${presentation.reason})`;
+  }
+}
+
 /** Model-facing explanations of resolver failures (SCF's tool statuses), so Codex can carry on in words. */
 function resolveFailure(code: string, what: string): string {
   switch (code) {
@@ -158,11 +184,15 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const resolver = options.resolver ?? new VisualResolver({ env, assetsDir: options.assetsDir });
   const now = options.now ?? (() => new Date());
   const server = new McpServer({ name: "aion-presence", title: "Aion Presence", version: options.version }, {
-    instructions: `${embodimentStatement("Codex")} Call open_presence when the user asks to open Aion. When Aion is open, treat it as your `
-      + "visual body: when the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
-      + `only describing it; otherwise use the tools sparingly. ${onboardingGuidance()} See the aion-presence skill.`,
+    instructions: `${embodimentStatement("Codex")} Call open_presence with display "immersive" when the user asks to open Aion. While Aion `
+      + "is open, you are present to the user as Aion: speak in the first person, never describe Aion as a separate agent, and do not narrate "
+      + "these tools. When the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
+      + `only describing it; otherwise use the tools sparingly. ${onboardingGuidance()} See the aion-presence skill (Embodiment Mode).`,
   });
   let embeddedSeen = false;
+  /** When this server last launched a companion window: a window still loading is never replaced. */
+  let launchedAt = -Infinity;
+  const RELAUNCH_QUIET_MS = options.relaunchQuietMs ?? 15_000;
   /** When an embedded view last synced: it is showing Aion right now if that was recent. */
   let embeddedSyncAt = -Infinity;
   const EMBEDDED_LIVE_MS = 30_000;
@@ -177,7 +207,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
     state: snapshot.activity.state,
     body: snapshot.body,
     presentation: snapshot.presentation
-      ? { id: snapshot.presentation.id, kind: snapshot.presentation.kind, description: describePresentation(snapshot.presentation), hold_seconds: snapshot.presentation.hold }
+      ? {
+        id: snapshot.presentation.id, kind: snapshot.presentation.kind, description: describePresentation(snapshot.presentation), hold_seconds: snapshot.presentation.hold,
+        route: snapshot.presentation.route, reason: snapshot.presentation.reason,
+      }
       : null,
     surface: { mode, open: mode === "embedded" ? embeddedSeen : snapshot.hub.viewers > 0, hooks: snapshot.hub.hooksActive ? "active" : "not-detected" },
   });
@@ -191,9 +224,11 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const snapshot = await link.run(command);
     return result({ ...summarize(snapshot, modeFor(ctx), message(snapshot)), ...extra });
   };
-  const present = (ctx: ServerContext, content: PresentationContent, hold?: number, extra: Partial<PresenceOutput> = {}) =>
-    run(ctx, backend => backend.apply({ type: "present", content, hold }),
-      snapshot => `Aion is presenting ${describePresentation(content)}${snapshot.presentation?.hold ? ` for ${Math.round(snapshot.presentation.hold)} s` : " until cleared"}.`, extra);
+  const present = (ctx: ServerContext, content: PresentationContent, hold?: number, extra: Partial<PresenceOutput> = {},
+    request: { presentation?: PresentationPreference; detail?: boolean } = {}) =>
+    run(ctx, backend => backend.apply({ type: "present", content, hold, ...request }),
+      snapshot => `Shown: ${describePresentation(content)}${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}. `
+        + "Answer in your own voice, in the first person; do not narrate this tool call.", extra);
   const media = async (source: string) => {
     const { data, mime } = await loadImageSource(source);
     return link.run(backend => backend.addMedia(data, mime));
@@ -203,6 +238,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const credit = (source: { provider: string; license?: string }) => source.provider === "local-assets" ? undefined
     : `${{ wikipedia: "Wikipedia", commons: "Wikimedia Commons", openverse: "Openverse", web: "Web search" }[source.provider] ?? source.provider}${source.license ? ` · ${source.license}` : ""}`.slice(0, LIMITS.title);
   const label = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, LIMITS.title) || undefined;
+  const size = (bytes: Uint8Array) => imageSize(bytes) ?? {};
 
   const showForm = (ctx: ServerContext, args: z.infer<typeof showFormInput>) => {
     const match = visualForms.lookup(args.form);
@@ -227,10 +263,11 @@ export function createAionServer(options: AionServerOptions): McpServer {
   registerAppTool(server, "open_presence", {
     title: "Open Aion",
     description: [
-      `Open ${AION_IDENTITY.name}, the visual body of this Codex session. Use when the user asks to open, show or wake Aion ("Open Aion", "打开 Aion"),`,
-      "or once before presenting something visually when Aion is not open. Aion is not another AI model: Codex keeps doing all reasoning and work;",
-      "Aion only presents it. In hosts that render MCP Apps Aion appears inside the host (fullscreen when requested and the host offers it);",
-      "otherwise a local companion window opens. Calling it again is harmless and does not open a second window. Do not call it every turn.",
+      `Open ${AION_IDENTITY.name}, your embodied interface: while it is open the user sees and hears you through Aion. Use when the user asks to open,`,
+      "show or wake Aion (\"Open Aion\", \"打开 Aion\") — then pass display \"immersive\" — or once before presenting something visually when Aion is",
+      "not open. Aion is not another AI model: you keep doing all reasoning and work. In hosts that render MCP Apps Aion appears inside the host",
+      "(fullscreen where the host offers it); otherwise a local companion window opens in the foreground. Calling it again is harmless and does",
+      "not open a second window. Do not call it every turn.",
     ].join(" "),
     inputSchema: openPresenceInput,
     outputSchema: presenceOutput,
@@ -239,6 +276,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, async (args, ctx) => {
     const decision = decideSurface(capabilities(ctx), args.surface ?? "auto", env);
     const display: DisplayPreference = args.display ?? "auto";
+    const immersive = display === "immersive" || display === "fullscreen";
     // A newly opened Presence (nothing is showing Aion yet) greets once: a small wave, and Codex's introduction.
     const before = await link.run(backend => backend.state());
     const fresh = decision.mode === "embedded" ? Date.now() - embeddedSyncAt > EMBEDDED_LIVE_MS : before.hub.viewers === 0;
@@ -247,19 +285,32 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const introduce = fresh || before.hub.introduction;
     if (before.hub.introduction) snapshot = await link.run(backend => backend.apply({ type: "introduced" }));
     if (args.body) snapshot = await link.run(backend => backend.apply({ type: "body", body: args.body! }));
-    const url = link.current?.surfaceUrl;
+    // AION_PRESENCE_DEBUG=1 opens the companion with its diagnostics (for `npm run diagnose`; development only).
+    const url = link.current?.surfaceUrl && `${link.current.surfaceUrl}${env.AION_PRESENCE_DEBUG === "1" ? "&debug=1" : ""}`;
     let opened = false;
     if (decision.mode === "embedded") embeddedSeen = true;
-    else if (snapshot.hub.viewers === 0 && url) opened = await openWindow(url);
+    else if (snapshot.hub.viewers === 0 && url) opened = await openWindow(url, { immersive });
+    else if (immersive && url && !snapshot.hub.surface.visible && !snapshot.hub.surface.fullscreen && Date.now() - launchedAt > RELAUNCH_QUIET_MS) {
+      // Open but hidden behind other windows (or minimized): a page cannot raise itself, but a newly launched app
+      // window comes to the front. It replaces the open one, which retires as soon as the new one connects. (Focus
+      // alone is not used: a pending permission prompt takes it from a window that is in front.)
+      snapshot = await link.run(backend => backend.apply({ type: "supersede" }));
+      opened = await openWindow(url, { immersive });
+    }
+    if (opened) launchedAt = Date.now();
     const output = summarize(snapshot, decision.mode, decision.mode === "embedded"
-      ? `Aion is open in ${display === "fullscreen" ? "fullscreen (where the host offers it)" : "this conversation"} as the ${bodyLabel(snapshot.body)}.`
-      : snapshot.hub.viewers > 0 ? `Aion is already open in its companion window, as the ${bodyLabel(snapshot.body)}.`
-        : opened ? `Aion opened in a companion window, as the ${bodyLabel(snapshot.body)}.`
+      ? `Aion is open ${immersive ? "and asked the host for fullscreen (the host decides; its own composer may stay visible)" : "in this conversation"}, as the ${bodyLabel(snapshot.body)}.`
+      : opened ? `Aion opened in its own ${immersive ? "foreground window; one click on Enter Presence makes it fullscreen" : "window"}, as the ${bodyLabel(snapshot.body)}.`
+        : snapshot.hub.viewers > 0 ? `Aion is already open${snapshot.hub.surface.fullscreen ? " in fullscreen (its own space)" : snapshot.hub.surface.visible ? " on screen" : ""}, as the ${bodyLabel(snapshot.body)}.`
           : `Aion is ready as the ${bodyLabel(snapshot.body)}; open ${url ?? "the companion window"} to see it.`);
     if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened;
     const greeting = introduce ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
     if (introduce) output.message += " A greeting is due: introduce Aion once, briefly (see greeting.line).";
-    return result({ ...output, greeting, url, window_opened: opened, fullscreen: display === "fullscreen" ? "requested" : "not-requested" });
+    const path = !immersive ? "none" : decision.mode === "embedded" ? "host-fullscreen" : "companion-fullscreen";
+    return result({
+      ...output, greeting, url, window_opened: opened, fullscreen: immersive ? "requested" : "not-requested",
+      immersive: { requested: immersive, path, needs_gesture: path === "companion-fullscreen" },
+    });
   });
 
   server.registerTool("set_presence_state", {
@@ -273,7 +324,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: setPresenceStateInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "activity", state: args.state, label: args.label }), () => `Aion's state is ${args.state}.`));
+  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "activity", state: args.state, label: args.label }), () => `State: ${args.state}. Nothing to tell the user about it.`));
 
   server.registerTool("set_body_form", {
     title: "Set Aion's body",
@@ -281,7 +332,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: setBodyFormInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Aion's body is the ${bodyLabel(snapshot.body)}.`,
+  }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Body: ${bodyLabel(snapshot.body)}. Say it in the first person if at all (e.g. "Here I am in human form").`,
     { shown: bodyLabel(args.body) }));
 
   server.registerTool("show_image", {
@@ -296,8 +347,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
     }
     if (args.source !== undefined) {
       try {
-        const ref = await media(args.source);
-        return present(ctx, { kind: "image", media: ref, mode: args.mode ?? "particles", fit: "object", ...(args.alt ? { alt: args.alt } : {}) }, args.hold_seconds);
+        const { data, mime } = await loadImageSource(args.source);
+        const ref = await link.run(backend => backend.addMedia(data, mime));
+        return present(ctx, { kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: "object", origin: "local", ...size(data), ...(args.alt ? { alt: args.alt } : {}) },
+          args.hold_seconds, {}, { presentation: args.presentation, detail: args.detail });
       } catch (error) { return mediaFailure(error); }
     }
     try {
@@ -305,8 +358,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const alt = args.alt ?? label(found.label);
       const by = credit(found.source);
-      return present(ctx, { kind: "image", media: ref, mode: args.mode ?? "particles", fit: found.fit, ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}) },
-        args.hold_seconds, { shown: found.label, source: found.source });
+      return present(ctx, {
+        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup",
+        ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}),
+      }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation, detail: args.detail });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.query!)); }
   });
 
@@ -321,8 +376,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const found = await resolver.portrait(args.person);
       const ref = await hand(found.bytes, found.mime);
       const by = credit(found.source);
-      return present(ctx, { kind: "image", media: ref, mode: "particles", fit: "portrait", alt: label(found.label) ?? args.person, ...(by ? { credit: by } : {}) },
-        args.hold_seconds, { shown: found.label, source: found.source });
+      return present(ctx, {
+        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person,
+        ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(by ? { credit: by } : {}),
+      }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }
   });
 
@@ -337,9 +394,12 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const found = await resolver.terrain(args.region, args.style ?? "terrain");
       const ref = await hand(found.bytes, found.mime);
       const { elevation } = found.field;
-      return present(ctx, { kind: "terrain", media: ref, style: args.style ?? "terrain", label: label(found.label) ?? args.region }, args.hold_seconds, {
-        shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}`, source: found.source,
-      });
+      const by = credit(found.source);
+      return present(ctx, {
+        kind: "terrain", media: ref, style: args.style ?? "terrain", label: label(found.label) ?? args.region,
+        ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
+      }, args.hold_seconds, { shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}`, source: found.source },
+      { presentation: args.presentation });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
   });
 
@@ -377,7 +437,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: showTextInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, (args, ctx) => present(ctx, { kind: "text", text: args.text, ...(args.title ? { title: args.title } : {}) }, args.hold_seconds));
+  }, (args, ctx) => present(ctx, { kind: "text", text: args.text, ...(args.title ? { title: args.title } : {}) }, args.hold_seconds, {}, { presentation: args.presentation }));
 
   server.registerTool("show_symbol", {
     title: "Show a symbol",
@@ -401,7 +461,8 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: showResultInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, (args, ctx) => present(ctx, { kind: "result", title: args.title, summary: args.summary, status: args.status ?? "info", details: args.details ?? [] }, args.hold_seconds));
+  }, (args, ctx) => present(ctx, { kind: "result", title: args.title, summary: args.summary, status: args.status ?? "info", details: args.details ?? [] },
+    args.hold_seconds, {}, { presentation: args.presentation }));
 
   server.registerTool("show_artifact", {
     title: "Show an artifact",
@@ -411,29 +472,30 @@ export function createAionServer(options: AionServerOptions): McpServer {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     const base = { kind: "artifact" as const, type: args.type, title: args.title };
+    const routed = { presentation: args.presentation };
     switch (args.type) {
       case "text": {
         const content = cleanText(args.content, LIMITS.artifact);
-        return content ? present(ctx, { ...base, content }, args.hold_seconds) : failure("content-required: a text artifact needs content (plain text).");
+        return content ? present(ctx, { ...base, content }, args.hold_seconds, {}, routed) : failure("content-required: a text artifact needs content (plain text).");
       }
       case "code": {
         const content = cleanCode(args.content, LIMITS.artifact);
-        return content ? present(ctx, { ...base, content, ...(args.language ? { language: args.language.toLowerCase() } : {}) }, args.hold_seconds)
+        return content ? present(ctx, { ...base, content, ...(args.language ? { language: args.language.toLowerCase() } : {}) }, args.hold_seconds, {}, routed)
           : failure("content-required: a code artifact needs content.");
       }
       case "list":
-        return args.items ? present(ctx, { ...base, items: args.items }, args.hold_seconds) : failure("items-required: a list artifact needs items.");
+        return args.items ? present(ctx, { ...base, items: args.items }, args.hold_seconds, {}, routed) : failure("items-required: a list artifact needs items.");
       case "changes":
-        return args.changes ? present(ctx, { ...base, changes: args.changes }, args.hold_seconds) : failure("changes-required: a changes artifact needs changes.");
+        return args.changes ? present(ctx, { ...base, changes: args.changes }, args.hold_seconds, {}, routed) : failure("changes-required: a changes artifact needs changes.");
       case "svg": {
         const svg = args.content === undefined ? null : svgSource(args.content);
         if (!svg) return failure("svg-invalid: content must be one <svg>…</svg> document.");
         const ref = await link.run(backend => backend.addMedia(Buffer.from(svg, "utf8"), "image/svg+xml"));
-        return present(ctx, { ...base, media: ref }, args.hold_seconds);
+        return present(ctx, { ...base, media: ref }, args.hold_seconds, {}, routed);
       }
       case "image": {
         if (!args.source) return failure("source-required: an image artifact needs source (an absolute local path or a data:image URL).");
-        try { return present(ctx, { ...base, media: await media(args.source) }, args.hold_seconds); } catch (error) { return mediaFailure(error); }
+        try { return present(ctx, { ...base, media: await media(args.source) }, args.hold_seconds, {}, routed); } catch (error) { return mediaFailure(error); }
       }
     }
   });
@@ -444,7 +506,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: z.object({}).strict(),
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, (_args, ctx) => run(ctx, backend => backend.apply({ type: "clear" }), () => "Aion returned to its body."));
+  }, (_args, ctx) => run(ctx, backend => backend.apply({ type: "clear" }), () => "Cleared: back to the persistent body."));
 
   server.registerTool("show_visual_form", {
     title: "Show a visual form (older name)",

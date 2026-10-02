@@ -11,6 +11,8 @@ export interface MicFrame {
   utterance: number;
   /** Acoustic emphasis event strength for this frame; 0 when none. */
   emphasis: number;
+  /** Raw loudness (RMS) of the latest block, for diagnostics only. */
+  rms?: number;
 }
 
 export interface MicInput { read(dt: number): MicFrame | null }

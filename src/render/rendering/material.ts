@@ -22,7 +22,9 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const key = normal.dot(normalize(vec3(-0.7, 1, 1.7))).add(u.wrap).div(u.wrap.add(1)).clamp(0, 1);
   const fill = normal.dot(normalize(vec3(1, -0.3, -0.6))).add(u.wrap).div(u.wrap.add(1)).clamp(0, 1);
   // Attention and focus lift the light a little: the body "turns toward" the user.
-  const attentionLight = u.attention.mul(u.listeningGlow).add(u.focusPulse.mul(u.focusGlow));
+  // Answering adds a faint warm light that rises with the swell (see presenceField.ts).
+  const answerLight = sin(u.clock.mul(u.responseSpeed).sub(rest.y.mul(1.2))).mul(0.5).add(0.5).mul(u.responding).mul(u.responseGlow);
+  const attentionLight = u.attention.mul(u.listeningGlow).add(u.focusPulse.mul(u.focusGlow)).add(u.listeningAudio.mul(u.listeningGlow)).add(answerLight);
   const light = key.mul(u.key).add(fill.mul(u.fill)).add(u.ambient).add(attentionLight);
   const cool = uniform(new Color("#a8bed1"));
   const warm = uniform(new Color("#d5c5bb"));

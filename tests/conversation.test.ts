@@ -59,7 +59,8 @@ test("idle → the user speaks → listening → they stop → thinking (inferre
   assert.equal(heard.state, "listening");
   assert.ok(s.engine.signal.focus > 0.5 && s.engine.signal.userAmplitude > 0, "the body gathers and follows the voice");
   s.mic.rms = silence;
-  const after = s.run(1);
+  assert.equal(s.run(0.9).activity, "listening", "a pause between phrases keeps Aion listening");
+  const after = s.run(0.6);
   assert.equal(after.activity, "thinking", "a finished utterance starts a thought");
   s.host("thinking"); // UserPromptSubmit arrives
   assert.equal(s.run(0.5).activity, "thinking");
@@ -69,7 +70,7 @@ test("idle → the user speaks → listening → they stop → thinking (inferre
 
 test("an inferred thought is short-lived when the host never confirms it", () => {
   const s = surface();
-  s.run(1); s.mic.rms = speech; s.run(1.2); s.mic.rms = silence; s.run(1);
+  s.run(1); s.mic.rms = speech; s.run(1.2); s.mic.rms = silence; s.run(1.5);
   assert.equal(s.engine.activity, "thinking");
   assert.equal(s.run(engineDefaults.inferredThinking).activity, "idle");
 });
@@ -158,10 +159,11 @@ test("responding is semantic: a gentle field and figure motion, never a made-up 
   assert.ok(s.engine.signal.warmth > FIELD_TARGETS.idle.warmth);
   s.host("complete"); s.run(3);
   assert.ok(s.engine.signal.responding < 0.05, "and it ends with the answer");
-  // The figure answers with small, slow hand movement: restrained, and not frozen.
+  // The figure answers with slow hand, head and torso movement: clearly alive, and still restrained — well under
+  // half of the presenting gesture's reach (0.29) and far from the greeting's wave.
   const neutral = solvePose(NEUTRAL_POSE);
-  const poses = [0.5, 1.2, 1.9, 2.6].map(t => solvePose(gestureTarget("responding", t)));
-  for (const pose of poses) for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.12, "restrained");
+  const poses = Array.from({ length: 240 }, (_, k) => solvePose(gestureTarget("responding", k * 0.25)));
+  for (const pose of poses) for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.16, "restrained");
   assert.ok(poses.some((pose, k) => k && pose.some((value, i) => Math.abs(value - poses[0][i]) > 0.004)), "it moves");
 });
 

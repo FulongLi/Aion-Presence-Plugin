@@ -8,7 +8,7 @@ import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
 import { DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
-import { hookEventSchema, hubCommandSchema, mediaUploadSchema, type DisplayPreference, type HubCommand, type HubSnapshot } from "./protocol";
+import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
 
 export interface HubOptions {
   /** Runtime directory (hub.json, token, hook heartbeat). Default: presenceHome(). */
@@ -27,6 +27,13 @@ const MEDIA_LIMIT = 12 * 1024 * 1024;
 
 /** A model-set work state outranks a generic hook-derived "working" for this long. */
 const MODEL_PRECEDENCE_MS = 120_000;
+/**
+ * After the turn ends, an answer that is still being said keeps Aion answering (Codex's voice is not a signal a
+ * plugin can read; its length is, from the Stop hook). Bounded, and any new prompt, interrupt or state ends it.
+ */
+export const ANSWER_TAIL = { minSeconds: 1.5, maxSeconds: 45 };
+/** A new prompt is a new topic: a temporary presentation from the last one ends within this many seconds. */
+export const NEW_TOPIC_SECONDS = 15;
 
 /**
  * The presence hub: the one place Aion's state lives while it is open. It is owned by the first Aion MCP
@@ -54,11 +61,19 @@ export class PresenceHub {
   private token = "";
   private revision = 0;
   private display: DisplayPreference = "auto";
-  private readonly viewers = new Set<ServerResponse>();
+  /** Connected companion windows, by the id each page chose for itself. */
+  private readonly viewers = new Map<ServerResponse, string>();
+  private readonly reports = new Map<string, SurfaceReport>();
+  /** The latest ?debug=1 diagnostics per window (debug pages only), kept in memory for `npm run diagnose`. */
+  private readonly diagnostics = new Map<string, { at: number; lines: Record<string, string> }>();
+  /** Windows to retire once a newer one connects (see the supersede command). */
+  private retiring: Set<string> | null = null;
   private readonly waiters = new Set<() => void>();
   private readonly clock: StoreClock;
   private cancelSettle: (() => void) | null = null;
   private turnActive = false;
+  /** When the agent said it is responding during this turn (null: it has not). */
+  private respondingAt: number | null = null;
   private introduction = false;
   private lastHookAt = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
@@ -95,14 +110,14 @@ export class PresenceHub {
     this.port = (this.server.address() as AddressInfo).port;
     const discovery: HubDiscovery = { version: 1, pid: process.pid, port: this.port, hub: this.id, url: this.url, startedAt: this.clock.now() };
     writeFileSync(join(this.home, HUB_FILE), JSON.stringify(discovery), { mode: 0o600 });
-    this.heartbeat = setInterval(() => { for (const viewer of this.viewers) viewer.write(": ping\n\n"); }, 20_000);
+    this.heartbeat = setInterval(() => { for (const viewer of this.viewers.keys()) viewer.write(": ping\n\n"); }, 20_000);
     this.heartbeat.unref();
   }
 
   async stop(): Promise<void> {
     clearInterval(this.heartbeat);
     this.cancelSettle?.();
-    for (const viewer of this.viewers) viewer.end();
+    for (const viewer of this.viewers.keys()) viewer.end();
     this.viewers.clear();
     for (const wake of this.waiters) wake();
     const file = join(this.home, HUB_FILE);
@@ -120,7 +135,10 @@ export class PresenceHub {
     const { revision: _ignored, ...state } = this.store.snapshot();
     return {
       ...state, revision: this.revision,
-      hub: { id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction },
+      hub: {
+        id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction,
+        surface: this.surfaceState(),
+      },
     };
   }
 
@@ -135,11 +153,12 @@ export class PresenceHub {
   apply(command: HubCommand): HubSnapshot {
     switch (command.type) {
       case "activity":
-        this.cancelSettle?.();
+        this.cancelSettle?.(); this.cancelSettle = null;
+        if (command.state === "responding") this.respondingAt = this.clock.now();
         this.store.setActivity(command.state, { label: command.label, source: "model" });
         break;
       case "body": this.store.setBody(command.body); break;
-      case "present": this.store.present(command.content, command.hold); break;
+      case "present": this.store.present(command.content, command.hold, { preference: command.presentation, detail: command.detail }); break;
       case "clear": this.store.clearPresentation(); break;
       case "open":
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
@@ -150,8 +169,29 @@ export class PresenceHub {
       case "introduced":
         if (this.introduction) { this.introduction = false; this.changed(); }
         break;
+      case "supersede":
+        this.retiring = new Set(this.viewers.values());
+        break;
     }
     return this.snapshot();
+  }
+
+  /** Whether a connected companion window is in front, or in true fullscreen, by its own latest report. */
+  private surfaceState() {
+    const windows = [...new Set(this.viewers.values())];
+    const live = windows.map(window => this.reports.get(window)).filter(Boolean) as SurfaceReport[];
+    return {
+      focused: live.some(report => report.focused && report.visible),
+      visible: live.some(report => report.visible) || live.length < windows.length,
+      fullscreen: live.some(report => report.fullscreen),
+    };
+  }
+
+  /** A companion window describes itself. */
+  report(report: SurfaceReport) {
+    const before = JSON.stringify(this.surfaceState());
+    this.reports.set(report.window, report);
+    if (JSON.stringify(this.surfaceState()) !== before) this.changed();
   }
 
   /** Keeps media for the surfaces under the type its bytes actually are (never what a caller claims). */
@@ -178,7 +218,7 @@ export class PresenceHub {
     const current = this.store.snapshot().activity;
     switch (decision.type) {
       case "activity": {
-        if (event.hook_event_name === "UserPromptSubmit") this.turnActive = true;
+        if (event.hook_event_name === "UserPromptSubmit") { this.turnActive = true; this.respondingAt = null; this.store.shorten(NEW_TOPIC_SECONDS); }
         this.cancelSettle?.(); this.cancelSettle = null;
         const modelWork = current.source === "model" && isWorkState(current.state) && this.clock.now() - current.since < MODEL_PRECEDENCE_MS;
         // A generic "working" never replaces something more specific the agent itself said it is doing.
@@ -198,9 +238,26 @@ export class PresenceHub {
       }
       case "turn-end": {
         this.cancelSettle?.(); this.cancelSettle = null;
-        // The turn ends: what Codex did (or answered) is complete, then rests. An error Codex reported is kept.
-        if (current.state !== "error") this.store.setActivity(this.turnActive || current.state === "responding" ? "complete" : "idle", { source: "hook" });
+        const answered = this.respondingAt;
+        this.respondingAt = null;
+        const done = this.turnActive || current.state === "responding" || answered !== null;
         this.turnActive = false;
+        if (current.state === "error") break;
+        // The answer may still be being said: Aion keeps answering for the rest of it, then completes.
+        const said = event.speech_seconds ?? 0;
+        const left = answered === null ? 0 : Math.min(ANSWER_TAIL.maxSeconds, said - (this.clock.now() - answered) / 1000);
+        if (left >= ANSWER_TAIL.minSeconds) {
+          this.store.setActivity("responding", { source: "hook", ttl: left + 5 });
+          const since = this.store.snapshot().activity.since;
+          this.cancelSettle = this.clock.schedule(() => {
+            this.cancelSettle = null;
+            const now = this.store.snapshot().activity;
+            if (now.state === "responding" && now.since === since) this.store.setActivity("complete", { source: "hook" });
+          }, left * 1000);
+          break;
+        }
+        // What Codex did (or answered) is complete, then rests.
+        this.store.setActivity(done ? "complete" : "idle", { source: "hook" });
         break;
       }
     }
@@ -211,7 +268,7 @@ export class PresenceHub {
     this.revision++;
     const snapshot = this.snapshot();
     const frame = `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`;
-    for (const viewer of this.viewers) viewer.write(frame);
+    for (const viewer of this.viewers.keys()) viewer.write(frame);
     for (const wake of [...this.waiters]) wake();
   }
 
@@ -236,7 +293,10 @@ export class PresenceHub {
         return res.end(this.options.page());
       }
       if (req.method === "GET" && url.pathname === "/health") return send(res, 200, { ok: true, hub: this.id, pid: process.pid });
-      if (req.method === "GET" && url.pathname === "/events") return this.subscribe(req, res);
+      if (req.method === "GET" && url.pathname === "/events") {
+        const window = url.searchParams.get("window") ?? "";
+        return this.subscribe(req, res, /^[a-z0-9]{8,32}$/.test(window) ? window : randomBytes(6).toString("hex"));
+      }
       if (req.method === "GET" && url.pathname === "/api/state") {
         const after = Number(url.searchParams.get("after") ?? -1);
         const wait = Math.max(0, Math.min(25_000, Number(url.searchParams.get("wait") ?? 0)));
@@ -262,6 +322,24 @@ export class PresenceHub {
         if (!mime || data.length > 8 * 1024 * 1024) return send(res, 400, { error: "invalid-media" });
         return send(res, 200, this.addMedia(data, mime));
       }
+      if (req.method === "POST" && url.pathname === "/api/diagnostics") {
+        const report = diagnosticsSchema.safeParse(await readJson(req, JSON_LIMIT));
+        if (!report.success) return send(res, 400, { error: "invalid-diagnostics" });
+        this.diagnostics.set(report.data.window, { at: this.clock.now(), lines: report.data.lines });
+        while (this.diagnostics.size > 8) this.diagnostics.delete(this.diagnostics.keys().next().value!);
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method === "GET" && url.pathname === "/api/diagnostics") {
+        return send(res, 200, Object.fromEntries([...this.diagnostics].filter(([, item]) => this.clock.now() - item.at < 10_000)));
+      }
+      if (req.method === "POST" && url.pathname === "/api/surface") {
+        const report = surfaceReportSchema.safeParse(await readJson(req, JSON_LIMIT));
+        if (!report.success) return send(res, 400, { error: "invalid-surface" });
+        this.report(report.data);
+        res.writeHead(204);
+        return res.end();
+      }
       if (req.method === "POST" && url.pathname === "/api/hook") {
         const event = hookEventSchema.safeParse(await readJson(req, JSON_LIMIT));
         if (!event.success) return send(res, 400, { error: "invalid-hook" });
@@ -275,11 +353,20 @@ export class PresenceHub {
     }
   }
 
-  private subscribe(req: IncomingMessage, res: ServerResponse) {
+  private subscribe(req: IncomingMessage, res: ServerResponse, window: string) {
     res.writeHead(200, { "Content-Type": "text/event-stream", Connection: "keep-alive" });
     res.write(`retry: 2000\n\n`);
-    this.viewers.add(res);
-    req.on("close", () => { this.viewers.delete(res); this.changed(); });
+    this.viewers.set(res, window);
+    req.on("close", () => {
+      this.viewers.delete(res);
+      if (![...this.viewers.values()].includes(window)) { this.reports.delete(window); this.diagnostics.delete(window); }
+      this.changed();
+    });
+    // The window that was brought forward has arrived: the ones it replaces retire (they close themselves).
+    if (this.retiring && !this.retiring.has(window)) {
+      for (const [viewer, id] of this.viewers) if (this.retiring.has(id)) viewer.write("event: superseded\ndata: {}\n\n");
+      this.retiring = null;
+    }
     // Everyone (including the new viewer) learns the new viewer count.
     this.changed();
   }

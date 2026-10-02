@@ -57,7 +57,7 @@ export class Aion implements BodySource {
     this.frame.level = this.body.sample(step);
     // The figure's pose is only computed while any of it is visible.
     if (this.frame.level > 0 || this.body.form === "figure") {
-      this.figure.sample(step, state, now - this.state.since, signal.assistantAmplitude, calm);
+      this.figure.sample(step, state, now - this.state.since, signal.assistantAmplitude, calm, signal.userAmplitude);
     }
     this.orbit = (this.orbit + step * 0.35 * signal.thinking * (calm ? 0.3 : 1)) % (Math.PI * 2);
     this.frame.orbit = this.orbit;

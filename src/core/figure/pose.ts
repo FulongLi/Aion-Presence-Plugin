@@ -41,8 +41,9 @@ export const NEUTRAL_POSE: PoseParams = { sway: 0, lean: 0, tilt: 0, nod: 0, lif
  */
 const STATE_POSES: Record<AionState, PoseParams> = {
   idle: NEUTRAL_POSE,
-  // Turned toward the user: a slight lean and head tilt, hands drawn in a little; calmer.
-  listening: { ...NEUTRAL_POSE, lean: 0.05, tilt: 0.07, nod: 0.08, left: arm(0.12, 0.2, 0.04), right: arm(0.12, 0.2, 0.04) },
+  // Turned toward the user: a lean and head tilt, hands drawn in a little; calmer. The user's loudness adds a
+  // little more lean and small attentive nods (see gestureTarget).
+  listening: { ...NEUTRAL_POSE, lean: 0.065, tilt: 0.1, nod: 0.1, left: arm(0.12, 0.22, 0.045), right: arm(0.12, 0.22, 0.045) },
   // Still, head slightly lowered. No spinner, no hand to chin.
   thinking: { ...NEUTRAL_POSE, lean: 0.02, tilt: -0.03, nod: 0.2, left: arm(0.12, 0.28, 0.05), right: arm(0.12, 0.28, 0.05) },
   // Head lowered toward the hands, which come together a little, forward: attention on something held.
@@ -60,6 +61,8 @@ const STATE_POSES: Record<AionState, PoseParams> = {
   // One hand raised, forearm up; the wave itself is the gesture envelope.
   greeting: { ...NEUTRAL_POSE, lean: 0.02, tilt: 0.05, right: arm(0.8, 1.95, 0.06) },
   acknowledging: { ...NEUTRAL_POSE, lean: 0.03 },
+  // A card has just appeared beside the body: an open hand toward it, briefly (see gestureTarget).
+  offering: { ...NEUTRAL_POSE, lean: 0.025, tilt: -0.05, right: arm(0.62, 0.3, 0.1), left: arm(0.18, 0.18, 0.04) },
   // An open arm toward the information forming beside/through the body.
   presenting: { ...NEUTRAL_POSE, lean: 0.02, tilt: -0.04, right: arm(0.75, 0.25, 0.12), left: arm(0.2, 0.18, 0.04) },
   // Settled and a little open, after a short nod (see gestureTarget).
@@ -73,7 +76,8 @@ const STATE_MOTION: Record<AionState, { breath: number; sway: number }> = {
   idle: { breath: 1, sway: 1 }, listening: { breath: 0.7, sway: 0.4 }, thinking: { breath: 0.45, sway: 0.2 },
   reading: { breath: 0.5, sway: 0.2 }, working: { breath: 0.6, sway: 0.3 }, editing: { breath: 0.55, sway: 0.25 },
   testing: { breath: 0.45, sway: 0.12 }, building: { breath: 0.6, sway: 0.3 },
-  speaking: { breath: 0.9, sway: 0.6 }, responding: { breath: 0.85, sway: 0.4 }, greeting: { breath: 0.8, sway: 0.3 }, acknowledging: { breath: 0.8, sway: 0.4 },
+  speaking: { breath: 0.9, sway: 0.6 }, responding: { breath: 1.3, sway: 0.7 }, greeting: { breath: 0.8, sway: 0.3 }, acknowledging: { breath: 0.8, sway: 0.4 },
+  offering: { breath: 0.8, sway: 0.3 },
   presenting: { breath: 0.7, sway: 0.3 }, complete: { breath: 0.85, sway: 0.6 }, error: { breath: 0.5, sway: 0.15 },
 };
 
@@ -84,8 +88,17 @@ const smooth = (a: number, b: number, x: number) => { const t = Math.max(0, Math
 /** Rise over `rise` seconds, hold, fall over the last `fall` seconds of `total`. */
 const envelope = (t: number, total: number, rise: number, fall: number) => smooth(0, rise, t) * (1 - smooth(total - fall, total, t));
 
-/** The target pose for a state `t` seconds after it began, with the speaking amplitude (0…1). */
-export function gestureTarget(state: AionState, t: number, amplitude = 0): PoseParams {
+/**
+ * A slow, irregular 0…1 envelope: incommensurate sines, so it never repeats like a loop. It decides when an
+ * answering hand articulates more and when it rests.
+ */
+const irregular = (t: number, seed: number) => 0.5 + 0.5 * Math.sin(t * 0.83 + seed) * Math.sin(t * 0.37 + seed * 2.1);
+
+/**
+ * The target pose for a state `t` seconds after it began, with the speaking amplitude (real host audio, 0…1)
+ * and `listen`, the user's local loudness while Aion listens (0…1).
+ */
+export function gestureTarget(state: AionState, t: number, amplitude = 0, listen = 0): PoseParams {
   const pose = STATE_POSES[sanitizeState(state)];
   switch (state) {
     case "greeting": {
@@ -101,15 +114,34 @@ export function gestureTarget(state: AionState, t: number, amplitude = 0): PoseP
       // The task is done: one short nod, then the settled pose.
       return { ...pose, nod: 0.4 * Math.sin(Math.PI * Math.min(1, t / 1.1)) };
     case "responding": {
-      // Semantic, not audio: Codex is answering and no real voice signal exists. Two slow, out-of-step hand
-      // movements and a faint lift of the chest, fading in over a second. Never rhythmic like speech, never lip sync.
+      // Semantic, not audio: Codex is answering and no real voice signal exists. Breathing, a little torso and
+      // shoulder movement, the head following the thought, and hands that articulate now and then — out of
+      // step with one another and never rhythmic like speech, never lip sync. Fades in over a second.
       const w = smooth(0, 1, t);
-      const right = Math.sin(t * Math.PI * 2 * 0.42) * 0.09 * w, left = Math.sin(t * Math.PI * 2 * 0.29 + 1.3) * 0.05 * w;
+      const talk = irregular(t, 0.4), aside = irregular(t, 2.3);
+      const right = (Math.sin(t * Math.PI * 2 * 0.47) * 0.2 + Math.sin(t * Math.PI * 2 * 0.83 + 1) * 0.07) * (0.35 + 0.65 * talk) * w;
+      const left = (Math.sin(t * Math.PI * 2 * 0.31 + 1.3) * 0.12 + Math.sin(t * Math.PI * 2 * 0.71 + 0.2) * 0.04) * (0.3 + 0.7 * aside) * w;
       return {
-        ...pose, lift: (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.21)) * 0.006 * w,
-        left: { ...pose.left, bend: pose.left.bend + left, forward: pose.left.forward + left * 0.15 },
-        right: { ...pose.right, bend: pose.right.bend + right, raise: pose.right.raise + right * 0.25, forward: pose.right.forward + right * 0.2 },
+        ...pose,
+        lean: pose.lean + Math.sin(t * Math.PI * 2 * 0.13 + 0.5) * 0.02 * w,
+        tilt: pose.tilt + Math.sin(t * Math.PI * 2 * 0.17) * 0.05 * w,
+        nod: (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.23 + 2)) * 0.09 * w,
+        lift: (0.5 + 0.5 * Math.sin(t * Math.PI * 2 * 0.26)) * 0.016 * w,
+        sway: Math.sin(t * Math.PI * 2 * 0.09 + 0.8) * 0.006 * w,
+        left: { raise: pose.left.raise + left * 0.25, bend: pose.left.bend + left, forward: pose.left.forward + left * 0.2 },
+        right: { raise: pose.right.raise + right * 0.35, bend: pose.right.bend + right, forward: pose.right.forward + right * 0.28 },
       };
+    }
+    case "listening": {
+      // Attention: leaning in a touch more while the user speaks, with small nods that follow their loudness.
+      const a = Math.max(0, Math.min(1, listen));
+      return { ...pose, lean: pose.lean + a * 0.03, nod: pose.nod + a * 0.12, tilt: pose.tilt + a * 0.03 + Math.sin(t * 0.9) * 0.015 };
+    }
+    case "offering": {
+      // An open hand toward the card, then back.
+      const w = envelope(t, GESTURE_SECONDS.offering, 0.45, 0.6);
+      const toward = (from: ArmPose, to: ArmPose) => ({ raise: lerp(from.raise, to.raise, w), bend: lerp(from.bend, to.bend, w), forward: lerp(from.forward, to.forward, w) });
+      return { ...pose, tilt: pose.tilt * w, lean: pose.lean * w, right: toward(REST_ARM, pose.right), left: toward(REST_ARM, pose.left) };
     }
     case "speaking": {
       // The voice lifts the hands and chest a little; it never becomes a wave.
@@ -175,15 +207,17 @@ export class FigureAnimator {
 
   /**
    * @param state what Aion is doing; @param t seconds since that state began;
-   * @param amplitude assistant speech loudness (0…1); @param calm reduced motion.
+   * @param amplitude assistant speech loudness (0…1); @param calm reduced motion;
+   * @param listen the user's local loudness while Aion listens (0…1).
    */
-  sample(dt: number, state: AionState, t: number, amplitude = 0, calm = false): Float32Array {
+  sample(dt: number, state: AionState, t: number, amplitude = 0, calm = false, listen = 0): Float32Array {
     const step = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     this.clock += step;
     const safe = sanitizeState(state);
-    const target = gestureTarget(safe, Number.isFinite(t) ? Math.max(0, t) : 0, amplitude);
+    const target = gestureTarget(safe, Number.isFinite(t) ? Math.max(0, t) : 0, amplitude, listen);
     const p = this.params, quick = 6, slow = 2.2;
     p.lean = approach(p.lean, target.lean, slow, step);
+    p.sway = approach(p.sway, target.sway, slow, step);
     p.tilt = approach(p.tilt, target.tilt, quick, step);
     p.nod = approach(p.nod, target.nod, quick * 1.5, step);
     for (const side of ["left", "right"] as const) {

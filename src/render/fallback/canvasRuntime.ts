@@ -68,8 +68,9 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const framing = inputs.framing?.sample(dt) ?? { x: 0, y: 0, scale: 1 };
     const centreX = width / 2 + framing.x * width, centreY = height / 2 - framing.y * height, zoom = scale * framing.scale;
     const cycle = clock * particleDefaults.idle.frequency;
-    const breath = particleDefaults.idle.breathing * (1 - presence.focus * 0.45);
-    const gather = presence.focus * particleDefaults.listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction;
+    const breath = particleDefaults.idle.breathing * (1 - presence.focus * particleDefaults.listening.breath - presence.responding * particleDefaults.responding.breath);
+    const { listening, responding } = particleDefaults;
+    const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
     const cos = Math.cos(spin), sin = Math.sin(spin);
     const warm = presence.warmth * 0.28;
@@ -78,11 +79,16 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     for (let i = 0; i < count; i++) {
       const rx = sphere.positions[i * 3], ry = sphere.positions[i * 3 + 1], rz = sphere.positions[i * 3 + 2];
       // The sphere's own field, reduced to its readable parts: travelling breath, gathering, a thinking swirl.
-      const swell = (Math.sin(clock * particleDefaults.responding.speed - ry * 1.2) * 0.5 + 0.5) * presence.responding * particleDefaults.responding.swell;
-      const b = (Math.sin(cycle + ry * 0.65 + rx * 0.25) + Math.sin(cycle * 1.71 + rz) * 0.22) * breath - gather + swell / radius;
-      const s = Math.sin(clock * 0.9 + ry * 1.4) * swirl * motion;
+      const r = Math.hypot(rx, ry, rz);
+      const rise = Math.sin(clock * responding.speed - ry * 1.2) * 0.5 + 0.5;
+      const crossing = Math.sin(clock * responding.speed * 0.61 + rx * 1.4 + 1.7) * 0.5 + 0.5;
+      const outer = 0.3 + 0.7 * smooth((r - 0.4) / 0.95);
+      const swell = (rise * 0.65 + crossing * 0.35) * outer * presence.responding * responding.swell;
+      const ripple = Math.sin(r * 9 + clock * 6.5) * presence.userAmplitude * listening.ripple;
+      const b = (Math.sin(cycle + ry * 0.65 + rx * 0.25) + Math.sin(cycle * 1.71 + rz) * 0.22) * breath - gather + (swell + ripple) / radius;
+      const s = (Math.sin(clock * 0.9 + ry * 1.4) * swirl + Math.sin(clock * 0.7 + ry * 1.6) * presence.responding * responding.flow) * motion;
       let x = rx * (1 + b) + rz * s, y = ry * (1 + b), z = rz * (1 + b) - rx * s;
-      let tone = 0.62 + 0.3 * (rz / radius);
+      let tone = 0.62 + 0.3 * (rz / radius) + (presence.focus + presence.userAmplitude) * listening.glow + rise * presence.responding * responding.glow;
       const bw = body.level > 0 ? smooth(body.level * 1.35 - bodyStagger[i] * 0.35) : 0;
       if (bw > 0) {
         const f = figurePoint(layout, i, body.anchors, { clock, orbit: body.orbit, thinking: presence.thinking });

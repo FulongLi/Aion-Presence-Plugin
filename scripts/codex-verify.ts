@@ -16,7 +16,7 @@ import { CODEX_HOOK_EVENTS, REPO_ROOT } from "./lib/pluginPackage";
  *   B. One-command fallback: `git clone` → `node scripts/install.mjs` → installed.
  *   Then, on the installed copy (Codex's plugin cache, no node_modules): enabled · MCP server listed · skill in
  *   the model's skill list · hooks discoverable · no API key · open Aion · the Presence surface loads in a real
- *   browser · the greeting wave · a portrait, a terrain and a form · responding · clean shutdown.
+ *   browser · the greeting wave · a portrait (hybrid), a terrain and a form · responding · clean shutdown.
  *
  * Options: --github (install A from GitHub instead of the local HEAD; needs the branch pushed), --ref <ref>,
  * --offline (skip the public portrait/terrain lookups). Needs Codex (CODEX_BIN) and, for the surface, Chrome.
@@ -89,7 +89,7 @@ try {
   check(server?.transport.args[0] === join(cache, "runtime", "aion-mcp.mjs"), "its command runs the installed runtime");
   check(!JSON.stringify(server?.transport.env ?? {}).match(/OPENAI|API_KEY/), "no API key in its environment");
   const prompt = spawnSync(codex, ["debug", "prompt-input", "Open Aion"], { env: { ...process.env, CODEX_HOME: home, HOME: home }, cwd: home, encoding: "utf8", timeout: 180_000 });
-  check(/aion-presence:aion-presence: Use Aion, the visual body of this Codex session/.test(prompt.stdout), "the aion-presence skill is in the model's skill list");
+  check(/aion-presence:aion-presence: Aion Embodiment Mode\. Use when the user asks to open, see or talk to Aion/.test(prompt.stdout), "the aion-presence skill is in the model's skill list");
   const hooks = JSON.parse(readFileSync(join(cache, "hooks", "hooks.json"), "utf8")) as { hooks: Record<string, unknown> };
   check(Object.keys(hooks.hooks).every(event => (CODEX_HOOK_EVENTS as readonly string[]).includes(event)) && "PreToolUse" in hooks.hooks, `hooks are discoverable (${Object.keys(hooks.hooks).join(", ")})`);
 
@@ -137,7 +137,9 @@ try {
         check(await until(/state greeting/), "the body greets (a wave, once)");
         if (!offline) {
           const portrait = await call("show_portrait", { person: "Nikola Tesla" });
-          check(!portrait.isError && (portrait.structuredContent as { presentation: { description: string } }).presentation.description === "portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source");
+          const shown = (portrait.structuredContent as { presentation: { description: string; route: string } } | undefined)?.presentation;
+          check(!portrait.isError && shown?.description === "portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source");
+          check(shown?.route === "hybrid", "the Presentation Router: a particle portrait and the original photograph (hybrid)");
           check(await until(/visual holding/), "the portrait forms");
           await page.screenshot({ path: join(E2E, "verify-portrait.png") });
           const terrain = await call("show_terrain", { region: "United Kingdom" });

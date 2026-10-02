@@ -27,13 +27,40 @@ test("the Aion Presence skill is discoverable with a trigger-oriented descriptio
   assert.match(skill.description, /not another AI model/);
 });
 
-test("the skill teaches that Codex is the intelligence and Aion is its body", () => {
-  assert.match(skill.body, /\*\*you, the Codex agent\*\*/);
-  assert.match(skill.body, /not\*\* a second AI, assistant or personality/);
+test("Embodiment Mode: one presence — the host is the intelligence, Aion is how it becomes present", () => {
+  assert.match(skill.description, /Aion Embodiment Mode/);
+  assert.match(skill.description, /While Aion is open you are present to the user as Aion and speak in the first person/);
+  assert.match(skill.body, /Aion is how \*\*you\*\* become visually present\. You do all the reasoning and all the work/);
+  assert.match(skill.body, /There is one entity, not two\. Aion is not a second AI, assistant or personality/);
   assert.match(skill.body, /no model calls and needs no API key/);
-  assert.match(skill.body, /never try to start a voice session/);
-  assert.match(skill.body, /never records, stores, uploads or transcribes anything/);
-  assert.match(skill.body, /treat it as your persistent visual body, not as an occasional debug renderer/);
+  assert.match(skill.body, /never start a voice session for it/);
+  assert.match(skill.body, /never records, stores, uploads or\s+transcribes anything/);
+  assert.match(skill.body, /speak in the first person and simply present/);
+  assert.match(skill.body, /Explain the architecture only when the user asks/);
+  assert.match(skill.body, /The intelligence underneath\s+comes from the host GPT\/Codex system/, "honest when asked");
+  assert.match(skill.body, /When Aion is not open, this section does not apply/);
+});
+
+/** Phrasing that splits one presence into two (Aion and Codex as separate parties) in ordinary replies. */
+const SPLIT = [/\bAion is (?:now )?(?:showing|displaying|listening|presenting|thinking|answering)\b/i, /\bAion will (?:show|display)\b/i,
+  /\bCodex is (?:thinking|checking|working|responding|answering)\b/i, /\bCodex has finished\b/i, /\bAion and Codex\b/i, /\bswitch back to Codex\b/i];
+
+test("embodiment language: split phrasing appears only as what not to say", () => {
+  const avoid = [...skill.body.matchAll(/^\| "([^"]+)" \| (?:"[^"]+"|\(nothing[^|]*\)) \|$/gm)];
+  assert.ok(avoid.length >= 4, "the skill shows what to say instead");
+  for (const row of avoid) assert.ok(SPLIT.some(pattern => pattern.test(row[1])), `"${row[1]}" is an example of split phrasing`);
+  const said = [...skill.body.matchAll(/^\| "[^"]+" \| "([^"]+)" \|$/gm)].map(match => match[1]);
+  for (const line of said) {
+    assert.ok(!SPLIT.some(pattern => pattern.test(line)), line);
+    assert.match(line, /^(?:Here's|I'm|Done)\b/, `"${line}" presents directly, in the first person`);
+  }
+  const rest = skill.body.replace(/^\| "[^"]+" \| (?:"[^"]+"|\(nothing[^|]*\)) \|$/gm, "");
+  for (const pattern of SPLIT) assert.doesNotMatch(rest, pattern, `the skill never recommends ${pattern}`);
+  for (const text of [greetingLine(), greetingLineChinese(), onboardingLine(), onboardingGuidance(), ...Object.values(TOOL_DESCRIPTIONS).map(value => typeof value === "function" ? value() : value)]) {
+    for (const pattern of SPLIT) assert.doesNotMatch(text, pattern, text.slice(0, 60));
+  }
+  assert.doesNotMatch(greetingLine(), /Codex/, "the greeting is one presence speaking");
+  assert.doesNotMatch(greetingLineChinese(), /Codex/);
 });
 
 test("the skill states the canonical identity facts exactly", () => {
@@ -52,14 +79,15 @@ test("the skill only names tools and states that exist, and teaches every tool",
 
 test("greeting: once per newly opened Presence, from the canonical facts, in the user's language", () => {
   assert.match(skill.body, /`greeting\.due: true`/);
-  assert.match(skill.body, /If `greeting\.due` is false, Aion was already\s+open: do not greet again/);
-  assert.match(skill.body, /start in English when\s+the language is unknown/);
+  assert.match(skill.body, /If\s+`greeting\.due` is false, Aion was already\s+open: do not greet again/);
+  assert.match(skill.body, /start in English when\s+the\s+language is unknown/);
   for (const line of [greetingLine(), greetingLineChinese()]) {
     for (const fact of [AION_IDENTITY.name, AION_IDENTITY.creatorCompany]) assert.ok(line.includes(fact), fact);
-    assert.match(line, /Codex/);
   }
-  assert.match(greetingLine(), /^Hi, I'm Aion, an interactive AI presence created by Spirit Connect\. I'm the visual body for this Codex session\./);
-  assert.match(greetingLine(), /talk to me naturally, ask me to show you people, places, forms or ideas, or simply work with Codex as usual/);
+  assert.match(greetingLine(), /^Hi, I'm Aion, an interactive AI presence created by Spirit Connect\. You can talk to me naturally/);
+  assert.match(greetingLine(), /ask me to show you people, places, forms or ideas, or just keep working with me as usual/);
+  assert.match(skill.body, /call `open_presence` once with\s+`display: "immersive"`/, "Open Aion is immersive");
+  assert.match(skill.body, /`immersive\.needs_gesture: true`: "Click Enter Presence for fullscreen\." \(once\)/);
 });
 
 test("onboarding examples are backed by real tools whose arguments pass the real schemas", () => {
@@ -111,10 +139,19 @@ test("responding: once, immediately before the final answer", () => {
 
 test("the skill asks for restraint, privacy in lookups and honesty about host capabilities", () => {
   assert.match(skill.body, /Do \*\*not\*\* call `set_presence_state` for those/);
-  assert.match(skill.body, /Never claim Aion is fullscreen, or embedded, unless the result\s+says so/);
+  assert.match(skill.body, /Never claim it is fullscreen, or embedded, unless\s+the result says so/);
   assert.match(skill.body, /Never dump terminal output/);
   assert.match(skill.body, /Do not call Aion tools for internal steps/);
-  assert.match(skill.body, /most\s+replies need none/);
+  assert.match(skill.body, /Most replies need no visual/);
   assert.match(skill.body, /never put code, file contents or personal data in a query/);
-  assert.match(skill.body, /Aion uses Codex lifecycle hooks only\s+to reflect states such as reading, editing, testing and building/);
+  assert.match(skill.body, /I use Codex lifecycle hooks only to reflect\s+states such as reading, editing, testing and building/);
+});
+
+test("the skill teaches the Presentation Router with restraint", () => {
+  assert.match(skill.body, /## Body, card or both/);
+  assert.match(skill.body, /Leave `presentation` out \(`auto`\) unless you have\s+a clear reason/);
+  assert.match(skill.body, /recognizable portrait forms in particles while the original\s+photograph stands beside it/);
+  assert.match(skill.body, /Never double-present by habit: the yin-yang, Orion or 42% are the body alone; a code diff is a card alone/);
+  assert.match(skill.body, /Long\s+text never becomes particles, whatever is asked/);
+  assert.match(skill.body, /`detail: true`/);
 });

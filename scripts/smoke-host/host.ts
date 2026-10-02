@@ -2,8 +2,9 @@ import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/
 
 /**
  * A minimal MCP Apps host for the smoke test, built from the official AppBridge: it embeds the Aion view in a
- * sandboxed iframe, offers the inline and fullscreen display modes, and forwards the view's tool calls to the
- * real Aion MCP server (through the test runner). Nothing here is Aion-specific.
+ * sandboxed iframe, offers the inline and fullscreen display modes (or declines fullscreen, with ?refuse=1), and
+ * forwards the view's tool calls to the real Aion MCP server (through the test runner). Nothing here is
+ * Aion-specific.
  */
 declare global {
   interface Window {
@@ -24,8 +25,11 @@ const bridge = new AppBridge(null, { name: "smoke-host", version: "1.0.0" }, { s
   hostContext: { displayMode: "inline", availableDisplayModes: ["inline", "fullscreen"], theme: "dark", platform: "desktop" },
 });
 bridge.oncalltool = async params => window.hostCallTool(params) as never;
+// ?refuse=1: a host that declines fullscreen (it may: the view must carry on inline).
+const refuse = new URLSearchParams(location.search).get("refuse") === "1";
 bridge.onrequestdisplaymode = async ({ mode }) => {
   window.hostLog.push(`display:${mode}`);
+  if (refuse) { window.hostLog.push("refused"); return { mode: window.hostDisplayMode as "inline" }; }
   window.hostDisplayMode = mode;
   iframe.style.height = mode === "fullscreen" ? "100vh" : "520px";
   await bridge.sendHostContextChange({ displayMode: mode });

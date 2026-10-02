@@ -36,7 +36,8 @@ plugin, or says "Install Aion Presence":
    - "When Codex asks, trust Aion's hooks: Aion uses Codex lifecycle hooks only to reflect states such as
      reading, editing, testing and building." (Aion works without them, with fewer automatic states.)
 6. **After the restart**, Aion opens by itself once (the first session after installation). From then on the
-   user says **"Open Aion"** and you call `open_presence`, and introduce Aion once if `greeting.due` is true.
+   user says **"Open Aion"** and you call `open_presence` with `display: "immersive"`, and introduce yourself as
+   Aion once, in the first person, if `greeting.due` is true.
 
 Updating later: `codex plugin marketplace upgrade spirit-connect`, then `codex plugin add aion-presence@spirit-connect`.
 Removing: `codex plugin remove aion-presence@spirit-connect` and `codex plugin marketplace remove spirit-connect`.
@@ -67,6 +68,8 @@ A v0.1 development install (`aion-presence@aion-presence-dev`) is replaced autom
   `[plugins."aion-presence@spirit-connect".mcp_servers.aion-presence]` in `~/.codex/config.toml`.
 - **The microphone**: Aion's window asks once. Allowing it lets Aion look attentive while you talk; the sound is
   analysed on your device only and never recorded, stored or sent. Refusing is fine.
+- **One click for fullscreen**: browsers only enter fullscreen from a user gesture, so the immersive window shows
+  a quiet "Enter Presence". That one click is the only extra step; Esc always leaves fullscreen.
 
 ## First run and auto-open
 
