@@ -15,7 +15,9 @@ particles (never SVG lines or a separate animation), for gesture, explanation an
 | Proportions | 8.5 heads, wide clavicles | about seven heads, short shoulders (so the joints show), scale 1.65 |
 | Motion | per-state sines, two envelopes, legs fixed | the Expressive Motion System (below) |
 
-Screenshots: `.e2e/v4/before/figure-idle.png` (v0.3) and `npm run showcase -- figure-idle` (v0.4).
+![v0.3 and v0.4 figure](media/v0.4/figure-before-after.png)
+
+Same renderer and particle tier. Record it yourself with `npm run showcase -- figure-idle`.
 
 ## The Expressive Motion System
 
