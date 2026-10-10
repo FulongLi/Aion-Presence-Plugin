@@ -1,6 +1,8 @@
 import { createFigureLayout, figurePoint } from "../../core/figure/layout";
+import { createEyesLayout, eyesPoint } from "../../core/eyes/layout";
 import { createTargetPoints } from "../../visual/points";
 import { particleDefaults } from "../particleDefaults";
+import { formedPoint } from "../physics/morph";
 import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
 
@@ -28,17 +30,19 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const count = coarse ? fallbackDefaults.coarseCount : fallbackDefaults.count;
   const radius = particleDefaults.geometry.radius;
   const sphere = createSphere(count, radius);
-  const layout = createFigureLayout(count);
+  const layout = createFigureLayout(count), eyesLayout = createEyesLayout(count);
   // Per-particle stagger, as in the GPU morph and body weights (physics/morph.ts).
-  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count);
+  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = [sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2]];
     morphStagger[i] = hash(x, y, z, 12.9898, 78.233, 37.719, 43758.5453);
     bodyStagger[i] = hash(x, y, z, 41.3, 17.9, 63.1, 24634.6345);
+    eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
   }
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
+  let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
   const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count);
   const resize = () => {
@@ -63,16 +67,18 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       try { target = inputs.morph.target ? createTargetPoints(inputs.morph.target.visual, count) : null; } catch { target = null; }
     }
     const turn = inputs.morph.target?.motion?.spin ?? 0;
+    const view = inputs.orbit?.sample(dt) ?? { yaw: 0, pitch: 0, zoom: 1, depth: 0 };
+    const formedView = view.depth ? { angle: spin, yaw: view.yaw, pitch: view.pitch, zoom: view.zoom } : { angle: spin, yaw: 0, pitch: 0, zoom: 1 };
     if (morph > 0 && turn) spin = (spin + turn * dt * motion) % (Math.PI * 2);
     const body = inputs.body.sample(dt, now, calm());
     const framing = inputs.framing?.sample(dt) ?? { x: 0, y: 0, scale: 1 };
     const centreX = width / 2 + framing.x * width, centreY = height / 2 - framing.y * height, zoom = scale * framing.scale;
+    centre = { x: centreX, y: centreY, zoom };
     const cycle = clock * particleDefaults.idle.frequency;
     const breath = particleDefaults.idle.breathing * (1 - presence.focus * particleDefaults.listening.breath - presence.responding * particleDefaults.responding.breath);
     const { listening, responding } = particleDefaults;
     const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
-    const cos = Math.cos(spin), sin = Math.sin(spin);
     const warm = presence.warmth * 0.28;
     const cool = [0xa8, 0xbe, 0xd1], warmColor = [0xd5, 0xc5, 0xbb];
     const base = cool.map((value, k) => value + (warmColor[k] - value) * warm);
@@ -95,11 +101,19 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         x += (f.position[0] - x) * bw; y += (f.position[1] - y) * bw; z += (f.position[2] - z) * bw;
         tone += (Math.min(1, f.tone * 1.25) - tone) * bw;
       }
+      const ew = body.eyes > 0 ? smooth(body.eyes * 1.35 - eyesStagger[i] * 0.35) : 0;
+      if (ew > 0) {
+        const e = eyesPoint(eyesLayout, i, body.eyeParams, clock);
+        x += (e.position[0] - x) * ew; y += (e.position[1] - y) * ew; z += (e.position[2] - z) * ew;
+        tone += (Math.min(1, e.tone * 1.25) - tone) * ew;
+      }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {
-        const tx = target.positions[i * 3], ty = target.positions[i * 3 + 1], tz = target.positions[i * 3 + 2];
-        x += (tx * cos - ty * sin - x) * mw; y += (tx * sin + ty * cos - y) * mw; z += (tz - z) * mw;
-        tone += (target.tones[i] * 0.95 - tone) * mw;
+        const [tx, ty, tz] = formedPoint(target.positions[i * 3], target.positions[i * 3 + 1], target.positions[i * 3 + 2], formedView);
+        x += (tx - x) * mw; y += (ty - y) * mw; z += (tz - z) * mw;
+        // A 3D object is lit by depth (nearer is brighter), as on the GPU.
+        const near = view.depth ? 0.5 + 0.62 * smooth((tz + 1.9) / 3.8) : 1;
+        tone += (target.tones[i] * 0.95 * near - tone) * mw;
       }
       const perspective = 7.4 / (7.4 - z);
       xs[i] = centreX + x * zoom * perspective;
@@ -141,5 +155,9 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   };
   frame = requestAnimationFrame(animate);
   const report = (): QualityReport => ({ tier: 0, ceiling: 0, count, effects: false, frameMs, frames });
-  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, dispose: cleanup };
+  const toWorld = (clientX: number, clientY: number): [number, number] | null => {
+    const bounds = canvas.getBoundingClientRect();
+    return bounds.width > 0 ? [(clientX - bounds.left - centre.x) / centre.zoom, (centre.y - (clientY - bounds.top)) / centre.zoom] : null;
+  };
+  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, dispose: cleanup };
 }

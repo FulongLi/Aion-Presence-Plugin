@@ -1,4 +1,4 @@
-import { ACESFilmicToneMapping, PerspectiveCamera, Scene, type Vector4 } from "three";
+import { ACESFilmicToneMapping, PerspectiveCamera, Scene, Vector3, type Vector4 } from "three";
 import { WebGPURenderer } from "three/webgpu";
 import { particleDefaults, type ParticleConfig } from "./particleDefaults";
 import type { BodySource } from "../core/aion";
@@ -8,6 +8,7 @@ import { morphSpeechBlend } from "./morphBlend";
 import { AdaptiveQuality, qualityRange, qualityTiers } from "./quality";
 import { createParticleSystem } from "./ParticleSystem";
 import { PointerPusher } from "./interaction/pointer";
+import type { OrbitView } from "./interaction/orbit";
 import { syncUniforms } from "./physics/uniforms";
 import { createPostFX } from "./rendering/postfx";
 import { SpeechMotion } from "./speechMotion";
@@ -18,7 +19,10 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource }
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource }
+
+/** How a formed 3D object is viewed (see interaction/orbit.ts). */
+export interface OrbitSource { sample(dt: number): OrbitView }
 
 /**
  * Where the body sits in the frame: `x` shifts it sideways and `y` upward (fractions of the view), `scale`
@@ -46,6 +50,8 @@ export interface RuntimeHandle {
   tuning: boolean;
   quality(): QualityReport;
   setTier(tier: number): void;
+  /** Where a point on the screen (client pixels) lies on the body's plane (z = 0), in world units; null if nowhere. */
+  toWorld(clientX: number, clientY: number): [number, number] | null;
   dispose(): void;
 }
 
@@ -157,10 +163,16 @@ export async function createParticleRuntime(
     u.figureOrbit.value = body.orbit;
     const anchors = u.anchors.array as Vector4[];
     for (let i = 0; i < anchors.length; i++) anchors[i].fromArray(body.anchors, i * 4);
+    u.eyesMorph.value = body.eyes;
+    const eyes = u.eyes.array as Vector4[];
+    for (let i = 0; i < eyes.length; i++) eyes[i].fromArray(body.eyeParams, i * 4);
     // A spinning visual (MorphTarget.motion) turns slowly about the view axis; each new target starts upright.
     const spin = inputs.morph.target?.motion?.spin ?? 0;
     if (morph > 0 && Number.isFinite(spin) && spin !== 0) spinAngle = (spinAngle + spin * dt * (calm() ? 0.15 : 1)) % (Math.PI * 2);
     u.formedAngle.value = spinAngle;
+    const view = inputs.orbit?.sample(dt) ?? { yaw: 0, pitch: 0, zoom: 1, depth: 0 };
+    u.formedYaw.value = view.depth ? view.yaw : 0; u.formedPitch.value = view.depth ? view.pitch : 0;
+    u.formedZoom.value = view.depth ? view.zoom : 1; u.formedDepth.value = view.depth;
     const blend = morphSpeechBlend(morph);
     u.speechGain.value = blend.speech; u.formedShimmer.value = blend.shimmer;
     for (let i = 0; i < presence.assistantBands.length; i++) u.spectrum.array[i] = presence.assistantBands[i];
@@ -204,6 +216,15 @@ export async function createParticleRuntime(
     backend: "webgpu", config, tuning: false,
     quality: () => ({ tier: quality.tier, ceiling: quality.ceiling, count: quality.settings().count, effects: quality.effects, frameMs, frames }),
     setTier(tier) { quality.force(Math.min(range.max, tier)); applyQuality(); },
+    toWorld(clientX, clientY) {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      if (!(bounds.width > 0 && bounds.height > 0)) return null;
+      const point = new Vector3((clientX - bounds.left) / bounds.width * 2 - 1, -((clientY - bounds.top) / bounds.height) * 2 + 1, 0.5).unproject(camera);
+      const direction = point.sub(camera.position);
+      if (Math.abs(direction.z) < 1e-6) return null;
+      const t = -camera.position.z / direction.z;
+      return [camera.position.x + direction.x * t, camera.position.y + direction.y * t];
+    },
     dispose: cleanup,
   };
   const animate = (now: number) => {

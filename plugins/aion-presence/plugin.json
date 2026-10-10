@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "aion-presence",
-  "version": "0.3.0",
-  "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a quiet particle body that listens, reflects real activity, answers, and shows things as particles or high-fidelity cards. No API key, no second model.",
+  "version": "0.4.0",
+  "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a living particle body (a sphere, expressive eyes or a stick figure) that listens, reflects real activity, answers, gestures, and shows things as particles, 3D objects or high-fidelity cards. No API key, no second model.",
   "author": {
     "name": "Spirit Connect",
     "url": "https://github.com/FulongLi"
@@ -15,7 +15,7 @@
       "interface": {
         "displayName": "Aion Presence",
         "shortDescription": "A visual body for Codex",
-        "longDescription": "Aion is the embodied interface of the Codex agent you are already using. Codex remains the intelligence; while Aion is open you talk to it as Aion: an immersive particle sphere or figure that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), visibly answers, and presents information the best way for it — as its own body (portraits, real terrain, constellations, Tao symbols, clocks), as quiet high-fidelity cards (photographs, code, results), or both. Aion makes no model API calls and needs no API key.",
+        "longDescription": "Aion is the embodied interface of the Codex agent you are already using. Codex remains the intelligence; while Aion is open you talk to it as Aion: an immersive particle presence — the original sphere, expressive Aion Eyes, or an articulated stick figure that gestures and explains — that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), visibly answers, and presents information the best way for it: as its own body (portraits, heritage oval portraits, real terrain, constellations, Tao symbols, clocks, genuine 3D objects you can turn), as quiet high-fidelity cards (photographs, code, results), or both. Aion makes no model API calls and needs no API key.",
         "developerName": "Spirit Connect",
         "category": "Developer Tools",
         "capabilities": ["Interactive"],
@@ -23,7 +23,8 @@
         "defaultPrompt": [
           "Open Aion",
           "What did Nikola Tesla look like?",
-          "Show me the terrain of Scotland"
+          "Show me the terrain of Scotland",
+          "Show me Saturn in 3D"
         ],
         "brandColor": "#A8BED1",
         "composerIcon": "./assets/icon.svg",

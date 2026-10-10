@@ -1,4 +1,5 @@
-import { IMAGE_FITS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type SymbolName, type TerrainStyle } from "../visual/types";
+import { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
+import type { Scene3D } from "../visual/scene3d/types";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -20,7 +21,7 @@ export type ArtifactType = typeof ARTIFACT_TYPES[number];
 
 export const IMAGE_MODES = ["particles", "framed"] as const;
 export type ImageMode = typeof IMAGE_MODES[number];
-export { IMAGE_FITS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type SymbolName, type TerrainStyle };
+export { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle };
 
 export const CHANGE_KINDS = ["added", "modified", "deleted", "renamed"] as const;
 export type ChangeKind = typeof CHANGE_KINDS[number];
@@ -29,6 +30,7 @@ export type ChangeKind = typeof CHANGE_KINDS[number];
 export const LIMITS = {
   title: 80,
   label: 60,
+  emphasis: 40,
   text: 600,
   summary: 280,
   detail: 140,
@@ -50,7 +52,7 @@ export const LIMITS = {
  * artifacts, which only the plugin presents, are held longer.
  */
 export const HOLD_SECONDS = {
-  form: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  form: 10, scene: 30, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
 } as const;
 
 /** Media the host adapter has read and validated (an image, or a height field); surfaces fetch the bytes by id. */
@@ -60,21 +62,25 @@ export interface FileChange { path: string; change: ChangeKind; additions?: numb
 
 export type PresentationContent =
   | { kind: "form"; form: string; variant?: string; label: string }
-  | { kind: "text"; text: string; title?: string }
+  /** `emphasis`: one term of the text the card highlights (and the figure points at), e.g. "c²" in "a² + b² = c²". */
+  | { kind: "text"; text: string; title?: string; emphasis?: string }
   | { kind: "result"; title: string; summary: string; status: ResultStatus; details: string[] }
   /**
    * `fit`: how the body frames it (a portrait's head-and-shoulders band, an object, a map, a logo). `credit`: where
    * a looked-up picture came from. `width`/`height`: the original picture's size (the card shows the original,
    * never the particle raster). `origin`: looked up on public sources, or a file on this machine. `mode`: the
    * v0.2 preference (particles → body, framed → card), still honoured when no presentation preference is given.
+   * `style` (portraits only): classic, or heritage — the body forms an antique oval portrait (the card is unchanged).
    */
-  | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local" }
+  | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local"; style?: PortraitStyle }
   /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
   | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string }
   | { kind: "clock"; time: string }
   | { kind: "number"; value: string }
   | { kind: "symbol"; symbol: SymbolName }
   | { kind: "emoji"; emoji: string }
+  /** A 3D object built from a validated scene of primitives (see visual/scene3d); `preset` names a curated one. */
+  | { kind: "scene"; scene: Scene3D; label: string; preset?: string }
   | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] };
 
 export type PresentationKind = PresentationContent["kind"];
@@ -171,9 +177,10 @@ export const RESULT_SYMBOL: Record<ResultStatus, string | null> = {
 export type BodyVisual =
   | { type: "form"; form: string; variant?: string }
   | { type: "text"; text: string }
-  | { type: "image"; media: MediaRef; fit: ImageFit }
+  | { type: "image"; media: MediaRef; fit: ImageFit; style?: PortraitStyle }
   | { type: "terrain"; media: MediaRef; style: TerrainStyle }
   | { type: "emoji"; emoji: string }
+  | { type: "scene"; scene: Scene3D }
   | { type: "none" };
 
 export interface PresentationPlan { body: BodyVisual; card: boolean }
@@ -184,12 +191,16 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "form": return { type: "form", form: presentation.form, variant: presentation.variant };
     case "text": return isGlyphText(presentation.text) ? { type: "text", text: presentation.text } : { type: "none" };
     case "result": { const symbol = RESULT_SYMBOL[presentation.status]; return symbol ? { type: "form", form: symbol } : { type: "none" }; }
-    case "image": return { type: "image", media: presentation.media, fit: presentation.fit ?? "object" };
+    case "image": {
+      const fit = presentation.fit ?? "object";
+      return { type: "image", media: presentation.media, fit, ...(fit === "portrait" && presentation.style ? { style: presentation.style } : {}) };
+    }
     case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
     case "clock": return { type: "text", text: presentation.time };
     case "number": return { type: "text", text: presentation.value };
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
+    case "scene": return { type: "scene", scene: presentation.scene };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
   }
 }
@@ -206,12 +217,13 @@ export function describePresentation(presentation: PresentationContent): string 
     case "form": return `form: ${presentation.label}`;
     case "text": return `text: ${presentation.title ?? presentation.text.slice(0, 40)}`;
     case "result": return `result (${presentation.status}): ${presentation.title}`;
-    case "image": return `${presentation.fit === "portrait" ? "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
+    case "image": return `${presentation.fit === "portrait" ? presentation.style === "heritage" ? "heritage portrait" : "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
     case "terrain": return `terrain: ${presentation.label}`;
     case "clock": return `clock: ${presentation.time}`;
     case "number": return `number: ${presentation.value}`;
     case "symbol": return `symbol: ${presentation.symbol}`;
     case "emoji": return `emoji: ${presentation.emoji}`;
+    case "scene": return `3D: ${presentation.label}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
   }
 }

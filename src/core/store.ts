@@ -1,4 +1,7 @@
 import { DEFAULT_BODY, isBodyId, type AionBodyId } from "./body";
+import type { EyeExpression } from "./eyes/expression";
+import type { FigureGesture } from "./figure/motion";
+import type { OrbitCommand } from "../render/interaction/orbit";
 import { holdsFor, legacyPreference, type Presentation, type PresentationContent, type PresentationRequest } from "./presentation";
 import { routePresentation } from "./presentationRouter";
 import { isActivityState, type ActivityState } from "./state";
@@ -20,7 +23,13 @@ export interface PresenceSnapshot {
   presentation: Presentation | null;
   /** The most recent gesture request (e.g. the greeting when Aion is first opened); id changes per request. */
   gesture: { name: "greeting"; id: number } | null;
+  /** The most recent expression or gesture asked for by name ("look happy", "wave"); id changes per request. */
+  expression: ExpressionRequest | null;
+  /** The most recent change of view asked for a 3D object ("rotate it", "from above"); id changes per request. */
+  sceneView: (OrbitCommand & { id: number }) | null;
 }
+
+export interface ExpressionRequest { expression?: EyeExpression; gesture?: FigureGesture; seconds?: number; id: number }
 
 /** Seconds a state lasts unless something replaces it (null: indefinitely). */
 export const ACTIVITY_TTL: Record<ActivityState, number | null> = {
@@ -61,7 +70,7 @@ export class PresenceStore {
   private cancelActivity: (() => void) | null = null;
 
   constructor(private readonly clock: StoreClock = systemClock) {
-    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null };
+    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null };
   }
 
   snapshot(): PresenceSnapshot { return this.state; }
@@ -136,6 +145,20 @@ export class PresenceStore {
     this.cancelPresentation = null;
     if (!this.state.presentation) return false;
     this.commit({ presentation: null });
+    return true;
+  }
+
+  /** Asks every surface for an expression or a gesture by name (each body shows it its own way). */
+  express(request: Omit<ExpressionRequest, "id">) {
+    if (!request.expression && !request.gesture) return false;
+    this.commit({ expression: { ...request, id: (this.state.expression?.id ?? 0) + 1 } });
+    return true;
+  }
+
+  /** Changes how a 3D object on show is viewed. False when no 3D object is showing. */
+  orient(command: OrbitCommand): boolean {
+    if (this.state.presentation?.kind !== "scene") return false;
+    this.commit({ sceneView: { ...command, id: (this.state.sceneView?.id ?? 0) + 1 } });
     return true;
   }
 

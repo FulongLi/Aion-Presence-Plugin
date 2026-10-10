@@ -1,3 +1,5 @@
+import type { Scene3D } from "./scene3d/types";
+
 /**
  * The visual vocabulary the particle body understands (from SCF Presence's Visual Resolver). The body only
  * ever sees a VisualTarget; whether it came from a procedural visual form, a glyph, an image or real elevation
@@ -21,6 +23,13 @@ export type ImageFit = typeof IMAGE_FITS[number];
 export const fitForIntent = (intent: ImageIntent): ImageFit =>
   PORTRAIT_INTENTS.includes(intent) ? "portrait" : intent === "map" ? "map" : "object";
 
+/**
+ * How a portrait is composed: classic (SCF's head-and-shoulders band) or heritage (a 3:4 oval with a soft edge and
+ * a silver particle outline, like an antique oval portrait or a locket; see oval.ts). Only portraits have a style.
+ */
+export const PORTRAIT_STYLES = ["classic", "heritage"] as const;
+export type PortraitStyle = typeof PORTRAIT_STYLES[number];
+
 /** How a height field is lit and toned. The geometry is the same real elevation for every style. */
 export const TERRAIN_STYLES = ["terrain", "topography", "relief", "heightmap"] as const;
 export type TerrainStyle = typeof TERRAIN_STYLES[number];
@@ -41,11 +50,15 @@ export type SymbolName = typeof SYMBOL_NAMES[number];
  * - emoji: one system-font emoji on transparency: density follows alpha, with extra weight on the silhouette
  *   and on colour boundaries inside it (eyes, mouth). Still particles, never a flat sticker.
  * - ink: a procedural monochrome form (a visual form such as the yin-yang): alpha is density, RGB is tone.
+ *
+ * `frame` "oval" (portraits only): the picture is kept inside the heritage oval, fading at its edge, and a
+ * share of the particles draws the oval's silver outline.
  */
 export interface Raster2DTarget {
   kind: "raster2d";
   raster: Raster;
   style: "portrait" | "object" | "glyph" | "logo" | "emoji" | "ink";
+  frame?: "oval";
 }
 
 /** A grid of normalized heights (0 = lowest shown, 1 = highest), row 0 is the far (north) edge. */
@@ -90,7 +103,16 @@ export interface PointLayoutTarget {
   style: "celestial";
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget;
+/**
+ * A genuine 3D object: a validated scene of procedural primitives (see scene3d/), built and sampled into particles
+ * with depth. While formed it can be turned and zoomed (the runtime's view rotation), never edited as code.
+ */
+export interface Mesh3DTarget {
+  kind: "mesh3d";
+  scene: Scene3D;
+}
+
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget;
 
 /** A particle arrangement ready for the runtime: a visual target plus how long to hold it. */
 export interface MorphTarget {
@@ -100,6 +122,10 @@ export interface MorphTarget {
   label: string;
   /** Optional morph durations in seconds for this target (default `transitionSeconds`). */
   transition?: { form?: number; return?: number };
-  /** Optional movement while formed. `spin`: radians per second about the view axis (anticlockwise positive). */
-  motion?: { spin?: number };
+  /**
+   * Optional movement while formed. `spin`: radians per second about the view axis (anticlockwise positive).
+   * `orbit`: a 3D object — it turns about its vertical axis at this many radians per second (0: still) and can be
+   * turned and zoomed by the user; `tilt` is its viewing elevation (radians).
+   */
+  motion?: { spin?: number; orbit?: number; tilt?: number };
 }

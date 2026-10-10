@@ -25,8 +25,8 @@ export function figureRest(bind: Node, local: Node, u: PhysicsUniforms) {
   const co = cos(u.figureOrbit), si = sin(u.figureOrbit);
   const lx = mix(local.x, local.x.mul(co).sub(local.y.mul(si)), halo);
   const ly = mix(local.y, local.x.mul(si).add(local.y.mul(co)), halo);
-  // Small positional noise; loose grains (far from their bone) drift more.
-  const drift = float(0.006).add(vec3(local.x, local.y, 0).length().mul(0.06));
+  // A trace of positional life; grains away from their bone (the glow) drift a little more.
+  const drift = float(figureStroke.drift).add(vec3(local.x, local.y, 0).length().mul(figureStroke.loose));
   const wobble = vec3(
     sin(u.clock.mul(0.7).add(local.w)),
     sin(u.clock.mul(0.53).add(local.w.mul(1.9))),

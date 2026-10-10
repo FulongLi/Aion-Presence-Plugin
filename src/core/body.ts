@@ -2,14 +2,14 @@
  * Aion's body: which persistent visual form it occupies. Separate from identity (who Aion is) and state
  * (what it is doing).
  *
- *   persistent body     sphere | figure — stays until changed (set_body_form); what Aion rests as
+ *   persistent body     sphere | figure | eyes — stays until changed (set_body_form); what Aion rests as
  *   temporary visual    image, terrain, form, clock, emoji… — shown briefly, then the body returns to
  *                       whichever persistent body was active (see VisualActionController)
  *
  * The particle runtime renders the persistent body as a rest layer under every temporary visual, so a
  * visual always dissolves out of, and reforms into, the current body: figure → Orion → figure.
  */
-export const AION_BODIES = ["sphere", "figure"] as const;
+export const AION_BODIES = ["sphere", "figure", "eyes"] as const;
 export type AionBodyId = typeof AION_BODIES[number];
 export const DEFAULT_BODY: AionBodyId = "sphere";
 
@@ -23,9 +23,10 @@ export interface PersistentBody {
 }
 
 /**
- * The registered persistent bodies. A future body (constellation figure, ink figure, light ribbon…)
- * is one entry here plus one rest layer in the particle system; conversation, tools and prompts read
- * this list and need no edit.
+ * The registered persistent bodies: three embodiments of the same Aion, each with its own purpose. The sphere is
+ * abstract intelligence (it becomes visuals and information); the eyes are conversation, attention and
+ * expression; the figure is gesture, explanation and demonstration. A future body is one entry here plus one rest
+ * layer in the particle system; conversation, tools and prompts read this list and need no edit.
  */
 export const PERSISTENT_BODIES: readonly PersistentBody[] = [
   {
@@ -33,8 +34,12 @@ export const PERSISTENT_BODIES: readonly PersistentBody[] = [
     aliases: ["sphere", "ball", "orb", "globe", "original", "default", "abstract", "球", "球体", "球形", "圆球", "原来的样子", "原形"],
   },
   {
-    id: "figure", label: "Particle Figure", description: "a quiet, minimal humanoid figure of particles",
-    aliases: ["figure", "particle figure", "human", "humanoid", "person", "human being", "人形", "人", "人体", "人的样子", "小人"],
+    id: "figure", label: "Particle Figure", description: "a clean, articulated stick figure of particles, for gesture and explanation",
+    aliases: ["figure", "particle figure", "stick figure", "human", "humanoid", "person", "human being", "body", "人形", "人", "人体", "人的样子", "小人", "火柴人"],
+  },
+  {
+    id: "eyes", label: "Aion Eyes", description: "two expressive eyes of light, for conversation, attention and expression",
+    aliases: ["eyes", "aion eyes", "eye", "your eyes", "face", "眼睛", "双眼", "眼", "你的眼睛"],
   },
 ];
 
@@ -59,18 +64,21 @@ export const bodyTransition = {
   /** Seconds for the particles to re-form from one persistent body into another. */
   seconds: 2.2,
 };
-const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
+const ease = (x: number) => Math.min(1, Math.max(0, x * x * x * (x * (x * 6 - 15) + 10)));
 
 /**
- * The persistent body and its transition. `level` is the eased weight of the figure layer (0: sphere,
- * 1: figure); the runtime blends the same particles between them, so a change reads as one body
- * re-forming. The chosen body is remembered across temporary visuals and reconnects.
+ * The persistent body and its transition. Each body besides the sphere has a layer weight (the sphere is what is
+ * left); the runtime blends the same particles between them, so any change — sphere → eyes, eyes → figure,
+ * figure → sphere — reads as one body re-forming. `level` is the eased weight of the figure layer, `eyes` of the
+ * eyes layer. The chosen body is remembered across temporary visuals and reconnects.
  */
 export class AionBody {
   form: AionBodyId = DEFAULT_BODY;
-  private progress = 0;
+  private readonly progress = { figure: 0, eyes: 0 };
   /** Eased weight of the figure layer. */
   level = 0;
+  /** Eased weight of the eyes layer. */
+  eyes = 0;
 
   /** Changes the persistent body. Returns false when it already is that body. */
   set(form: AionBodyId): boolean {
@@ -80,14 +88,17 @@ export class AionBody {
   }
 
   /** Whether the particles are still moving between bodies. */
-  get transitioning() { return this.progress !== (this.form === "figure" ? 1 : 0); }
+  get transitioning() { return this.progress.figure !== (this.form === "figure" ? 1 : 0) || this.progress.eyes !== (this.form === "eyes" ? 1 : 0); }
 
   sample(elapsed: number) {
     const dt = Number.isFinite(elapsed) ? Math.max(0, Math.min(0.1, elapsed)) : 0;
-    const goal = this.form === "figure" ? 1 : 0;
     const step = dt / bodyTransition.seconds;
-    this.progress = goal > this.progress ? Math.min(goal, this.progress + step) : Math.max(goal, this.progress - step);
-    this.level = ease(this.progress);
+    for (const layer of ["figure", "eyes"] as const) {
+      const goal = this.form === layer ? 1 : 0, value = this.progress[layer];
+      this.progress[layer] = goal > value ? Math.min(goal, value + step) : Math.max(goal, value - step);
+    }
+    this.level = ease(this.progress.figure);
+    this.eyes = ease(this.progress.eyes);
     return this.level;
   }
 }

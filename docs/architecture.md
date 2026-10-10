@@ -17,11 +17,14 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `signal.ts` | `PresenceEngine` (SCF's engine, transport replaced): the host's activity is the base; local voice → `listening` (short pauses between phrases keep the turn open); a finished turn → a short inferred `thinking`; real host audio → `speaking`; a bounded echo guard (while Codex answers and while that sound continues, never for a stale state). The user's loudness reaches the renderer whenever Aion really listens, also while a visual is formed. Diagnostics: the latest frame and the echo reason. |
 | `listening/` | SCF's `VoiceActivityDetector` and `EmphasisDetector` (unchanged), `MicFrame`, `rms`. Pure numbers. |
 | `guidance.ts` | The greeting (from the identity), onboarding examples backed by real tools, SCF's greeting gate (waits for the body and a quiet moment). |
-| `body.ts`, `figure/` | Persistent body (sphere, figure), skeleton, layout, poses (work states, a restrained semantic `responding`). |
+| `body.ts` | Persistent body: sphere, figure or eyes, each layer with its own eased weight, so any change is one particle transition. |
+| `figure/` | Figure 2.0: skeleton, the clean particle layout (strokes, head ring, joint beads), poses with two-bone IK (`pose.ts`), and the Expressive Motion System (`motion.ts`: eased keyframe clips, per-state tracks, gestures, the explanation cue). See [FIGURE.md](FIGURE.md). |
+| `eyes/` | Aion Eyes: the procedural lens layout and its CPU reference (`layout.ts`), expressions, blinks, saccades and state mapping (`expression.ts`). See [EYES.md](EYES.md). |
 | `audio.ts` | `HostAudioSource`, the seam for a host that someday exposes assistant audio. Today: `NO_HOST_AUDIO`. |
 | `presentationRouter.ts` | The Presentation Router: BODY, CARD or HYBRID for each presentation, from its kind, size, origin and fidelity needs, an optional preference (`auto` by default) and the surface's capabilities. Pure policy; deterministic overrides of clearly bad requests. |
 | `presentation.ts`, `store.ts` | What can be presented (form, text, result, image with fit, size and origin, terrain with its elevation, clock, number, symbol, emoji, artifact), routed; separate body and card lifetimes (SCF's hold times for the body, counted as time formed); a new topic retires temporary cards; the revisioned store. |
-| `visual/` | Visual forms (Tao, celestial, symbols), target sampling incl. SCF's 2.5D height-field sampler, intent-driven `normalizeImage` (portrait band, map, object, logo), height-field codec, SVG checks, validators, the Visual Action controller. |
+| `visual/` | Visual forms (Tao, celestial, symbols), target sampling incl. SCF's 2.5D height-field sampler, intent-driven `normalizeImage` (portrait band, map, object, logo; the heritage oval, `oval.ts`), height-field codec, SVG checks, validators, the Visual Action controller. |
+| `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
 
 ### Precedence
 
@@ -62,6 +65,14 @@ before density). Additions, mirrored in the Canvas 2D fallback:
   The figure answers with breathing, torso, shoulder and head movement and hands that articulate now and then
   (irregular envelopes, never a loop). Measured on the real renderer by the smoke test.
 - **Formed visuals** keep a little life: their ripple deepens while Aion answers or listens.
+- **Three bodies** (v0.4): the rest position is `mix(mix(sphere, figure, bFigure), eyes, bEyes)` with a staggered
+  weight per grain for each layer. The figure and eye bindings share one storage buffer (four vec4 per particle),
+  so the compute stage stays within WebGPU's default eight storage buffers. The figure takes none of the sphere's
+  field (its strokes stay precise).
+- **3D objects** (v0.4): `formedTarget()` turns a formed target by yaw, pitch and zoom (identity for flat
+  visuals). While it is 3D, tone follows depth and the ripple is reduced. The orbit controller
+  (`interaction/orbit.ts`) turns it slowly and lets the user drag, zoom and reset; `toWorld()` maps a screen point
+  to the body's plane (the figure points at a card's term with it).
 
 ## Host Adapter (`src/host`)
 
@@ -121,7 +132,11 @@ marketplace is `spirit-connect`: `codex plugin marketplace add FulongLi/Aion-Pre
 ## Extension points
 
 - **Real host audio**: a `HostAudioSource`; the engine then drives SCF's speech motion and echo guard. No host
-  exposes one today (see [HOST.md](HOST.md)).
+  exposes one to plugins today (see [HOST.md](HOST.md)). The v0.4 macOS experiment and its integration plan:
+  [AUDIO-BRIDGE.md](AUDIO-BRIDGE.md).
+- **Another body**: one entry in `PERSISTENT_BODIES`, one layer weight in `AionBody`, one rest function evaluated in
+  compute, material and the canvas fallback.
+- **Another 3D primitive**: one entry in the scene schema and validator, one builder case, its triangle bound.
 - **A desktop shell** (e.g. Tauri): the same page and renderer, one more surface adapter for window, always-on-top
   and fullscreen controls the browser cannot offer.
 - **Another host**: a transport in `src/surface/transports` and, if it is not an MCP client, an adapter that sends

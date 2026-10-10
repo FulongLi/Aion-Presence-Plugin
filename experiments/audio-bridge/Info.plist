@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key><string>com.spiritconnect.aion.audio-bridge</string>
+  <key>CFBundleName</key><string>Aion Audio Bridge</string>
+  <key>CFBundleExecutable</key><string>aion-audio-bridge</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.4.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>LSMinimumSystemVersion</key><string>14.2</string>
+  <key>LSUIElement</key><true/>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Aion measures how loud the assistant's voice is, and in which frequency bands, so its particle body can move with it. Only those numbers are used; no audio is recorded, stored, sent or transcribed.</string>
+</dict>
+</plist>

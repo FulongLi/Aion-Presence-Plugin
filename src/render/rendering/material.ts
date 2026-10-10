@@ -3,21 +3,25 @@ import { Color } from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
 import { float, mix, normalize, positionLocal, sin, smoothstep, uniform, uv, vec3 } from "three/tsl";
 import type { PhysicsUniforms } from "../physics/uniforms";
-import { bodyWeight, formedTarget, morphWeight } from "../physics/morph";
+import { bodyWeight, eyesWeight, formedTarget, morphWeight } from "../physics/morph";
 import { figureRest } from "../physics/figure";
+import { eyesRest } from "../physics/eyes";
 type VectorNode = Node;
 
-/** Aion's figure body: each particle's skeleton binding (see aion/figure/layout.ts). */
-export interface FigureInputs { bind: VectorNode; local: VectorNode }
+/** Aion's other bodies: each particle's skeleton binding (core/figure/layout.ts) and eye binding (core/eyes/layout.ts). */
+export interface FigureInputs { bind: VectorNode; local: VectorNode; eyesBind?: VectorNode; eyesLocal?: VectorNode }
 
 export function createMaterial(rest: VectorNode, offset: VectorNode, target: VectorNode, tone: VectorNode, u: PhysicsUniforms,
   figure?: FigureInputs) {
   const material = new MeshBasicNodeMaterial();
   const m = morphWeight(rest, u);
-  // The persistent body under every visual: the sphere, or the figure (weight 0 leaves the sphere unchanged).
+  // The persistent body under every visual: the sphere, the figure or the eyes (weights 0 leave the sphere unchanged).
   const figured = figure ? figureRest(figure.bind, figure.local, u) : null;
+  const eyed = figure?.eyesBind && figure.eyesLocal ? eyesRest(figure.eyesBind, figure.eyesLocal, u) : null;
   const b = figured ? bodyWeight(rest, u) : float(0);
-  const bodyRest = figured ? mix(rest, figured.position, b) : rest;
+  const e = eyed ? eyesWeight(rest, u) : float(0);
+  const figureRestPosition = figured ? mix(rest, figured.position, b) : rest;
+  const bodyRest = eyed ? mix(figureRestPosition, eyed.position, e) : figureRestPosition;
   const normal = normalize(rest.add(offset).add(vec3(0, 0.0001, 0)));
   const key = normal.dot(normalize(vec3(-0.7, 1, 1.7))).add(u.wrap).div(u.wrap.add(1)).clamp(0, 1);
   const fill = normal.dot(normalize(vec3(1, -0.3, -0.6))).add(u.wrap).div(u.wrap.add(1)).clamp(0, 1);
@@ -32,11 +36,12 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const disturbance = offset.length().mul(0.28).clamp(0, 0.22);
   // Stable size variation keeps individual grains legible without frame-to-frame flicker.
   const grainSize = sin(rest.dot(vec3(127.1, 311.7, 74.7))).mul(0.3).add(1);
-  const base = mix(bodyRest, formedTarget(target, u), m);
-  const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m);
+  const formed = formedTarget(target, u);
+  const base = mix(bodyRest, formed, m);
+  const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m).mul(float(1).sub(u.formedDepth));
   const relief = vec3(base.x.add(base.z.mul(depthSway)), base.y, base.z);
   // Formed visuals and the figure use slightly finer grains than the sphere.
-  const grain = positionLocal.mul(u.size).mul(grainSize).mul(float(1).sub(m.mul(0.24).max(b.mul(0.34))));
+  const grain = positionLocal.mul(u.size).mul(grainSize).mul(float(1).sub(m.mul(0.24).max(b.mul(0.34)).max(e.mul(0.3))));
   material.positionNode = grain.add(relief).add(offset);
   const accentLight = smoothstep(0.25, 0.95, normal.dot(normalize(u.voiceDirection)))
     .mul(u.voiceAccent).mul(0.08).mul(u.speechGain);
@@ -46,8 +51,12 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   // The figure is lit by its own tones (bright bones and joints, faint veil and dust), in the sphere's
   // palette, brightening slightly as it turns toward the user and with the voice.
   const figureLight = float(1.25).add(attentionLight.mul(2)).add(u.voiceBody.mul(0.12));
-  const restColor = figured ? mix(sphereColor, color.mul(figured.tone).mul(figureLight).add(disturbance.mul(0.5)), b) : sphereColor;
-  const bodyColor = mix(restColor, vec3(0.78, 0.9, 1).mul(tone).mul(formedLight), m);
+  const figureColor = figured ? mix(sphereColor, color.mul(figured.tone).mul(figureLight).add(disturbance.mul(0.5)), b) : sphereColor;
+  // The eyes are lit by their own tones too: a bright rim and iris, a faint glassy fill.
+  const restColor = eyed ? mix(figureColor, color.mul(eyed.tone).mul(figureLight).add(disturbance.mul(0.5)), e) : figureColor;
+  // A 3D object is lit by depth: what is nearer is brighter, so its structure reads as it turns.
+  const nearness = mix(float(1), smoothstep(-1.9, 1.9, formed.z).mul(0.62).add(0.5), u.formedDepth);
+  const bodyColor = mix(restColor, vec3(0.78, 0.9, 1).mul(tone).mul(formedLight).mul(nearness), m);
   material.colorNode = bodyColor;
   material.opacityNode = float(1).sub(smoothstep(0.24, 0.5, uv().sub(0.5).length()));
   material.alphaTest = 0.12;

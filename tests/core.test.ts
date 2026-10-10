@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { NO_HOST_AUDIO } from "../src/core/audio";
 import { AION_BODIES, AionBody, bodyTransition, PERSISTENT_BODIES, resolveBodyForm } from "../src/core/body";
-import { createFigureLayout, FIGURE_KINDS, figurePoint, packAnchors, unpackAnchors } from "../src/core/figure/layout";
+import { createFigureLayout, FIGURE_KINDS, FIGURE_SHARES, figurePoint, packAnchors, unpackAnchors } from "../src/core/figure/layout";
 import { FigureAnimator, gestureTarget, NEUTRAL_POSE, solvePose } from "../src/core/figure/pose";
 import { ANCHOR, ANCHOR_COUNT, ANCHORS, FIGURE_SCALE, PROPORTIONS } from "../src/core/figure/skeleton";
 import { AION_IDENTITY, embodimentStatement } from "../src/core/identity";
@@ -109,13 +109,14 @@ test("a real host audio adapter is the only way the body speaks", () => {
 
 // ── Body ─────────────────────────────────────────────────────────────────────────────────────────────
 
-test("the sphere remains the default body and the figure can be selected by id or plain name", () => {
-  assert.deepEqual([...AION_BODIES], ["sphere", "figure"]);
+test("the sphere remains the default body; the figure and the eyes can be selected by id or plain name", () => {
+  assert.deepEqual([...AION_BODIES], ["sphere", "figure", "eyes"]);
   assert.deepEqual(PERSISTENT_BODIES.map(body => body.id), [...AION_BODIES]);
   const body = new AionBody();
   assert.equal(body.form, "sphere");
   for (const [name, id] of [["figure", "figure"], ["a human form", "figure"], ["Humanoid", "figure"], ["人形", "figure"],
-    ["the sphere", "sphere"], ["球体", "sphere"], ["Sphere.", "sphere"]] as const) assert.equal(resolveBodyForm(name), id, name);
+    ["the sphere", "sphere"], ["球体", "sphere"], ["Sphere.", "sphere"], ["eyes", "eyes"], ["your eyes", "eyes"], ["眼睛", "eyes"],
+    ["stick figure", "figure"], ["original", "sphere"]] as const) assert.equal(resolveBodyForm(name), id, name);
   for (const name of ["dragon", "", "<script>", 42, "a".repeat(80)]) assert.equal(resolveBodyForm(name), null, String(name));
   assert.equal(body.set("figure"), true);
   assert.equal(body.set("figure"), false, "already the figure");
@@ -124,9 +125,15 @@ test("the sphere remains the default body and the figure can be selected by id o
   for (let t = 0; t < bodyTransition.seconds + 0.2; t += 1 / 60) level = body.sample(1 / 60);
   assert.equal(level, 1);
   assert.equal(body.transitioning, false);
+  // Figure → eyes is one transition: one layer leaves while the other arrives.
+  body.set("eyes");
+  for (let t = 0; t < bodyTransition.seconds / 2; t += 1 / 60) body.sample(1 / 60);
+  assert.ok(body.level > 0.2 && body.level < 0.8 && body.eyes > 0.2 && body.eyes < 0.8 && body.transitioning, "both layers mid-way");
+  for (let t = 0; t < bodyTransition.seconds + 0.2; t += 1 / 60) level = body.sample(1 / 60);
+  assert.equal(level, 0); assert.equal(body.eyes, 1);
   body.set("sphere");
   for (let t = 0; t < bodyTransition.seconds + 0.2; t += 1 / 60) level = body.sample(1 / 60);
-  assert.equal(level, 0);
+  assert.equal(level, 0); assert.equal(body.eyes, 0); assert.equal(body.transitioning, false);
 });
 
 // ── Figure geometry (from SCF Presence) ───────────────────────────────────────────────────────────────
@@ -154,19 +161,23 @@ test("the neutral pose is a standing figure in normalized bounds, symmetric, wit
   assert.ok(waving[ANCHOR.handRight * 3 + 1] > waving[ANCHOR.shoulderRight * 3 + 1], "greeting raises one hand above the shoulder");
 });
 
-test("every state's pose is valid, bounded and subtle: body language, not a game avatar", () => {
+test("every state's motion is valid and bounded: limbs keep their length, feet stay planted, the head stays above", () => {
   const animator = new FigureAnimator();
   const neutral = solvePose(NEUTRAL_POSE);
+  const bone = (p: ArrayLike<number>, a: keyof typeof ANCHOR, b: keyof typeof ANCHOR) => Math.hypot(...[0, 1, 2].map(k => p[ANCHOR[a] * 3 + k] - p[ANCHOR[b] * 3 + k]));
   for (const state of AION_STATES) {
     for (let t = 0; t < 3; t += 0.1) {
       const anchors = animator.sample(0.1, state, t, 0.8);
       assert.ok(finite(anchors), `${state} finite`);
       for (let i = 0; i < ANCHOR_COUNT; i++) for (let k = 0; k < 3; k++) assert.ok(Math.abs(anchors[i * 4 + k]) <= FIGURE_SCALE, `${state} bounded`);
     }
-    // Only the greeting and presenting (and its brief gesture toward a card) move a hand far; every other state stays near neutral.
-    if (state !== "greeting" && state !== "presenting" && state !== "offering") {
-      const pose = solvePose(gestureTarget(state, 0.5, 1));
-      for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.12, `${state} is restrained`);
+    for (let t = 0; t < 30; t += 0.37) {
+      const pose = solvePose(gestureTarget(state, t, 1, 1));
+      for (const [a, b] of [["shoulderLeft", "elbowLeft"], ["elbowRight", "handRight"], ["hipLeft", "kneeLeft"], ["kneeRight", "footRight"]] as const) {
+        assert.ok(Math.abs(bone(pose, a, b) - bone(neutral, a, b)) < 0.005, `${state} keeps ${a}–${b} at ${t.toFixed(2)} s`);
+      }
+      for (const foot of ["footLeft", "footRight"] as const) assert.ok(Math.abs(pose[ANCHOR[foot] * 3 + 1] - neutral[ANCHOR[foot] * 3 + 1]) < 0.03, `${state}: ${foot} planted`);
+      assert.ok(pose[ANCHOR.head * 3 + 1] > pose[ANCHOR.neck * 3 + 1], `${state}: head above the neck`);
     }
   }
   assert.ok(finite(new FigureAnimator().sample(Number.NaN, "nonsense" as never, Number.NaN, Number.NaN)), "bad input stays finite");
@@ -195,10 +206,11 @@ test("the particle layout is a valid, bounded figure at every quality tier", () 
       assert.ok(Math.abs(position[0]) < 2 && Math.abs(position[1]) < 2 && Math.abs(position[2]) < 2);
     }
   }
-  assert.deepEqual([...kinds].sort(), Object.values(FIGURE_KINDS).sort(), "every component is present");
+  const active = Object.entries(FIGURE_SHARES).filter(([, share]) => share > 0).map(([kind]) => FIGURE_KINDS[kind as keyof typeof FIGURE_KINDS]);
+  assert.deepEqual([...kinds].sort(), active.sort(), "every component of the clean figure is present, and nothing else");
   const prefix = new Set<number>();
   for (let i = 0; i < 6000; i++) prefix.add(unpackAnchors(layout.bind[i * 4]).kind);
-  assert.equal(prefix.size, Object.keys(FIGURE_KINDS).length, "the smallest tier still draws the whole figure");
+  assert.equal(prefix.size, active.length, "the smallest tier still draws the whole figure");
   assert.deepEqual(unpackAnchors(packAnchors(14, 3, 0, 9, 6)), { a: 14, b: 3, c: 0, d: 9, kind: 6 });
   assert.deepEqual(createFigureLayout(500).bind, createFigureLayout(500).bind, "deterministic");
 });

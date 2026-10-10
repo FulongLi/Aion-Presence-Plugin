@@ -10,6 +10,7 @@ import { PresenceHub } from "../src/host/hub/hub";
 import type { PresentationContent } from "../src/core/presentation";
 import { VisualResolver } from "../src/host/resolver";
 import { visualForms } from "../src/visual/forms";
+import { SCENE_PRESETS } from "../src/visual/scene3d/presets";
 import { speechWav } from "./lib/fakeSpeech";
 import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
 
@@ -27,6 +28,8 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *   immersive     Enter Presence → true fullscreen, kept through visuals; Esc exits and is respected; a window
  *                 brought forward retires the old one; an embedded host that refuses fullscreen
  *   embedded      the same page in a minimal MCP Apps host wired to the real Aion MCP server
+ *   v0.4          Aion Eyes and express, the figure explaining an emphasised term, a heritage portrait, a 3D pyramid
+ *                 that turns, is dragged and re-oriented, then returns — in both renderers
  *
  * Screenshots land in .e2e/smoke/. Needs a local Chrome (CHROME_PATH overrides); skips with a message when there
  * is none. `-- --offline` skips the public portrait and terrain lookups.
@@ -106,6 +109,7 @@ const open = async (target: Browser, query = "", viewport = { width: 1100, heigh
 try {
   await renderers();
   await visuals();
+  for (const renderer of ["auto", "canvas"] as const) await v4(renderer);
   await listening();
   await responding();
   await immersive();
@@ -160,6 +164,68 @@ async function renderers() {
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
     await page.close();
   }
+}
+
+/** v0.4 on the real surface: the third body, expressions, the explanation cue, heritage portraits and 3D. */
+async function v4(renderer: "auto" | "canvas") {
+  console.log(`v0.4: eyes, figure explanation, heritage, 3D (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const name = (moment: string) => join(OUT, `v4-${renderer}-${moment}.png`);
+  hub.apply({ type: "body", body: "eyes" });
+  await pause(3_000);
+  check(/body eyes/.test((await diag(page)).state), "the eyes body forms");
+  check((await look(page, 2)).extent > 0.01, "the eyes are visible");
+  hub.apply({ type: "express", expression: "happy", seconds: 3 });
+  await pause(800);
+  check(await view<string>("v.aion.eyes.expression") === "happy", "express: the eyes look happy");
+  await page.screenshot({ path: name("eyes-happy") });
+
+  hub.apply({ type: "body", body: "figure" });
+  await pause(3_000);
+  hub.apply({ type: "present", content: { kind: "text", text: "a² + b² = c²", emphasis: "c²" }, hold: 10 });
+  await until(page, s => s.card === "shown", 4_000);
+  check(await page.locator("#card mark.emphasis").textContent() === "c²", "the card marks the emphasised term");
+  await pause(1_600);
+  check(await view<string | null>("v.aion.figure.cueing") === "explain", "the figure explains the term");
+  await pause(1_500);
+  await page.screenshot({ path: name("figure-explain") });
+  hub.apply({ type: "clear" });
+  await pause(1_000);
+
+  if (!offline) {
+    const tesla = await new VisualResolver({ env: {} }).portrait("Nikola Tesla");
+    hub.apply({ type: "present", content: { kind: "image", media: hub.addMedia(Buffer.from(tesla.bytes)), fit: "portrait", origin: "lookup", alt: "Nikola Tesla", style: "heritage" }, presentation: "body", hold: 5 });
+    check((await until(page, s => s.phase === "holding")).phase === "holding", "a heritage portrait forms");
+    await pause(500);
+    await page.screenshot({ path: name("heritage-tesla") });
+    check((await until(page, s => s.phase === "sphere", 12_000)).phase === "sphere", "heritage → figure: back to the persistent body");
+  }
+
+  hub.apply({ type: "body", body: "sphere" });
+  await pause(2_500);
+  hub.apply({ type: "present", content: { kind: "scene", scene: SCENE_PRESETS.pyramid, label: "Egyptian pyramid", preset: "pyramid" }, hold: 30 });
+  check((await until(page, s => s.phase === "holding")).phase === "holding", "the 3D pyramid forms");
+  check(await view<boolean>("v.orbit.active"), "the 3D view is active");
+  const yaw = () => view<number>("v.orbit.yaw"), pitch = () => view<number>("v.orbit.pitch");
+  const before = await yaw();
+  await page.mouse.move(550, 380); await page.mouse.down();
+  for (let i = 1; i <= 20; i++) { await page.mouse.move(550 - i * 8, 380); await pause(16); }
+  await page.mouse.up();
+  check(await yaw() < before - 0.5, "dragging turns it");
+  const tilt = await pitch();
+  hub.apply({ type: "view", rotate: "up", degrees: 30 });
+  await pause(1_200);
+  check(await pitch() > tilt + 0.3, "set_scene_view tilts it");
+  await page.screenshot({ path: name("pyramid") });
+  const turned = await yaw();
+  await pause(4_500);
+  check(await yaw() > turned + 0.1, "it turns slowly by itself after the user lets go");
+  hub.apply({ type: "clear" });
+  check((await until(page, s => s.phase === "sphere", 6_000)).phase === "sphere", "3D → sphere: back to the persistent body");
+  check(!(await view<boolean>("v.orbit.active")), "the 3D view ends with it");
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
 }
 
 /**
@@ -303,15 +369,31 @@ async function responding() {
       await aion.call("set_body_form", { body });
       await aion.call("set_presence_state", { state: "idle" });
       await pause(3_200);
-      const idle = await look(page, 14, 150);
+      // The figure's hands, read from its live skeleton: how far they travel in a few seconds.
+      const hands = async () => {
+        const points: number[][] = [];
+        for (let i = 0; i < 40; i++) {
+          points.push(await page.evaluate("(() => { const a = window.aionPresence.aion.figure.anchors; return [a[24], a[25], a[28], a[29]]; })()") as number[]);
+          await pause(100);
+        }
+        return Math.max(...[0, 1, 2, 3].map(k => Math.max(...points.map(p => p[k])) - Math.min(...points.map(p => p[k]))));
+      };
+      const idle = body === "figure" ? null : await look(page, 14, 150);
+      const idleHands = body === "figure" ? await hands() : 0;
       await aion.call("set_presence_state", { state: "responding" });
       const answering = await until(page, s => s.state === "responding" && s.responding > 0.8, 4_000);
       check(answering.host === "responding" && answering.state === "responding" && answering.responding > 0.8, `${body}: responding reaches the body (signal ${answering.responding.toFixed(2)})`);
-      const moving = await look(page, 14, 150);
+      if (idle) {
+        const moving = await look(page, 14, 150);
+        const ratio = moving.motion / Math.max(1e-6, idle.motion);
+        check(moving.motion > 0 && (ratio > 1.05 || Math.abs(moving.extent - idle.extent) > 0.004),
+          `${body}: answering is visibly different from idle (motion ×${ratio.toFixed(2)}, extent ${idle.extent.toFixed(3)} → ${moving.extent.toFixed(3)})`);
+      } else {
+        const answeringHands = await hands();
+        check(answeringHands > 0.15 && answeringHands > idleHands * 1.5,
+          `${body}: answering gestures with the hands (range ${idleHands.toFixed(2)} → ${answeringHands.toFixed(2)} world units)`);
+      }
       await page.screenshot({ path: join(OUT, `responding-${body}.png`) });
-      const ratio = moving.motion / Math.max(1e-6, idle.motion);
-      check(body === "figure" ? ratio > 1.15 : moving.motion > 0 && (ratio > 1.05 || Math.abs(moving.extent - idle.extent) > 0.004),
-        `${body}: answering is visibly different from idle (motion ×${ratio.toFixed(2)}, extent ${idle.extent.toFixed(3)} → ${moving.extent.toFixed(3)})`);
     }
     // The turn ends while the answer is still being said (Codex's Stop hook): the body keeps answering, then completes.
     await aion.call("set_presence_state", { state: "responding" });

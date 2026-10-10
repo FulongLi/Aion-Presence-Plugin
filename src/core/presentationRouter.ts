@@ -71,7 +71,7 @@ export const PICTURE_QUALITY = { portraitMinSide: 240, pictureMinLongSide: 640 }
 /** Whether the particle body can carry this content legibly. */
 export function bodyCapable(content: PresentationContent): boolean {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": return true;
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": return true;
     case "text": return !content.title && isGlyphText(content.text);
     case "result": return content.status !== "info";
     case "artifact": return (content.type === "svg" || content.type === "image") && content.media !== undefined;
@@ -80,12 +80,12 @@ export function bodyCapable(content: PresentationContent): boolean {
 
 /** Whether this content has a card form. A form, a symbol or an emoji is only ever the body. */
 export function cardCapable(content: PresentationContent): boolean {
-  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji");
+  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji" || content.kind === "scene");
 }
 
 function automatic(content: PresentationContent, detail: boolean): { route: PresentationRoute; reason: RouteReason } {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain":
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene":
       return { route: "body", reason: "body-native" };
     case "text":
       return bodyCapable(content) ? { route: "body", reason: "body-native" } : { route: "card", reason: "fidelity" };

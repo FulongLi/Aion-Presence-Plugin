@@ -2,8 +2,9 @@
 
 **Aion is how Codex becomes visually present.** Codex remains the intelligence: it reasons, reads, edits, tests,
 builds and talks with you. While Aion is open you meet it *as Aion*: one embodied presence, in the foreground, a
-quiet particle body that listens, reflects what is really happening, visibly answers, and shows you things — as its
-own body, as a high-fidelity card, or both.
+living particle body — a sphere, a pair of expressive eyes, or a stick figure that gestures and explains — that
+listens, reflects what is really happening, visibly answers, and shows you things: as its own body (including
+genuine 3D objects you can turn), as a high-fidelity card, or both.
 
 ```text
 inside:   Codex = intelligence (reasoning, coding, tools, conversation, voice)
@@ -48,13 +49,20 @@ Codex answers                →  Aion visibly answers, for as long as the answe
 "What is the terrain of Scotland like?" → Aion becomes Scotland's real relief
 "What does Orion look like?" →  Aion becomes Orion — no card needed
 "Show me the change."        →  the exact code, in a quiet card beside a body that keeps living
+"Show your eyes." · "Look happy." →  Aion becomes two expressive eyes, and smiles with them
+"Explain a² + b² = c²."      →  the figure looks at the equation, points at c² and explains with its hands
+"Show me Tesla as an old oval portrait." →  a heritage portrait: an antique oval of particles, silver-edged
+"Show me an Egyptian pyramid in 3D." · "Rotate it." →  a real 3D pyramid that turns; drag it, zoom, reset
 ```
 
-- **Two persistent bodies**: the original particle **Sphere** and the minimal **Particle Figure**. Every visual
-  forms out of, and returns to, the chosen body (figure → Tesla → figure).
+- **Three persistent bodies**, one Aion: the original particle **Sphere** (abstract intelligence, visuals),
+  **Aion Eyes** (conversation, attention, expression) and the **Particle Figure** (gesture, explanation). Every
+  visual forms out of, and returns to, the chosen body (figure → Tesla → figure); switching bodies is one particle
+  transition. See [docs/EYES.md](docs/EYES.md) and [docs/FIGURE.md](docs/FIGURE.md).
 - **SCF Presence's visual language**: portraits and images of almost anything (looked up on open sources), real
   terrain from elevation data, Tao forms (yin-yang, lines, trigrams, bagua), constellations, zodiac and planetary
-  signs, clocks, key numbers, short words, symbols and emoji.
+  signs, clocks, key numbers, short words, symbols and emoji — plus, in v0.4, **heritage** oval portraits and
+  **genuine 3D objects** built from validated primitive scenes ([docs/SCENES.md](docs/SCENES.md)).
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -114,17 +122,20 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | --- | --- |
 | `open_presence` | Open Aion (embedded or companion); `display: "immersive"` for "Open Aion". Reports the mode, the immersive path, whether hooks are active, and `greeting.due` once per newly opened Presence. |
 | `set_presence_state` | `idle listening thinking working reading editing testing building responding presenting complete error`. |
-| `set_body_form` | `sphere` or `figure`: the persistent body. |
-| `show_portrait` | A real person's face, from public photos (Wikipedia first): a particle portrait and the original photograph (hybrid). |
+| `set_body_form` | `sphere`, `eyes` or `figure`: the persistent body. |
+| `express` | An expression (neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned) or a gesture (wave, nod, point, shrug, surprise, jump, step, turn, look-around, think): the eyes wear it, the figure acts it out. |
+| `show_portrait` | A real person's face, from public photos (Wikipedia first): a particle portrait and the original photograph (hybrid). `style: "heritage"`: an antique oval portrait. |
 | `show_image` | A picture of almost anything: `query` (+ `intent`) looks it up on open sources; `source` shows a local file; `detail: true` keeps it exact. |
 | `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap); `presentation: "hybrid"` adds a relief map card. |
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
-| `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. |
+| `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
+| `set_scene_view` | Turn, tilt or zoom the 3D object on show, stop its turn, or reset the view. |
+| `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
-
-`show_image`, `show_portrait`, `show_terrain`, `show_result` and `show_artifact` accept `presentation`
-(`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
 | `clear_presentation` | Return to the persistent body now. |
+
+`show_image`, `show_portrait`, `show_terrain`, `show_text`, `show_result` and `show_artifact` accept `presentation`
+(`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
 
 ## Lifecycle hooks
 
@@ -156,6 +167,11 @@ hooks Aion still works; the Skill then sets the main states itself.
   (`AION_PRESENCE_BRAVE_SEARCH_KEY`) is off unless you set it.
 - Presented content is rendered as text (never as HTML), images only through `<img>` or as particles. Cards and the
   Presentation Router run locally; card contents are never sent anywhere.
+- **3D scenes are data, never code**: every scene is validated strictly (known fields and names only, bounded
+  numbers, at most 24 objects, 256 after repeats, 80,000 triangles, 16 KB) in the MCP server, again in the hub and
+  again before geometry is built. No 3D asset is ever fetched.
+- **Assistant audio**: the plugin does not capture any. The macOS audio-bridge experiment (not in the runtime) and
+  its findings are in [docs/AUDIO-BRIDGE.md](docs/AUDIO-BRIDGE.md).
 
 ## Development
 
@@ -171,7 +187,8 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded (`-- --offline` skips lookups) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, and v0.4's eyes, explanation, heritage and 3D in both renderers (`-- --offline` skips lookups) |
+| `npm run showcase` | The visual review: records each v0.4 demo in the real renderer (`.e2e/showcase/*.webm` and screenshots); `-- --list`, `-- pyramid eyes`, `-- --headed`, `-- --canvas` |
 | `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes |
 | `npm run release` | The reproducible installable archive in `dist/` |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |

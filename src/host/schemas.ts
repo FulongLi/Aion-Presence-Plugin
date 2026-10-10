@@ -4,7 +4,11 @@ import { AION_IDENTITY } from "../core/identity";
 import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, RESULT_STATUSES } from "../core/presentation";
 import { ACTIVITY_STATES } from "../core/state";
 import { PRESENTATION_PREFERENCES } from "../core/presentationRouter";
-import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
+import { EYE_EXPRESSIONS } from "../core/eyes/expression";
+import { FIGURE_GESTURES } from "../core/figure/motion";
+import { SCENE_PRESET_NAMES } from "../visual/scene3d/presets";
+import { SCENE_LIMITS } from "../visual/scene3d/types";
+import { IMAGE_INTENTS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
 import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
 
 /**
@@ -37,6 +41,12 @@ const checked = (max: number, valid: (value: string) => boolean, what: string) =
   return clean;
 });
 
+/** A portrait's composition (the card always shows the original photograph). */
+const portraitStyle = z.enum(PORTRAIT_STYLES).describe(
+  "classic (default): a head-and-shoulders particle portrait. heritage: an antique oval portrait in particles with a fine silver outline, "
+  + "like a Victorian locket or pocket-watch portrait. Heritage often suits historical figures from old photographs, but choose it only when it "
+  + "fits the moment or the user asks for it; use exactly what the user asks for.");
+
 export const activityStateSchema = z.enum(ACTIVITY_STATES);
 export const bodySchema = z.enum(AION_BODIES);
 
@@ -46,7 +56,14 @@ export const setPresenceStateInput = z.object({
 }).strict();
 
 export const setBodyFormInput = z.object({
-  body: bodySchema.describe("sphere: the original abstract body. figure: a quiet, minimal humanoid of particles."),
+  body: bodySchema.describe("sphere: the original abstract body (visuals, information). eyes: two expressive eyes (conversation, attention). "
+    + "figure: an articulated stick figure (gesture, explanation)."),
+}).strict();
+
+export const expressInput = z.object({
+  expression: z.enum(EYE_EXPRESSIONS).optional().describe("An expression: neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned."),
+  gesture: z.enum(FIGURE_GESTURES).optional().describe("A gesture: wave, nod, point, shrug, surprise, jump, step, turn, look-around, think."),
+  seconds: z.number().min(1).max(30).optional().describe("How long an expression is held (default about 4 s). Gestures take their own time."),
 }).strict();
 
 export const showFormInput = z.object({
@@ -61,6 +78,8 @@ export const showVisualFormInput = showFormInput;
 export const showTextInput = z.object({
   text: text(LIMITS.text, "text").describe(`Concise text (≤ ${LIMITS.text} characters). Up to 16 plain characters become the particle body itself; longer text is shown beside it.`),
   title: line(LIMITS.title, "title").optional().describe(`Optional short heading (≤ ${LIMITS.title} characters); text with a title is always shown beside the body.`),
+  emphasis: line(LIMITS.emphasis, "emphasis").optional().describe("Optional: one term of the text to highlight in the card, e.g. \"c²\" in \"a² + b² = c²\". "
+    + "As the figure, Aion looks at it, points to it and explains it; the eyes glance at it."),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
@@ -75,11 +94,13 @@ export const showImageInput = z.object({
   mode: z.enum(IMAGE_MODES).optional().describe("Older form of presentation (particles = body, framed = card). Prefer presentation."),
   presentation: presentation.optional(),
   detail: z.boolean().optional().describe("true when the user wants to inspect the picture's exact detail: it is shown as a card, not dissolved into particles."),
+  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity): classic (default) or heritage, an antique oval portrait."),
   hold_seconds: hold.optional(),
 }).strict();
 
 export const showPortraitInput = z.object({
   person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).describe("Full, unambiguous name of the person, e.g. \"Nikola Tesla\"."),
+  style: portraitStyle.optional(),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();
@@ -148,6 +169,56 @@ export const showArtifactInput = z.object({
   source: z.string().min(1).max(12_000_000).optional().describe("For image: an absolute local path or a data:image URL, as in show_image."),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
+}).strict();
+
+/**
+ * A 3D scene for show_scene: the shape the model sees. The server validates it again, strictly and with every bound
+ * (visual/scene3d/validate.ts), before anything is built.
+ */
+const num = z.number();
+const vec = z.tuple([num, num, num]);
+const sceneCommon = {
+  position: vec.optional().describe("Centre [x, y, z] (y up, z toward the viewer). Default [0, 0, 0]."),
+  rotation: vec.optional().describe("Euler angles in degrees [x, y, z]."),
+  scale: z.union([num, vec]).optional(),
+  tone: num.optional().describe("Brightness 0.2–1 (default 0.85)."),
+  weight: num.optional().describe("Relative share of particles (default 1)."),
+  detail: z.enum(["surface", "edges", "both"]).optional().describe("Draw surfaces, edges, or both (default by type)."),
+  repeat: z.object({ count: num, offset: vec.optional(), rotation: vec.optional(), scale: num.optional() }).strict().optional()
+    .describe(`Copies (2–${SCENE_LIMITS.repeat}), each offset and turned by one more step than the last (e.g. the rungs of a ladder or a helix).`),
+};
+const sceneObject = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("box"), size: vec, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("sphere"), radius: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("pyramid"), base: num, height: num, sides: num.optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("cylinder"), radius: num, height: num, radiusTop: num.optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("cone"), radius: num, height: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("torus"), radius: num, tube: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("ring"), inner: num, outer: num, ...sceneCommon }).strict().describe("A flat annulus in the horizontal plane (planetary rings)."),
+  z.object({ type: z.literal("line"), from: vec, to: vec, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("tube"), points: z.array(vec), radius: num, closed: z.boolean().optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("curve"), points: z.array(vec), closed: z.boolean().optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("helix"), radius: num, height: num, turns: num, phase: num.optional(), ...sceneCommon }).strict(),
+]);
+export const sceneInput = z.object({
+  title: z.string().describe("What it shows, e.g. \"Water molecule\" (≤ 60 characters)."),
+  objects: z.array(sceneObject).describe(`1–${SCENE_LIMITS.objects} primitives, each centred at its position.`),
+  rotation: z.enum(["slow", "none"]).optional().describe("slow (default): turns slowly; none: holds still."),
+  tilt: num.optional().describe("Viewing elevation in degrees, −60…60 (default 15; positive looks down on it)."),
+}).strict();
+
+export const showSceneInput = z.object({
+  preset: z.enum(SCENE_PRESET_NAMES as [string, ...string[]]).optional().describe(`A curated scene: ${SCENE_PRESET_NAMES.join(", ")}.`),
+  scene: sceneInput.optional().describe("Your own scene of primitives, when no preset fits."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const setSceneViewInput = z.object({
+  rotate: z.enum(["left", "right", "up", "down"]).optional().describe("Turn the object (left/right) or tilt it (up: see it more from above; down: from below)."),
+  degrees: z.number().min(5).max(180).optional().describe("How far to turn (default 45)."),
+  zoom: z.enum(["in", "out"]).optional(),
+  spin: z.boolean().optional().describe("Resume (true) or stop (false) its slow turn."),
+  reset: z.boolean().optional().describe("Back to the default view."),
 }).strict();
 
 export const openPresenceInput = z.object({

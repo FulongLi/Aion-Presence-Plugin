@@ -1,11 +1,16 @@
 import { z } from "zod";
 import { AION_BODIES } from "../../core/body";
 import {
-  ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_FITS, IMAGE_MODES, LIMITS, RESULT_STATUSES, SYMBOL_NAMES, TERRAIN_STYLES,
+  ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_FITS, IMAGE_MODES, LIMITS, PORTRAIT_STYLES, RESULT_STATUSES, SYMBOL_NAMES, TERRAIN_STYLES,
   type PresentationContent,
 } from "../../core/presentation";
 import { CLOCK_TIME, isSingleEmojiGrapheme, validNumber } from "../../visual/validate";
 import { ACTIVITY_STATES } from "../../core/state";
+import { EYE_EXPRESSIONS } from "../../core/eyes/expression";
+import { FIGURE_GESTURES } from "../../core/figure/motion";
+import { checkScene } from "../../visual/scene3d/validate";
+import type { Scene3D } from "../../visual/scene3d/types";
+import type { OrbitCommand } from "../../render/interaction/orbit";
 import { PRESENTATION_PREFERENCES, type PresentationPreference } from "../../core/presentationRouter";
 import type { PresenceSnapshot } from "../../core/store";
 
@@ -57,7 +62,11 @@ export type HubCommand =
   /** Codex has given (or is giving) Aion's introduction. */
   | { type: "introduced" }
   /** A new companion window is on its way to the foreground: the open ones retire once it has connected. */
-  | { type: "supersede" };
+  | { type: "supersede" }
+  /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
+  | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number }
+  /** Turn, tilt or zoom the 3D object on show. */
+  | ({ type: "view" } & OrbitCommand);
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -66,7 +75,9 @@ const heightFieldRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime:
 
 const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("form"), form: z.string().regex(/^[a-z][a-z0-9]*\.[a-z0-9]+(?:-[a-z0-9]+)*$/), variant: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), label: clean(cleanLine, 120) }).strict(),
-  z.object({ kind: z.literal("text"), text: clean(cleanText, LIMITS.text), title: clean(cleanLine, LIMITS.title).optional() }).strict(),
+  z.object({
+    kind: z.literal("text"), text: clean(cleanText, LIMITS.text), title: clean(cleanLine, LIMITS.title).optional(), emphasis: clean(cleanLine, LIMITS.emphasis).optional(),
+  }).strict().refine(value => value.emphasis === undefined || value.text.includes(value.emphasis), "emphasis must be part of the text"),
   z.object({
     kind: z.literal("result"), title: clean(cleanLine, LIMITS.title), summary: clean(cleanText, LIMITS.summary), status: z.enum(RESULT_STATUSES),
     details: z.array(clean(cleanLine, LIMITS.detail)).max(LIMITS.details),
@@ -75,7 +86,7 @@ const presentationSchema = z.discriminatedUnion("kind", [
     kind: z.literal("image"), media: mediaRef, alt: clean(cleanLine, LIMITS.alt).optional(), mode: z.enum(IMAGE_MODES).optional(),
     fit: z.enum(IMAGE_FITS).optional(), credit: clean(cleanLine, LIMITS.title).optional(),
     width: z.number().int().positive().max(100_000).optional(), height: z.number().int().positive().max(100_000).optional(),
-    origin: z.enum(["lookup", "local"]).optional(),
+    origin: z.enum(["lookup", "local"]).optional(), style: z.enum(PORTRAIT_STYLES).optional(),
   }).strict(),
   z.object({
     kind: z.literal("terrain"), media: heightFieldRef, style: z.enum(TERRAIN_STYLES), label: clean(cleanLine, LIMITS.title),
@@ -85,6 +96,10 @@ const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("number"), value: z.string().refine(validNumber) }).strict(),
   z.object({ kind: z.literal("symbol"), symbol: z.enum(SYMBOL_NAMES) }).strict(),
   z.object({ kind: z.literal("emoji"), emoji: z.string().refine(isSingleEmojiGrapheme) }).strict(),
+  z.object({
+    kind: z.literal("scene"), scene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene"), label: clean(cleanLine, LIMITS.title),
+    preset: z.string().regex(/^[a-z][a-z0-9-]{0,30}$/).optional(),
+  }).strict(),
   z.object({
     kind: z.literal("artifact"), type: z.enum(ARTIFACT_TYPES), title: clean(cleanLine, LIMITS.title),
     content: clean(cleanCode, LIMITS.artifact).optional(), language: z.string().regex(/^[a-z0-9+#.-]{1,24}$/i).optional(), media: mediaRef.optional(),
@@ -107,6 +122,14 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional() }).strict(),
   z.object({ type: z.literal("introduced") }).strict(),
   z.object({ type: z.literal("supersede") }).strict(),
+  z.object({
+    type: z.literal("express"), expression: z.enum(EYE_EXPRESSIONS).optional(), gesture: z.enum(FIGURE_GESTURES).optional(),
+    seconds: z.number().min(1).max(30).optional(),
+  }).strict().refine(value => value.expression !== undefined || value.gesture !== undefined, "an expression or a gesture"),
+  z.object({
+    type: z.literal("view"), rotate: z.enum(["left", "right", "up", "down"]).optional(), degrees: z.number().min(5).max(180).optional(),
+    zoom: z.enum(["in", "out"]).optional(), spin: z.boolean().optional(), reset: z.boolean().optional(),
+  }).strict(),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */

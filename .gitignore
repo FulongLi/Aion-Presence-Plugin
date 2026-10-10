@@ -15,3 +15,6 @@ npm-debug.log*
 
 # release archives (npm run release)
 /dist/
+
+# experimental audio bridge builds
+/experiments/audio-bridge/build/
