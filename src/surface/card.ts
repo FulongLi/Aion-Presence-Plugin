@@ -62,10 +62,18 @@ export async function buildCard(presentation: Presentation, sources: CardSources
       }
       break;
     }
-    case "text":
+    case "text": {
       if (presentation.title) root.append(el("h2", undefined, presentation.title));
-      root.append(el("p", presentation.title ? "prose" : "summary", presentation.text));
+      // A short line without a heading (an equation, a key phrase) is set large; an emphasised term is marked.
+      const short = !presentation.title && !presentation.text.includes("\n") && Array.from(presentation.text).length <= 40;
+      const paragraph = el("p", presentation.title ? "prose" : short ? "statement" : "summary");
+      const at = presentation.emphasis ? presentation.text.indexOf(presentation.emphasis) : -1;
+      if (at >= 0) {
+        paragraph.append(presentation.text.slice(0, at), el("mark", "emphasis", presentation.emphasis), presentation.text.slice(at + presentation.emphasis!.length));
+      } else paragraph.textContent = presentation.text;
+      root.append(paragraph);
       break;
+    }
     case "number":
       root.append(el("p", "figure-value", presentation.value));
       break;

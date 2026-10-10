@@ -76,6 +76,8 @@ export const showVisualFormInput = showFormInput;
 export const showTextInput = z.object({
   text: text(LIMITS.text, "text").describe(`Concise text (≤ ${LIMITS.text} characters). Up to 16 plain characters become the particle body itself; longer text is shown beside it.`),
   title: line(LIMITS.title, "title").optional().describe(`Optional short heading (≤ ${LIMITS.title} characters); text with a title is always shown beside the body.`),
+  emphasis: line(LIMITS.emphasis, "emphasis").optional().describe("Optional: one term of the text to highlight in the card, e.g. \"c²\" in \"a² + b² = c²\". "
+    + "As the figure, Aion looks at it, points to it and explains it; the eyes glance at it."),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();

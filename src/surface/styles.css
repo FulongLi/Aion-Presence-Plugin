@@ -21,6 +21,8 @@ body { overflow: hidden; background: #090e16; }
 .card[hidden] { display: block; visibility: hidden; }
 .card h2 { margin: 0 28px 8px 0; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #8597a9; }
 .card .summary { margin: 0; font-size: 21px; line-height: 1.38; font-weight: 300; color: #e8eff6; letter-spacing: .005em; }
+.card .statement { margin: 6px 0; font-size: 44px; line-height: 1.2; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
+.card mark.emphasis { background: none; color: #ffffff; text-shadow: 0 0 18px rgba(190, 214, 236, .55); border-bottom: 1px solid rgba(214, 228, 240, .6); padding: 0 .06em; }
 .card .prose { margin: 12px 0 0; white-space: pre-wrap; color: #c9d5e0; }
 .card .figure-value { margin: 4px 0; font-size: 56px; line-height: 1.1; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
 .card .mark { display: inline-block; width: 8px; height: 8px; margin-right: 12px; border-radius: 50%; vertical-align: 4px; background: #a8bed1; }

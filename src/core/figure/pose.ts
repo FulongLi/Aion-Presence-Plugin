@@ -92,7 +92,7 @@ export function unflattenPose(channels: Channels): PoseParams {
 const STATE_POSES: Record<AionState, PoseParams> = {
   idle: NEUTRAL_POSE,
   // Turned toward the user: a lean and head tilt, hands drawn in a little. Loudness adds lean and nods (statePose).
-  listening: { ...NEUTRAL_POSE, lean: 0.05, tilt: 0.08, nod: 0.06, left: arm(0.12, 0.3, 0.06), right: arm(0.12, 0.3, 0.06) },
+  listening: { ...NEUTRAL_POSE, lean: 0.05, tilt: 0.12, nod: 0.06, sway: 0.012, hipTilt: 0.035, bend: -0.02, left: arm(0.12, 0.3, 0.06), right: arm(0.14, 0.42, 0.07) },
   // The thinker: one hand at the chin, the other arm folded across the waist, head tilted, weight back a little.
   thinking: {
     ...NEUTRAL_POSE, lean: -0.01, tilt: 0.09, nod: 0.12, sway: -0.012, hipTilt: -0.03,

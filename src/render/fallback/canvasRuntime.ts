@@ -41,6 +41,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
+  let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
   const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count);
   const resize = () => {
@@ -69,6 +70,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const body = inputs.body.sample(dt, now, calm());
     const framing = inputs.framing?.sample(dt) ?? { x: 0, y: 0, scale: 1 };
     const centreX = width / 2 + framing.x * width, centreY = height / 2 - framing.y * height, zoom = scale * framing.scale;
+    centre = { x: centreX, y: centreY, zoom };
     const cycle = clock * particleDefaults.idle.frequency;
     const breath = particleDefaults.idle.breathing * (1 - presence.focus * particleDefaults.listening.breath - presence.responding * particleDefaults.responding.breath);
     const { listening, responding } = particleDefaults;
@@ -149,5 +151,9 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   };
   frame = requestAnimationFrame(animate);
   const report = (): QualityReport => ({ tier: 0, ceiling: 0, count, effects: false, frameMs, frames });
-  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, dispose: cleanup };
+  const toWorld = (clientX: number, clientY: number): [number, number] | null => {
+    const bounds = canvas.getBoundingClientRect();
+    return bounds.width > 0 ? [(clientX - bounds.left - centre.x) / centre.zoom, (centre.y - (clientY - bounds.top)) / centre.zoom] : null;
+  };
+  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, dispose: cleanup };
 }

@@ -58,11 +58,15 @@ export function sampleClip(clip: Clip, t: number, base: Channels): Channels {
   const channels = new Set<string>();
   for (const key of clip.keys) for (const name of Object.keys(key.v)) channels.add(name);
   for (const name of channels) {
-    let previousAt = 0, previous = isAbsolute(name) ? base[name] ?? 0 : 0, value = previous;
-    for (const key of clip.keys) {
+    let previous = isAbsolute(name) ? base[name] ?? 0 : 0, value = previous;
+    for (let k = 0; k < clip.keys.length; k++) {
+      const key = clip.keys[k];
       if (!(name in key.v)) continue;
       const target = key.v[name];
-      if (t >= key.at) { previousAt = key.at; previous = target; value = target; continue; }
+      if (t >= key.at) { previous = target; value = target; continue; }
+      // A key is a stage of the movement: a channel holds until the stage before this key, then moves into it.
+      const previousAt = k > 0 ? clip.keys[k - 1].at : 0;
+      if (t <= previousAt) break;
       const span = key.at - previousAt;
       value = previous + (target - previous) * ease(key.ease, span > 0 ? (t - previousAt) / span : 1);
       break;
@@ -348,6 +352,17 @@ export const DROWSY: Clip = {
   ],
 };
 
+/** Thinking it over: a hand comes to the chin, the other arm folds across the waist, the gaze drifts up, then back. */
+export const THINK: Clip = {
+  name: "think", duration: 3.8, fadeIn: 0.2, fadeOut: 0.6,
+  keys: [
+    { at: 0.7, v: { "right.chin": 1, ...arm("left", 0.08, -1.3, 0.12), tilt: 0.08, nod: 0.1, hipTilt: -0.03, sway: -0.012 }, ease: "inOut" },
+    { at: 1.5, v: { turn: 0.5, nod: -0.18, tilt: 0.1 }, ease: "inOut" },
+    { at: 2.9, v: { turn: 0.45, nod: -0.16 }, ease: "linear" },
+    { at: 3.8, v: { "right.chin": 0, ...rest("left"), turn: 0, nod: 0, tilt: 0, hipTilt: 0, sway: 0 }, ease: "inOut" },
+  ],
+};
+
 /** A brief bright moment: a small bounce on the toes with the hands opening (complete, happy). */
 export const PLEASED: Clip = {
   name: "pleased", duration: 1.7, fadeIn: 0.1, fadeOut: 0.5,
@@ -472,6 +487,6 @@ export function gestureClip(name: FigureGesture, target: [number, number, number
     case "step": return STEP("left");
     case "turn": return TURN("left");
     case "look-around": return LOOK_AROUND("left");
-    case "think": return PONDER("left");
+    case "think": return THINK;
   }
 }

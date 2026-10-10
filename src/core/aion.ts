@@ -1,6 +1,6 @@
 import { AionBody, type AionBodyId } from "./body";
 import { EyesAnimator, isEyeExpression, type EyeExpression } from "./eyes/expression";
-import { ATTENTIVE_TILT, CONCERN, DROWSY, gestureClip, NOD, PLEASED, PONDER, SHRUG, SURPRISE, type Clip, type FigureGesture } from "./figure/motion";
+import { ATTENTIVE_TILT, CONCERN, DROWSY, gestureClip, NOD, PLEASED, SHRUG, SURPRISE, THINK, type Clip, type FigureGesture } from "./figure/motion";
 import { FigureAnimator } from "./figure/pose";
 import { AION_IDENTITY } from "./identity";
 import type { PresenceSignal } from "./signal";
@@ -78,7 +78,7 @@ export class Aion implements BodySource {
     if (request.gesture === "wave") this.eyes.blink();
     if (request.gesture === "point") this.look = { at: [0.34, 0.04], until: this.clock + 2.5 };
     const fromExpression: Partial<Record<EyeExpression, Clip>> = {
-      happy: PLEASED, surprised: SURPRISE, curious: ATTENTIVE_TILT("left"), confused: SHRUG, thinking: PONDER("left"),
+      happy: PLEASED, surprised: SURPRISE, curious: ATTENTIVE_TILT("left"), confused: SHRUG, thinking: THINK,
       sleepy: DROWSY, attentive: NOD, concerned: CONCERN,
     };
     const clip = request.gesture ? gestureClip(request.gesture) : expression ? fromExpression[expression] : undefined;

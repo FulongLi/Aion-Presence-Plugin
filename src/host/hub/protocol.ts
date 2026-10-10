@@ -70,7 +70,9 @@ const heightFieldRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime:
 
 const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("form"), form: z.string().regex(/^[a-z][a-z0-9]*\.[a-z0-9]+(?:-[a-z0-9]+)*$/), variant: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), label: clean(cleanLine, 120) }).strict(),
-  z.object({ kind: z.literal("text"), text: clean(cleanText, LIMITS.text), title: clean(cleanLine, LIMITS.title).optional() }).strict(),
+  z.object({
+    kind: z.literal("text"), text: clean(cleanText, LIMITS.text), title: clean(cleanLine, LIMITS.title).optional(), emphasis: clean(cleanLine, LIMITS.emphasis).optional(),
+  }).strict().refine(value => value.emphasis === undefined || value.text.includes(value.emphasis), "emphasis must be part of the text"),
   z.object({
     kind: z.literal("result"), title: clean(cleanLine, LIMITS.title), summary: clean(cleanText, LIMITS.summary), status: z.enum(RESULT_STATUSES),
     details: z.array(clean(cleanLine, LIMITS.detail)).max(LIMITS.details),

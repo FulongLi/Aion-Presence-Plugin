@@ -455,7 +455,11 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: showTextInput,
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
-  }, (args, ctx) => present(ctx, { kind: "text", text: args.text, ...(args.title ? { title: args.title } : {}) }, args.hold_seconds, {}, { presentation: args.presentation }));
+  }, (args, ctx) => {
+    if (args.emphasis && !args.text.includes(args.emphasis)) return failure(`emphasis-not-in-text: "${args.emphasis}" must appear in the text exactly.`);
+    return present(ctx, { kind: "text", text: args.text, ...(args.title ? { title: args.title } : {}), ...(args.emphasis ? { emphasis: args.emphasis } : {}) },
+      args.hold_seconds, {}, { presentation: args.presentation });
+  });
 
   server.registerTool("show_symbol", {
     title: "Show a symbol",

@@ -29,6 +29,7 @@ export type ChangeKind = typeof CHANGE_KINDS[number];
 export const LIMITS = {
   title: 80,
   label: 60,
+  emphasis: 40,
   text: 600,
   summary: 280,
   detail: 140,
@@ -60,7 +61,8 @@ export interface FileChange { path: string; change: ChangeKind; additions?: numb
 
 export type PresentationContent =
   | { kind: "form"; form: string; variant?: string; label: string }
-  | { kind: "text"; text: string; title?: string }
+  /** `emphasis`: one term of the text the card highlights (and the figure points at), e.g. "c²" in "a² + b² = c²". */
+  | { kind: "text"; text: string; title?: string; emphasis?: string }
   | { kind: "result"; title: string; summary: string; status: ResultStatus; details: string[] }
   /**
    * `fit`: how the body frames it (a portrait's head-and-shoulders band, an object, a map, a logo). `credit`: where

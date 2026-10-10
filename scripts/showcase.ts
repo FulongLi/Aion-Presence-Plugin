@@ -137,6 +137,50 @@ const DEMOS: Demo[] = [
       await ctx.wait(3); await ctx.shot("sphere-again");
     },
   },
+  {
+    name: "figure-listening", title: "Figure 2.0: listening to a voice, then responding with gestures", seconds: 30, speech: true,
+    async run(ctx) {
+      ctx.apply({ type: "body", body: "figure" });
+      // The fake microphone plays a speech-like signal from 3 s in (phrases with short pauses).
+      for (let i = 0; i < 6; i++) {
+        await ctx.wait(2);
+        const live = await ctx.view<{ state: string; amp: number }>("({ state: v.aion.currentState, amp: v.presence.signal.userAmplitude })");
+        ctx.log(`${live.state} · loudness ${live.amp.toFixed(2)}`);
+        if (i === 3 || i === 5) await ctx.shot(`listening-${i}`);
+      }
+      ctx.apply({ type: "activity", state: "responding" });
+      ctx.log("responding");
+      for (let i = 0; i < 4; i++) { await ctx.wait(2.6); await ctx.shot(`responding-${i}`); }
+      ctx.apply({ type: "activity", state: "complete" });
+      await ctx.wait(3);
+    },
+  },
+  {
+    name: "figure-explain", title: "Figure 2.0 explains a² + b² = c² (looks, tilts, points at c², explains, relaxes)", seconds: 14,
+    async run(ctx) {
+      ctx.apply({ type: "body", body: "figure" });
+      await ctx.wait(3.5);
+      ctx.apply({ type: "present", content: { kind: "text", text: "a² + b² = c²", emphasis: "c²" }, presentation: "card", hold: 14 });
+      for (const [at, moment] of [[1.9, "look"], [1.1, "consider"], [1.1, "point"], [1.4, "emphasis"], [1.6, "explain"], [1.8, "relaxed"]] as const) {
+        await ctx.wait(at); await ctx.shot(moment);
+      }
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "figure-gestures", title: "Figure 2.0 gesture library: wave, nod, point, shrug, surprise, jump, step, turn, look around, think", seconds: 42,
+    async run(ctx) {
+      ctx.apply({ type: "body", body: "figure" });
+      await ctx.wait(3.5);
+      const moments: Record<string, number> = { wave: 1.0, nod: 0.3, point: 1.4, shrug: 0.5, surprise: 0.35, jump: 0.7, step: 1.3, turn: 1.2, "look-around": 1.0, think: 1.4 };
+      for (const gesture of ["wave", "nod", "point", "shrug", "surprise", "jump", "step", "turn", "look-around", "think"] as const) {
+        ctx.log(gesture);
+        ctx.apply({ type: "express", gesture });
+        await ctx.wait(moments[gesture]); await ctx.shot(gesture);
+        await ctx.wait(3.6 - moments[gesture]);
+      }
+    },
+  },
 ];
 
 /** Demos register here as they are built (later phases append to DEMOS). */

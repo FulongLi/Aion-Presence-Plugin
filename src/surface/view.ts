@@ -1,4 +1,6 @@
 import { Aion } from "../core/aion";
+import { EXPLAIN, POINT } from "../core/figure/motion";
+import { FIGURE_SCALE } from "../core/figure/skeleton";
 import { GreetingGate } from "../core/guidance";
 import { planPresentation, type BodyVisual, type Presentation } from "../core/presentation";
 import { PresenceEngine } from "../core/signal";
@@ -196,8 +198,27 @@ export class PresenceView {
       this.cardState = "shown";
       // Next frame, so the transition runs from the hidden state.
       requestAnimationFrame(() => this.elements.root.classList.add("with-card"));
+      // Once the body has stepped aside, it turns to the card: the figure points at it (and explains an emphasised
+      // term), the eyes glance at it.
+      setTimeout(() => { if (this.presentationId === id) this.attendToCard(); }, 1_100);
     } catch {
       if (this.presentationId === id) this.closeCard();
+    }
+  }
+
+  /** The body turns to the card beside it. Only while the body is itself (not formed into a visual). */
+  private attendToCard() {
+    if (this.visual.presenting || this.cardState !== "shown") return;
+    const card = this.elements.card;
+    const term = card.querySelector<HTMLElement>("mark.emphasis");
+    const target = (term ?? card.querySelector<HTMLElement>(".card-body > :not(.dismiss)") ?? card).getBoundingClientRect();
+    const world = this.runtime?.toWorld(term ? target.left + target.width / 2 : target.left, target.top + Math.min(target.height / 2, 60));
+    if (this.aion.currentBody === "figure" && world) {
+      const at: [number, number, number] = [world[0] / FIGURE_SCALE, world[1] / FIGURE_SCALE, 0.25];
+      this.aion.figure.cue(term ? EXPLAIN(at) : POINT(at, 1.2));
+    } else if (this.aion.currentBody === "eyes") {
+      this.aion.glance([0.34, world ? Math.max(-0.3, Math.min(0.3, world[1] * 0.15)) : 0], term ? 4 : 2.2);
+      if (term) this.aion.eyes.express("curious", 4.5);
     }
   }
 

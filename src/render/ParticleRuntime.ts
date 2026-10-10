@@ -1,4 +1,4 @@
-import { ACESFilmicToneMapping, PerspectiveCamera, Scene, type Vector4 } from "three";
+import { ACESFilmicToneMapping, PerspectiveCamera, Scene, Vector3, type Vector4 } from "three";
 import { WebGPURenderer } from "three/webgpu";
 import { particleDefaults, type ParticleConfig } from "./particleDefaults";
 import type { BodySource } from "../core/aion";
@@ -46,6 +46,8 @@ export interface RuntimeHandle {
   tuning: boolean;
   quality(): QualityReport;
   setTier(tier: number): void;
+  /** Where a point on the screen (client pixels) lies on the body's plane (z = 0), in world units; null if nowhere. */
+  toWorld(clientX: number, clientY: number): [number, number] | null;
   dispose(): void;
 }
 
@@ -207,6 +209,15 @@ export async function createParticleRuntime(
     backend: "webgpu", config, tuning: false,
     quality: () => ({ tier: quality.tier, ceiling: quality.ceiling, count: quality.settings().count, effects: quality.effects, frameMs, frames }),
     setTier(tier) { quality.force(Math.min(range.max, tier)); applyQuality(); },
+    toWorld(clientX, clientY) {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      if (!(bounds.width > 0 && bounds.height > 0)) return null;
+      const point = new Vector3((clientX - bounds.left) / bounds.width * 2 - 1, -((clientY - bounds.top) / bounds.height) * 2 + 1, 0.5).unproject(camera);
+      const direction = point.sub(camera.position);
+      if (Math.abs(direction.z) < 1e-6) return null;
+      const t = -camera.position.z / direction.z;
+      return [camera.position.x + direction.x * t, camera.position.y + direction.y * t];
+    },
     dispose: cleanup,
   };
   const animate = (now: number) => {
