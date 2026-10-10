@@ -1,4 +1,5 @@
 import { createFigureLayout, figurePoint } from "../../core/figure/layout";
+import { createEyesLayout, eyesPoint } from "../../core/eyes/layout";
 import { createTargetPoints } from "../../visual/points";
 import { particleDefaults } from "../particleDefaults";
 import { createSphere } from "../sphere/createSphere";
@@ -28,13 +29,14 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const count = coarse ? fallbackDefaults.coarseCount : fallbackDefaults.count;
   const radius = particleDefaults.geometry.radius;
   const sphere = createSphere(count, radius);
-  const layout = createFigureLayout(count);
+  const layout = createFigureLayout(count), eyesLayout = createEyesLayout(count);
   // Per-particle stagger, as in the GPU morph and body weights (physics/morph.ts).
-  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count);
+  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = [sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2]];
     morphStagger[i] = hash(x, y, z, 12.9898, 78.233, 37.719, 43758.5453);
     bodyStagger[i] = hash(x, y, z, 41.3, 17.9, 63.1, 24634.6345);
+    eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
   }
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -94,6 +96,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         const f = figurePoint(layout, i, body.anchors, { clock, orbit: body.orbit, thinking: presence.thinking });
         x += (f.position[0] - x) * bw; y += (f.position[1] - y) * bw; z += (f.position[2] - z) * bw;
         tone += (Math.min(1, f.tone * 1.25) - tone) * bw;
+      }
+      const ew = body.eyes > 0 ? smooth(body.eyes * 1.35 - eyesStagger[i] * 0.35) : 0;
+      if (ew > 0) {
+        const e = eyesPoint(eyesLayout, i, body.eyeParams, clock);
+        x += (e.position[0] - x) * ew; y += (e.position[1] - y) * ew; z += (e.position[2] - z) * ew;
+        tone += (Math.min(1, e.tone * 1.25) - tone) * ew;
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {

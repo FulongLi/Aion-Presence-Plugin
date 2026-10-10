@@ -18,7 +18,7 @@ import { loadImageSource, MediaError } from "../media";
 import { imageSize } from "../resolver/imageInfo";
 import { VisualResolver } from "../resolver";
 import {
-  mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
+  expressInput, mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
   showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
@@ -146,9 +146,14 @@ export const TOOL_DESCRIPTIONS = {
     + "themselves after their hold.",
   set_body_form: "Change Aion's persistent body, the form it rests in between visuals: "
     + `${PERSISTENT_BODIES.map(body => `"${body.id}" (${body.description.replace(/^your /, "its ")})`).join(", ")}. `
-    + "Use it only when the user asks Aion to take a form, e.g. \"take a human form\", \"become a figure\", \"go back to the sphere\", "
-    + "\"变成人形\", \"回到球体\". It stays until changed; every temporary visual returns to it. A figure is not a person to search for: "
-    + "never use show_image or show_portrait for it.",
+    + "Use it only when the user asks Aion to take a form, e.g. \"show your eyes\", \"take a human form\", \"become a figure\", "
+    + "\"become a sphere\", \"go back to your original form\" (the sphere), \"变成人形\", \"回到球体\". It stays until changed; every "
+    + "temporary visual returns to it. A figure or eyes are not something to search for: never use show_image or show_portrait for them.",
+  express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
+    + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
+    + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
+    + "with a brief gathering. It does not change the body (use set_body_form for that) and ends by itself. Aion's state already shows "
+    + "listening, thinking and answering: never call this for those.",
 } as const;
 
 /** The route in a few words, for the tool result. */
@@ -335,6 +340,18 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Body: ${bodyLabel(snapshot.body)}. Say it in the first person if at all (e.g. "Here I am in human form").`,
     { shown: bodyLabel(args.body) }));
 
+  server.registerTool("express", {
+    title: "Express",
+    description: TOOL_DESCRIPTIONS.express,
+    inputSchema: expressInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => {
+    if (!args.expression && !args.gesture) return failure("invalid-arguments: give an expression (e.g. \"happy\") or a gesture (e.g. \"wave\").");
+    return run(ctx, backend => backend.apply({ type: "express", ...args }),
+      snapshot => `Expressed ${[args.expression, args.gesture].filter(Boolean).join(" and ")} as the ${bodyLabel(snapshot.body)}. Do not narrate it.`);
+  });
+
   server.registerTool("show_image", {
     title: "Show an image",
     description: TOOL_DESCRIPTIONS.show_image,
@@ -360,6 +377,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const by = credit(found.source);
       return present(ctx, {
         kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup",
+        ...(found.fit === "portrait" && args.style ? { style: args.style } : {}),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation, detail: args.detail });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.query!)); }
@@ -377,7 +395,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const by = credit(found.source);
       return present(ctx, {
-        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person,
+        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, ...(args.style ? { style: args.style } : {}),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }

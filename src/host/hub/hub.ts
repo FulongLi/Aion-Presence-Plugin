@@ -172,6 +172,7 @@ export class PresenceHub {
       case "supersede":
         this.retiring = new Set(this.viewers.values());
         break;
+      case "express": this.store.express({ expression: command.expression, gesture: command.gesture, seconds: command.seconds }); break;
     }
     return this.snapshot();
   }

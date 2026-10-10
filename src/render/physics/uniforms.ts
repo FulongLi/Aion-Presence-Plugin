@@ -1,6 +1,7 @@
 import { SPECTRUM_BANDS } from "../../core/audio";
 import { Vector3, Vector4 } from "three";
 import { ANCHOR_COUNT } from "../../core/figure/skeleton";
+import { EYE_PARAMS } from "../../core/eyes/layout";
 import { uniform, uniformArray } from "three/tsl";
 import type { ParticleConfig } from "../particleDefaults";
 
@@ -46,6 +47,9 @@ export function createUniforms(config: ParticleConfig) {
     bodyMorph: uniform(0),
     anchors: uniformArray(Array.from({ length: ANCHOR_COUNT }, () => new Vector4()), "vec4"),
     figureOrbit: uniform(0),
+    // Aion Eyes (see core/eyes): the eyes layer's weight and the two eyes' live shape (four vec4 per eye).
+    eyesMorph: uniform(0),
+    eyes: uniformArray(Array.from({ length: EYE_PARAMS / 2 }, () => new Vector4()), "vec4"),
     size: uniform(config.geometry.size), ambient: uniform(config.lighting.ambient),
     key: uniform(config.lighting.key), fill: uniform(config.lighting.fill), wrap: uniform(config.lighting.wrap),
   };

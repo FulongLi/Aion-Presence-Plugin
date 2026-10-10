@@ -4,7 +4,9 @@ import { AION_IDENTITY } from "../core/identity";
 import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, RESULT_STATUSES } from "../core/presentation";
 import { ACTIVITY_STATES } from "../core/state";
 import { PRESENTATION_PREFERENCES } from "../core/presentationRouter";
-import { IMAGE_INTENTS, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
+import { EYE_EXPRESSIONS } from "../core/eyes/expression";
+import { FIGURE_GESTURES } from "../core/figure/motion";
+import { IMAGE_INTENTS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
 import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
 
 /**
@@ -37,6 +39,12 @@ const checked = (max: number, valid: (value: string) => boolean, what: string) =
   return clean;
 });
 
+/** A portrait's composition (the card always shows the original photograph). */
+const portraitStyle = z.enum(PORTRAIT_STYLES).describe(
+  "classic (default): a head-and-shoulders particle portrait. heritage: an antique oval portrait in particles with a fine silver outline, "
+  + "like a Victorian locket or pocket-watch portrait. Heritage often suits historical figures from old photographs, but choose it only when it "
+  + "fits the moment or the user asks for it; use exactly what the user asks for.");
+
 export const activityStateSchema = z.enum(ACTIVITY_STATES);
 export const bodySchema = z.enum(AION_BODIES);
 
@@ -46,7 +54,14 @@ export const setPresenceStateInput = z.object({
 }).strict();
 
 export const setBodyFormInput = z.object({
-  body: bodySchema.describe("sphere: the original abstract body. figure: a quiet, minimal humanoid of particles."),
+  body: bodySchema.describe("sphere: the original abstract body (visuals, information). eyes: two expressive eyes (conversation, attention). "
+    + "figure: an articulated stick figure (gesture, explanation)."),
+}).strict();
+
+export const expressInput = z.object({
+  expression: z.enum(EYE_EXPRESSIONS).optional().describe("An expression: neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned."),
+  gesture: z.enum(FIGURE_GESTURES).optional().describe("A gesture: wave, nod, point, shrug, surprise, jump, step, turn, look-around, think."),
+  seconds: z.number().min(1).max(30).optional().describe("How long an expression is held (default about 4 s). Gestures take their own time."),
 }).strict();
 
 export const showFormInput = z.object({
@@ -75,11 +90,13 @@ export const showImageInput = z.object({
   mode: z.enum(IMAGE_MODES).optional().describe("Older form of presentation (particles = body, framed = card). Prefer presentation."),
   presentation: presentation.optional(),
   detail: z.boolean().optional().describe("true when the user wants to inspect the picture's exact detail: it is shown as a card, not dissolved into particles."),
+  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity): classic (default) or heritage, an antique oval portrait."),
   hold_seconds: hold.optional(),
 }).strict();
 
 export const showPortraitInput = z.object({
   person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).describe("Full, unambiguous name of the person, e.g. \"Nikola Tesla\"."),
+  style: portraitStyle.optional(),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
 }).strict();

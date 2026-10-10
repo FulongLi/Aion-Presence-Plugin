@@ -157,6 +157,9 @@ export async function createParticleRuntime(
     u.figureOrbit.value = body.orbit;
     const anchors = u.anchors.array as Vector4[];
     for (let i = 0; i < anchors.length; i++) anchors[i].fromArray(body.anchors, i * 4);
+    u.eyesMorph.value = body.eyes;
+    const eyes = u.eyes.array as Vector4[];
+    for (let i = 0; i < eyes.length; i++) eyes[i].fromArray(body.eyeParams, i * 4);
     // A spinning visual (MorphTarget.motion) turns slowly about the view axis; each new target starts upright.
     const spin = inputs.morph.target?.motion?.spin ?? 0;
     if (morph > 0 && Number.isFinite(spin) && spin !== 0) spinAngle = (spinAngle + spin * dt * (calm() ? 0.15 : 1)) % (Math.PI * 2);

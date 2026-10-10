@@ -18,45 +18,52 @@ export const ANCHOR_COUNT = ANCHORS.length;
 export const ANCHOR = Object.fromEntries(ANCHORS.map((name, index) => [name, index])) as Record<AnchorName, number>;
 
 /** Normalized → world units (the sphere's radius is 1.35, so the figure stands about as tall as the sphere is wide). */
-export const FIGURE_SCALE = 1.55;
+export const FIGURE_SCALE = 1.65;
 
-/** Limb lengths and offsets in normalized units. Slender and calm: about eight and a half heads tall. */
+/**
+ * Limb lengths and offsets in normalized units. Figure 2.0 reads as a clean stick figure: a round head about a
+ * seventh of the height, short shoulders (so the arms hang clear of the torso and the shoulder joints show), a
+ * narrow pelvis and long, even limbs.
+ */
 export const PROPORTIONS = {
   pelvisY: 0.06,
-  torso: 0.52,
+  torso: 0.5,
   /** Neck anchor → head centre. The head ring's radius leaves a short visible neck. */
-  neck: 0.17,
-  headRadius: 0.105,
-  shoulderWidth: 0.19,
-  shoulderDrop: 0.065,
-  upperArm: 0.27,
-  forearm: 0.25,
-  hipWidth: 0.095,
-  hipDrop: 0.03,
+  neck: 0.19,
+  headRadius: 0.128,
+  shoulderWidth: 0.11,
+  shoulderDrop: 0.035,
+  upperArm: 0.28,
+  forearm: 0.26,
+  hipWidth: 0.075,
+  hipDrop: 0.025,
   thigh: 0.47,
   shin: 0.47,
-  footX: 0.12,
+  footX: 0.11,
   footY: -0.9,
 };
 
 /** Bones the particle layout draws as fine lines: [from, to, relative density, tone]. */
 export const BONES: readonly [AnchorName, AnchorName, number, number][] = [
-  ["neck", "spine", 1, 0.62],
-  ["neck", "shoulderLeft", 0.9, 0.55], ["neck", "shoulderRight", 0.9, 0.55],
-  ["shoulderLeft", "elbowLeft", 1, 0.6], ["shoulderRight", "elbowRight", 1, 0.6],
-  ["elbowLeft", "handLeft", 1, 0.6], ["elbowRight", "handRight", 1, 0.6],
-  ["spine", "hipLeft", 0.8, 0.5], ["spine", "hipRight", 0.8, 0.5],
-  ["hipLeft", "kneeLeft", 1, 0.58], ["hipRight", "kneeRight", 1, 0.58],
-  ["kneeLeft", "footLeft", 1, 0.55], ["kneeRight", "footRight", 1, 0.55],
+  ["neck", "spine", 1, 0.8],
+  ["neck", "shoulderLeft", 1, 0.78], ["neck", "shoulderRight", 1, 0.78],
+  ["shoulderLeft", "elbowLeft", 1, 0.8], ["shoulderRight", "elbowRight", 1, 0.8],
+  ["elbowLeft", "handLeft", 1, 0.8], ["elbowRight", "handRight", 1, 0.8],
+  ["spine", "hipLeft", 1, 0.76], ["spine", "hipRight", 1, 0.76],
+  ["hipLeft", "kneeLeft", 1, 0.8], ["hipRight", "kneeRight", 1, 0.8],
+  ["kneeLeft", "footLeft", 1, 0.8], ["kneeRight", "footRight", 1, 0.8],
 ];
 
-/** Small joint clusters: [anchor, spread (normalized σ), tone]. Hands are a touch larger. */
+/**
+ * Joints, drawn as small luminous beads: [anchor, radius (normalized), tone]. Shoulders, elbows, hips and knees are
+ * clear points; hands and feet a little larger, so the ends of the limbs read.
+ */
 export const JOINTS: readonly [AnchorName, number, number][] = [
-  ["neck", 0.01, 0.75], ["spine", 0.012, 0.7],
-  ["shoulderLeft", 0.011, 0.85], ["shoulderRight", 0.011, 0.85],
-  ["elbowLeft", 0.01, 0.8], ["elbowRight", 0.01, 0.8],
-  ["handLeft", 0.018, 0.9], ["handRight", 0.018, 0.9],
-  ["hipLeft", 0.01, 0.7], ["hipRight", 0.01, 0.7],
-  ["kneeLeft", 0.01, 0.75], ["kneeRight", 0.01, 0.75],
-  ["footLeft", 0.014, 0.75], ["footRight", 0.014, 0.75],
+  ["neck", 0.012, 0.9], ["spine", 0.015, 0.9],
+  ["shoulderLeft", 0.016, 0.95], ["shoulderRight", 0.016, 0.95],
+  ["elbowLeft", 0.016, 0.95], ["elbowRight", 0.016, 0.95],
+  ["handLeft", 0.022, 1], ["handRight", 0.022, 1],
+  ["hipLeft", 0.015, 0.9], ["hipRight", 0.015, 0.9],
+  ["kneeLeft", 0.016, 0.95], ["kneeRight", 0.016, 0.95],
+  ["footLeft", 0.021, 1], ["footRight", 0.021, 1],
 ];

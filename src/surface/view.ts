@@ -67,6 +67,7 @@ export class PresenceView {
   private activity: ActivityState = "idle";
   private presentationId: string | null = null;
   private gestureId: number | null = null;
+  private expressionId: number | null = null;
   private cardImages: string[] = [];
   private statusTimer?: ReturnType<typeof setTimeout>;
   private lastStatus = "";
@@ -123,6 +124,11 @@ export class PresenceView {
       // A fresh opening greets (the first snapshot of a window that was just opened, or a new open request).
       if (this.gestureId !== null || !previous) this.greeting.request(Date.now());
       this.gestureId = snapshot.gesture.id;
+    }
+    // An expression or gesture asked for by name; a window that opens later does not replay an old one.
+    if (snapshot.expression && snapshot.expression.id !== this.expressionId) {
+      if (previous) this.aion.express(snapshot.expression);
+      this.expressionId = snapshot.expression.id;
     }
     if (snapshot.activity.state !== this.activity || snapshot.activity.label !== previous?.activity.label) {
       this.activity = snapshot.activity.state;
@@ -230,7 +236,8 @@ export class PresenceView {
         const blob = await this.transport.media(request.media.id);
         signal.throwIfAborted();
         // The fit carries the request's intent: a portrait keeps SCF's head-and-shoulders band and portrait sampling.
-        return { visual: normalizeImage(await decodeImage(blob), request.fit), hold, label: "image" };
+        // Heritage: the same photograph in an antique oval (see visual/oval.ts).
+        return { visual: normalizeImage(await decodeImage(blob), request.fit, { portraitStyle: request.style }), hold, label: "image" };
       }
       case "terrain": {
         const blob = await this.transport.media(request.media.id);

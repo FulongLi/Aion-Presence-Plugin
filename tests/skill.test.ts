@@ -15,7 +15,7 @@ const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }
   open_presence: schemas.openPresenceInput, set_presence_state: schemas.setPresenceStateInput, set_body_form: schemas.setBodyFormInput,
   show_image: schemas.showImageInput, show_portrait: schemas.showPortraitInput, show_terrain: schemas.showTerrainInput, show_form: schemas.showFormInput,
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
-  show_emoji: schemas.showEmojiInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
+  show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
 };
 
 test("the Aion Presence skill is discoverable with a trigger-oriented description", () => {
@@ -70,7 +70,7 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+_[a-z_]+)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear)_/.test(name)));
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear)_|^express$/.test(name)));
   for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name), `${name} is a real tool`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);

@@ -32,3 +32,10 @@ export function bodyWeight(rest: Node, u: PhysicsUniforms) {
   const w = u.bodyMorph.mul(1.35).sub(hash.mul(0.35)).clamp(0, 1);
   return w.mul(w).mul(float(3).sub(w.mul(2)));
 }
+
+/** Per-particle weight of the eyes body (0: none, 1: eyes), staggered by its own stable hash. */
+export function eyesWeight(rest: Node, u: PhysicsUniforms) {
+  const hash = sin(rest.dot(vec3(23.7, 59.3, 11.9))).mul(31871.2297).fract();
+  const w = u.eyesMorph.mul(1.35).sub(hash.mul(0.35)).clamp(0, 1);
+  return w.mul(w).mul(float(3).sub(w.mul(2)));
+}

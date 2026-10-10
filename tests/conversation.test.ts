@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { Aion } from "../src/core/aion";
 import type { HostAudioSource } from "../src/core/audio";
 import { gestureTarget, NEUTRAL_POSE, solvePose } from "../src/core/figure/pose";
+import { ANCHOR } from "../src/core/figure/skeleton";
 import { EmphasisDetector } from "../src/core/listening/emphasis";
 import type { MicFrame, MicInput } from "../src/core/listening/frame";
 import { VoiceActivityDetector } from "../src/core/listening/vad";
@@ -159,12 +160,15 @@ test("responding is semantic: a gentle field and figure motion, never a made-up 
   assert.ok(s.engine.signal.warmth > FIELD_TARGETS.idle.warmth);
   s.host("complete"); s.run(3);
   assert.ok(s.engine.signal.responding < 0.05, "and it ends with the answer");
-  // The figure answers with slow hand, head and torso movement: clearly alive, and still restrained — well under
-  // half of the presenting gesture's reach (0.29) and far from the greeting's wave.
+  // The figure answers with varied hand gestures (Figure 2.0): clearly moving, bounded — the hands stay in front of the
+  // body, below the head, and the feet stay planted.
   const neutral = solvePose(NEUTRAL_POSE);
   const poses = Array.from({ length: 240 }, (_, k) => solvePose(gestureTarget("responding", k * 0.25)));
-  for (const pose of poses) for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.16, "restrained");
-  assert.ok(poses.some((pose, k) => k && pose.some((value, i) => Math.abs(value - poses[0][i]) > 0.004)), "it moves");
+  for (const pose of poses) {
+    for (let i = 0; i < pose.length; i++) assert.ok(Math.abs(pose[i] - neutral[i]) < 0.6, "bounded");
+    for (const hand of [ANCHOR.handLeft, ANCHOR.handRight]) assert.ok(pose[hand * 3 + 1] < pose[ANCHOR.head * 3 + 1], "hands below the head");
+  }
+  assert.ok(poses.some((pose, k) => k && pose.some((value, i) => Math.abs(value - poses[0][i]) > 0.08)), "it gestures");
 });
 
 test("real host audio, when a host exposes it, is speaking — and its echo guard still applies", () => {
