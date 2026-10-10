@@ -7,7 +7,7 @@
  */
 export const TOOL_NAMES = [
   "open_presence", "set_presence_state", "set_body_form", "express",
-  "show_image", "show_portrait", "show_terrain", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji",
+  "show_image", "show_portrait", "show_terrain", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji", "show_scene", "set_scene_view",
   "show_result", "show_artifact", "clear_presentation", "show_visual_form",
 ] as const;
 export type ToolName = typeof TOOL_NAMES[number];

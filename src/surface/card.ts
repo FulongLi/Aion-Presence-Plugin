@@ -135,7 +135,7 @@ export async function buildCard(presentation: Presentation, sources: CardSources
       }
       break;
     }
-    case "form": case "symbol": case "emoji":
+    case "form": case "symbol": case "emoji": case "scene":
       break;
   }
   return { root, wide, images };

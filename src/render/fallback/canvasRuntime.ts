@@ -2,6 +2,7 @@ import { createFigureLayout, figurePoint } from "../../core/figure/layout";
 import { createEyesLayout, eyesPoint } from "../../core/eyes/layout";
 import { createTargetPoints } from "../../visual/points";
 import { particleDefaults } from "../particleDefaults";
+import { formedPoint } from "../physics/morph";
 import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
 
@@ -66,6 +67,8 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       try { target = inputs.morph.target ? createTargetPoints(inputs.morph.target.visual, count) : null; } catch { target = null; }
     }
     const turn = inputs.morph.target?.motion?.spin ?? 0;
+    const view = inputs.orbit?.sample(dt) ?? { yaw: 0, pitch: 0, zoom: 1, depth: 0 };
+    const formedView = view.depth ? { angle: spin, yaw: view.yaw, pitch: view.pitch, zoom: view.zoom } : { angle: spin, yaw: 0, pitch: 0, zoom: 1 };
     if (morph > 0 && turn) spin = (spin + turn * dt * motion) % (Math.PI * 2);
     const body = inputs.body.sample(dt, now, calm());
     const framing = inputs.framing?.sample(dt) ?? { x: 0, y: 0, scale: 1 };
@@ -76,7 +79,6 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const { listening, responding } = particleDefaults;
     const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
-    const cos = Math.cos(spin), sin = Math.sin(spin);
     const warm = presence.warmth * 0.28;
     const cool = [0xa8, 0xbe, 0xd1], warmColor = [0xd5, 0xc5, 0xbb];
     const base = cool.map((value, k) => value + (warmColor[k] - value) * warm);
@@ -107,9 +109,11 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {
-        const tx = target.positions[i * 3], ty = target.positions[i * 3 + 1], tz = target.positions[i * 3 + 2];
-        x += (tx * cos - ty * sin - x) * mw; y += (tx * sin + ty * cos - y) * mw; z += (tz - z) * mw;
-        tone += (target.tones[i] * 0.95 - tone) * mw;
+        const [tx, ty, tz] = formedPoint(target.positions[i * 3], target.positions[i * 3 + 1], target.positions[i * 3 + 2], formedView);
+        x += (tx - x) * mw; y += (ty - y) * mw; z += (tz - z) * mw;
+        // A 3D object is lit by depth (nearer is brighter), as on the GPU.
+        const near = view.depth ? 0.5 + 0.62 * smooth((tz + 1.9) / 3.8) : 1;
+        tone += (target.tones[i] * 0.95 * near - tone) * mw;
       }
       const perspective = 7.4 / (7.4 - z);
       xs[i] = centreX + x * zoom * perspective;

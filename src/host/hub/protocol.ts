@@ -8,6 +8,9 @@ import { CLOCK_TIME, isSingleEmojiGrapheme, validNumber } from "../../visual/val
 import { ACTIVITY_STATES } from "../../core/state";
 import { EYE_EXPRESSIONS } from "../../core/eyes/expression";
 import { FIGURE_GESTURES } from "../../core/figure/motion";
+import { checkScene } from "../../visual/scene3d/validate";
+import type { Scene3D } from "../../visual/scene3d/types";
+import type { OrbitCommand } from "../../render/interaction/orbit";
 import { PRESENTATION_PREFERENCES, type PresentationPreference } from "../../core/presentationRouter";
 import type { PresenceSnapshot } from "../../core/store";
 
@@ -61,7 +64,9 @@ export type HubCommand =
   /** A new companion window is on its way to the foreground: the open ones retire once it has connected. */
   | { type: "supersede" }
   /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
-  | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number };
+  | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number }
+  /** Turn, tilt or zoom the 3D object on show. */
+  | ({ type: "view" } & OrbitCommand);
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -92,6 +97,10 @@ const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("symbol"), symbol: z.enum(SYMBOL_NAMES) }).strict(),
   z.object({ kind: z.literal("emoji"), emoji: z.string().refine(isSingleEmojiGrapheme) }).strict(),
   z.object({
+    kind: z.literal("scene"), scene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene"), label: clean(cleanLine, LIMITS.title),
+    preset: z.string().regex(/^[a-z][a-z0-9-]{0,30}$/).optional(),
+  }).strict(),
+  z.object({
     kind: z.literal("artifact"), type: z.enum(ARTIFACT_TYPES), title: clean(cleanLine, LIMITS.title),
     content: clean(cleanCode, LIMITS.artifact).optional(), language: z.string().regex(/^[a-z0-9+#.-]{1,24}$/i).optional(), media: mediaRef.optional(),
     items: z.array(clean(cleanLine, LIMITS.item)).max(LIMITS.items).optional(),
@@ -117,6 +126,10 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("express"), expression: z.enum(EYE_EXPRESSIONS).optional(), gesture: z.enum(FIGURE_GESTURES).optional(),
     seconds: z.number().min(1).max(30).optional(),
   }).strict().refine(value => value.expression !== undefined || value.gesture !== undefined, "an expression or a gesture"),
+  z.object({
+    type: z.literal("view"), rotate: z.enum(["left", "right", "up", "down"]).optional(), degrees: z.number().min(5).max(180).optional(),
+    zoom: z.enum(["in", "out"]).optional(), spin: z.boolean().optional(), reset: z.boolean().optional(),
+  }).strict(),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */

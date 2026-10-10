@@ -5,6 +5,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 import { PresenceHub } from "../src/host/hub/hub";
 import type { HubCommand } from "../src/host/hub/protocol";
 import { VisualResolver } from "../src/host/resolver";
+import { SCENE_PRESETS } from "../src/visual/scene3d/presets";
 import { speechWav } from "./lib/fakeSpeech";
 import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
 
@@ -181,6 +182,53 @@ const DEMOS: Demo[] = [
       }
     },
   },
+  {
+    name: "pyramid", title: "3D pyramid: forms from the sphere, turns, dragged by the user, zoomed, returns", seconds: 30,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      ctx.apply({ type: "present", content: { kind: "scene", scene: SCENE_PRESETS.pyramid, label: "Egyptian pyramid", preset: "pyramid" }, hold: 40 });
+      await ctx.wait(1); await ctx.shot("forming");
+      await ctx.wait(2.5); await ctx.shot("formed");
+      await ctx.wait(4); await ctx.shot("turning");
+      // The user drags it: a slow sweep to the left and up (a real mouse drag on the stage).
+      ctx.log("drag");
+      await ctx.page.mouse.move(480, 360); await ctx.page.mouse.down();
+      for (let i = 1; i <= 30; i++) { await ctx.page.mouse.move(480 - i * 6, 360 + i * 3); await ctx.wait(0.03); }
+      await ctx.page.mouse.up();
+      await ctx.wait(0.6); await ctx.shot("dragged");
+      ctx.log("zoom");
+      for (let i = 0; i < 4; i++) { await ctx.page.mouse.wheel(0, -120); await ctx.wait(0.1); }
+      await ctx.wait(1); await ctx.shot("zoomed");
+      ctx.log("set_scene_view: from above");
+      ctx.apply({ type: "view", reset: true }); await ctx.wait(1.5);
+      ctx.apply({ type: "view", rotate: "up", degrees: 35 }); await ctx.wait(1.6); await ctx.shot("from-above");
+      ctx.apply({ type: "clear" }); ctx.log("return");
+      await ctx.wait(0.7); await ctx.shot("returning");
+      await ctx.wait(2.5); await ctx.shot("sphere");
+    },
+  },
+  {
+    name: "saturn", title: "3D Saturn: planet and rings, turning", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      ctx.apply({ type: "present", content: { kind: "scene", scene: SCENE_PRESETS.saturn, label: "Saturn", preset: "saturn" }, hold: 30 });
+      await ctx.wait(3.5); await ctx.shot("formed");
+      await ctx.wait(5); await ctx.shot("turning");
+      ctx.apply({ type: "view", rotate: "up", degrees: 30 }); await ctx.wait(2); await ctx.shot("from-above");
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "dna", title: "3D DNA double helix: two strands, base-pair rungs, turning", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      ctx.apply({ type: "present", content: { kind: "scene", scene: SCENE_PRESETS.dna, label: "DNA double helix", preset: "dna" }, hold: 30 });
+      await ctx.wait(3.5); await ctx.shot("formed");
+      await ctx.wait(4); await ctx.shot("turning");
+      await ctx.wait(4); await ctx.shot("turning-2");
+      await ctx.wait(2);
+    },
+  },
 ];
 
 /** Demos register here as they are built (later phases append to DEMOS). */
@@ -203,7 +251,7 @@ async function runDemo(browser: Browser, demo: Demo) {
     hub, page, log,
     apply: command => { hub.apply(command); },
     wait: seconds => new Promise(resolve => setTimeout(resolve, seconds * 1000)),
-    shot: async moment => { await page.screenshot({ path: join(OUT, `${demo.name}-${moment}.png`) }); log(`📷 ${moment}`); },
+    shot: async moment => { await page.screenshot({ path: join(OUT, `${demo.name}${canvas ? "-canvas" : ""}-${moment}.png`) }); log(`📷 ${moment}`); },
     portrait: async person => {
       const found = await cachedPortrait(person);
       return { media: hub.addMedia(found.bytes, found.mime), alt: found.label, width: found.width, height: found.height };

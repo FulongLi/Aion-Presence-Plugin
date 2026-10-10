@@ -1,4 +1,5 @@
 import { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
+import type { Scene3D } from "../visual/scene3d/types";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -51,7 +52,7 @@ export const LIMITS = {
  * artifacts, which only the plugin presents, are held longer.
  */
 export const HOLD_SECONDS = {
-  form: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  form: 10, scene: 30, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
 } as const;
 
 /** Media the host adapter has read and validated (an image, or a height field); surfaces fetch the bytes by id. */
@@ -78,6 +79,8 @@ export type PresentationContent =
   | { kind: "number"; value: string }
   | { kind: "symbol"; symbol: SymbolName }
   | { kind: "emoji"; emoji: string }
+  /** A 3D object built from a validated scene of primitives (see visual/scene3d); `preset` names a curated one. */
+  | { kind: "scene"; scene: Scene3D; label: string; preset?: string }
   | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] };
 
 export type PresentationKind = PresentationContent["kind"];
@@ -177,6 +180,7 @@ export type BodyVisual =
   | { type: "image"; media: MediaRef; fit: ImageFit; style?: PortraitStyle }
   | { type: "terrain"; media: MediaRef; style: TerrainStyle }
   | { type: "emoji"; emoji: string }
+  | { type: "scene"; scene: Scene3D }
   | { type: "none" };
 
 export interface PresentationPlan { body: BodyVisual; card: boolean }
@@ -196,6 +200,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "number": return { type: "text", text: presentation.value };
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
+    case "scene": return { type: "scene", scene: presentation.scene };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
   }
 }
@@ -218,6 +223,7 @@ export function describePresentation(presentation: PresentationContent): string 
     case "number": return `number: ${presentation.value}`;
     case "symbol": return `symbol: ${presentation.symbol}`;
     case "emoji": return `emoji: ${presentation.emoji}`;
+    case "scene": return `3D: ${presentation.label}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
   }
 }

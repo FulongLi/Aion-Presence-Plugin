@@ -15,7 +15,7 @@ const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }
   open_presence: schemas.openPresenceInput, set_presence_state: schemas.setPresenceStateInput, set_body_form: schemas.setBodyFormInput,
   show_image: schemas.showImageInput, show_portrait: schemas.showPortraitInput, show_terrain: schemas.showTerrainInput, show_form: schemas.showFormInput,
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
-  show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
+  show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_scene: schemas.showSceneInput, set_scene_view: schemas.setSceneViewInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
 };
 
 test("the Aion Presence skill is discoverable with a trigger-oriented description", () => {

@@ -173,6 +173,7 @@ export class PresenceHub {
         this.retiring = new Set(this.viewers.values());
         break;
       case "express": this.store.express({ expression: command.expression, gesture: command.gesture, seconds: command.seconds }); break;
+      case "view": { const { type: _type, ...view } = command; this.store.orient(view); break; }
     }
     return this.snapshot();
   }

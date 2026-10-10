@@ -20,7 +20,21 @@ export function morphWeight(rest: Node, u: PhysicsUniforms) {
  */
 export function formedTarget(target: Node, u: PhysicsUniforms) {
   const c = cos(u.formedAngle), s = sin(u.formedAngle);
-  return vec3(target.x.mul(c).sub(target.y.mul(s)), target.x.mul(s).add(target.y.mul(c)), target.z);
+  const x = target.x.mul(c).sub(target.y.mul(s)), y = target.x.mul(s).add(target.y.mul(c)), z = target.z;
+  // A 3D object's view: turned about its vertical axis (yaw), then tilted toward the viewer (pitch), then zoomed.
+  // All three are 0, 0 and 1 for every flat visual, which leaves it unchanged.
+  const cy = cos(u.formedYaw), sy = sin(u.formedYaw), cp = cos(u.formedPitch), sp = sin(u.formedPitch);
+  const x2 = x.mul(cy).add(z.mul(sy)), z2 = z.mul(cy).sub(x.mul(sy));
+  return vec3(x2, y.mul(cp).sub(z2.mul(sp)), y.mul(sp).add(z2.mul(cp))).mul(u.formedZoom);
+}
+
+/** The CPU reference of formedTarget (canvas fallback and tests). */
+export function formedPoint(x: number, y: number, z: number, view: { angle: number; yaw: number; pitch: number; zoom: number }): [number, number, number] {
+  const c = Math.cos(view.angle), s = Math.sin(view.angle);
+  const x1 = x * c - y * s, y1 = x * s + y * c;
+  const cy = Math.cos(view.yaw), sy = Math.sin(view.yaw), cp = Math.cos(view.pitch), sp = Math.sin(view.pitch);
+  const x2 = x1 * cy + z * sy, z2 = z * cy - x1 * sy;
+  return [x2 * view.zoom, (y1 * cp - z2 * sp) * view.zoom, (y1 * sp + z2 * cp) * view.zoom];
 }
 
 /**

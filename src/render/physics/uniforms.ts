@@ -42,6 +42,8 @@ export function createUniforms(config: ParticleConfig) {
     speechGain: uniform(1), formedShimmer: uniform(0),
     // How far a spinning formed visual has turned (radians; see MorphTarget.motion).
     formedAngle: uniform(0),
+    // A formed 3D object's view (see interaction/orbit.ts): turn, elevation, zoom, and 1 while it is 3D.
+    formedYaw: uniform(0), formedPitch: uniform(0), formedZoom: uniform(1), formedDepth: uniform(0),
     // Aion's persistent body (see aion/body.ts): the figure layer's weight, its skeleton anchors (world
     // units, vec4 each) and the halo's accumulated turn. Weight 0 leaves the sphere exactly as before.
     bodyMorph: uniform(0),

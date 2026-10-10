@@ -52,6 +52,7 @@ async function boot() {
     if (debug) console.warn("[Aion] renderer", code);
   }, { prefer: params.get("renderer") === "canvas" ? "canvas" : undefined });
   view.runtime = handle ?? null;
+  view.attachOrbit(stage);
   (transport ?? fallback).start(view.apply, view.connectionChanged);
   // Presence listens locally while it is open (?mic=0 turns it off). Only in a live Presence, never at rest.
   if (transport && params.get("mic") !== "0") void view.listen();

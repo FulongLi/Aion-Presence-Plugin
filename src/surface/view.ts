@@ -1,6 +1,7 @@
 import { Aion } from "../core/aion";
 import { EXPLAIN, POINT } from "../core/figure/motion";
 import { FIGURE_SCALE } from "../core/figure/skeleton";
+import { ORBIT, OrbitController, type OrbitView } from "../render/interaction/orbit";
 import { GreetingGate } from "../core/guidance";
 import { planPresentation, type BodyVisual, type Presentation } from "../core/presentation";
 import { PresenceEngine } from "../core/signal";
@@ -70,6 +71,10 @@ export class PresenceView {
   private presentationId: string | null = null;
   private gestureId: number | null = null;
   private expressionId: number | null = null;
+  private sceneViewId: number | null = null;
+  /** How a formed 3D object is viewed: slow turn, drag, zoom (see render/interaction/orbit.ts). */
+  readonly orbit = new OrbitController();
+  private orbitRevision = -1;
   private cardImages: string[] = [];
   private statusTimer?: ReturnType<typeof setTimeout>;
   private lastStatus = "";
@@ -102,7 +107,21 @@ export class PresenceView {
     }
   }
 
-  inputs(): RuntimeInputs { return { presence: this.presence, morph: this.visual, body: this.aion, framing: { sample: dt => this.frame(dt) } }; }
+  inputs(): RuntimeInputs {
+    return { presence: this.presence, morph: this.visual, body: this.aion, framing: { sample: dt => this.frame(dt) }, orbit: { sample: dt => this.orbitFrame(dt) } };
+  }
+
+  /** Lets the user turn and zoom a formed 3D object on the stage. */
+  attachOrbit(stage: HTMLElement) { return this.orbit.attach(stage); }
+
+  /** The 3D view while the formed visual is a 3D object (each new one starts from its own default view). */
+  private orbitFrame(dt: number): OrbitView {
+    const target = this.visual.target;
+    const solid = target?.visual.kind === "mesh3d" && this.visual.phase !== "sphere";
+    if (solid && this.visual.revision !== this.orbitRevision) { this.orbitRevision = this.visual.revision; this.orbit.reset(target.motion); }
+    this.orbit.active = solid;
+    return this.orbit.sample(dt);
+  }
 
   /** The body steps aside for a card: to the left on wide stages, upward on narrow ones; eased like a breath. */
   private frame(dt: number): Framing {
@@ -126,6 +145,11 @@ export class PresenceView {
       // A fresh opening greets (the first snapshot of a window that was just opened, or a new open request).
       if (this.gestureId !== null || !previous) this.greeting.request(Date.now());
       this.gestureId = snapshot.gesture.id;
+    }
+    // A change of view for the 3D object on show ("rotate it", "from above").
+    if (snapshot.sceneView && snapshot.sceneView.id !== this.sceneViewId) {
+      if (previous) this.orbit.command(snapshot.sceneView);
+      this.sceneViewId = snapshot.sceneView.id;
     }
     // An expression or gesture asked for by name; a window that opens later does not replay an old one.
     if (snapshot.expression && snapshot.expression.id !== this.expressionId) {
@@ -267,6 +291,12 @@ export class PresenceView {
       }
       case "emoji":
         return { visual: { kind: "raster2d", style: "emoji", raster: rasterizeEmoji(request.emoji) }, hold, label: request.emoji };
+      case "scene":
+        // A 3D object: it forms in a turned, slightly elevated view and turns slowly (unless the scene holds still).
+        return {
+          visual: { kind: "mesh3d", scene: request.scene }, hold, label: request.scene.title, transition: { form: 2, return: 1.5 },
+          motion: { orbit: request.scene.rotation === "none" ? 0 : ORBIT.spin, tilt: (request.scene.tilt ?? 15) * Math.PI / 180 },
+        };
     }
   }
 

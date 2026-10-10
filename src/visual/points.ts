@@ -1,5 +1,7 @@
 import { subjectMap } from "./image";
 import { HERITAGE_OVAL, ovalMask } from "./oval";
+import { sceneParticles } from "./scene3d/sample";
+import { validScene } from "./scene3d/validate";
 import type { HeightFieldTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
 
 /**
@@ -14,6 +16,8 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
     case "raster2d": return rasterPoints(target, count);
     case "points": return layoutPoints(target, count);
     case "heightfield": return heightFieldPoints(target, count);
+    // A 3D scene is validated again here: the renderer never builds geometry it has not checked.
+    case "mesh3d": return sceneParticles(validScene(target.scene), count);
     default: throw new Error("invalid-target");
   }
 }

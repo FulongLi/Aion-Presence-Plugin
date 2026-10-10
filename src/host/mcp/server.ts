@@ -12,13 +12,16 @@ import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
 import { visualForms, type VisualFormRegistry } from "../../visual/forms";
 import { clockText } from "../../visual/validate";
+import { SCENE_PRESETS, SCENE_PRESET_NAMES, type ScenePreset } from "../../visual/scene3d/presets";
+import { checkScene } from "../../visual/scene3d/validate";
+import { SCENE_LIMITS } from "../../visual/scene3d/types";
 import type { PresenceBackend, PresenceLink } from "../hub/link";
 import type { DisplayPreference, HubSnapshot } from "../hub/protocol";
 import { loadImageSource, MediaError } from "../media";
 import { imageSize } from "../resolver/imageInfo";
 import { VisualResolver } from "../resolver";
 import {
-  expressInput, mediaInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
+  expressInput, mediaInput, setSceneViewInput, showSceneInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
   showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
@@ -48,7 +51,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "clock", "number", "symbol", "emoji", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "clock", "number", "symbol", "emoji", "scene", "artifact"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -149,6 +152,16 @@ export const TOOL_DESCRIPTIONS = {
     + "Use it only when the user asks Aion to take a form, e.g. \"show your eyes\", \"take a human form\", \"become a figure\", "
     + "\"become a sphere\", \"go back to your original form\" (the sphere), \"变成人形\", \"回到球体\". It stays until changed; every "
     + "temporary visual returns to it. A figure or eyes are not something to search for: never use show_image or show_portrait for them.",
+  show_scene: "Form a genuine three-dimensional object with Aion's particle body, from simple primitives, when the user asks to see "
+    + "something's 3D shape or spatial structure (\"Show me an Egyptian pyramid in 3D\", \"Can you visualize Saturn?\", \"Show a DNA "
+    + `double helix"). Presets: ${SCENE_PRESET_NAMES.join(", ")}. Otherwise compose your own scene from box, sphere, pyramid, cylinder, cone, `
+    + "torus, ring (flat, horizontal), line, tube, curve and helix, each centred at its position, with rotation (degrees), scale and repeat. "
+    + `At most ${SCENE_LIMITS.objects} objects (${SCENE_LIMITS.instances} after repeats). The object turns slowly; the user can drag it, scroll to `
+    + "zoom and double-click to reset. A conceptual model, not a measured one: say so if precision matters. Not for flat pictures (show_image), "
+    + "people (show_portrait) or terrain (show_terrain), and never force a 3D object where a picture or words serve better.",
+  set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
+    + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
+    + "show_scene object is on show; to leave it, use clear_presentation.",
   express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
     + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
     + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
@@ -350,6 +363,32 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (!args.expression && !args.gesture) return failure("invalid-arguments: give an expression (e.g. \"happy\") or a gesture (e.g. \"wave\").");
     return run(ctx, backend => backend.apply({ type: "express", ...args }),
       snapshot => `Expressed ${[args.expression, args.gesture].filter(Boolean).join(" and ")} as the ${bodyLabel(snapshot.body)}. Do not narrate it.`);
+  });
+
+  server.registerTool("show_scene", {
+    title: "Show a 3D object",
+    description: TOOL_DESCRIPTIONS.show_scene,
+    inputSchema: showSceneInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, (args, ctx) => {
+    if ((args.preset === undefined) === (args.scene === undefined)) return failure("invalid-arguments: give exactly one of preset or scene.");
+    const check = checkScene(args.preset ? SCENE_PRESETS[args.preset as ScenePreset] : args.scene);
+    if (!check.ok) return failure(`scene-invalid: ${check.problem}. Fix it and try again, or describe it in words.`);
+    return present(ctx, { kind: "scene", scene: check.scene, label: check.scene.title, ...(args.preset ? { preset: args.preset } : {}) }, args.hold_seconds,
+      { shown: check.scene.title });
+  });
+
+  server.registerTool("set_scene_view", {
+    title: "Turn the 3D object",
+    description: TOOL_DESCRIPTIONS.set_scene_view,
+    inputSchema: setSceneViewInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const before = await link.run(backend => backend.state());
+    if (before.presentation?.kind !== "scene") return failure("no-scene: no 3D object is on show. Use show_scene first.");
+    return run(ctx, backend => backend.apply({ type: "view", ...args }), () => "View changed. Do not narrate it.");
   });
 
   server.registerTool("show_image", {

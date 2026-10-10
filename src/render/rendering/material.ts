@@ -36,8 +36,9 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const disturbance = offset.length().mul(0.28).clamp(0, 0.22);
   // Stable size variation keeps individual grains legible without frame-to-frame flicker.
   const grainSize = sin(rest.dot(vec3(127.1, 311.7, 74.7))).mul(0.3).add(1);
-  const base = mix(bodyRest, formedTarget(target, u), m);
-  const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m);
+  const formed = formedTarget(target, u);
+  const base = mix(bodyRest, formed, m);
+  const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m).mul(float(1).sub(u.formedDepth));
   const relief = vec3(base.x.add(base.z.mul(depthSway)), base.y, base.z);
   // Formed visuals and the figure use slightly finer grains than the sphere.
   const grain = positionLocal.mul(u.size).mul(grainSize).mul(float(1).sub(m.mul(0.24).max(b.mul(0.34)).max(e.mul(0.3))));
@@ -53,7 +54,9 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const figureColor = figured ? mix(sphereColor, color.mul(figured.tone).mul(figureLight).add(disturbance.mul(0.5)), b) : sphereColor;
   // The eyes are lit by their own tones too: a bright rim and iris, a faint glassy fill.
   const restColor = eyed ? mix(figureColor, color.mul(eyed.tone).mul(figureLight).add(disturbance.mul(0.5)), e) : figureColor;
-  const bodyColor = mix(restColor, vec3(0.78, 0.9, 1).mul(tone).mul(formedLight), m);
+  // A 3D object is lit by depth: what is nearer is brighter, so its structure reads as it turns.
+  const nearness = mix(float(1), smoothstep(-1.9, 1.9, formed.z).mul(0.62).add(0.5), u.formedDepth);
+  const bodyColor = mix(restColor, vec3(0.78, 0.9, 1).mul(tone).mul(formedLight).mul(nearness), m);
   material.colorNode = bodyColor;
   material.opacityNode = float(1).sub(smoothstep(0.24, 0.5, uv().sub(0.5).length()));
   material.alphaTest = 0.12;

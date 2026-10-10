@@ -6,6 +6,8 @@ import { ACTIVITY_STATES } from "../core/state";
 import { PRESENTATION_PREFERENCES } from "../core/presentationRouter";
 import { EYE_EXPRESSIONS } from "../core/eyes/expression";
 import { FIGURE_GESTURES } from "../core/figure/motion";
+import { SCENE_PRESET_NAMES } from "../visual/scene3d/presets";
+import { SCENE_LIMITS } from "../visual/scene3d/types";
 import { IMAGE_INTENTS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
 import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
 
@@ -167,6 +169,56 @@ export const showArtifactInput = z.object({
   source: z.string().min(1).max(12_000_000).optional().describe("For image: an absolute local path or a data:image URL, as in show_image."),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
+}).strict();
+
+/**
+ * A 3D scene for show_scene: the shape the model sees. The server validates it again, strictly and with every bound
+ * (visual/scene3d/validate.ts), before anything is built.
+ */
+const num = z.number();
+const vec = z.tuple([num, num, num]);
+const sceneCommon = {
+  position: vec.optional().describe("Centre [x, y, z] (y up, z toward the viewer). Default [0, 0, 0]."),
+  rotation: vec.optional().describe("Euler angles in degrees [x, y, z]."),
+  scale: z.union([num, vec]).optional(),
+  tone: num.optional().describe("Brightness 0.2–1 (default 0.85)."),
+  weight: num.optional().describe("Relative share of particles (default 1)."),
+  detail: z.enum(["surface", "edges", "both"]).optional().describe("Draw surfaces, edges, or both (default by type)."),
+  repeat: z.object({ count: num, offset: vec.optional(), rotation: vec.optional(), scale: num.optional() }).strict().optional()
+    .describe(`Copies (2–${SCENE_LIMITS.repeat}), each offset and turned by one more step than the last (e.g. the rungs of a ladder or a helix).`),
+};
+const sceneObject = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("box"), size: vec, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("sphere"), radius: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("pyramid"), base: num, height: num, sides: num.optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("cylinder"), radius: num, height: num, radiusTop: num.optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("cone"), radius: num, height: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("torus"), radius: num, tube: num, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("ring"), inner: num, outer: num, ...sceneCommon }).strict().describe("A flat annulus in the horizontal plane (planetary rings)."),
+  z.object({ type: z.literal("line"), from: vec, to: vec, ...sceneCommon }).strict(),
+  z.object({ type: z.literal("tube"), points: z.array(vec), radius: num, closed: z.boolean().optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("curve"), points: z.array(vec), closed: z.boolean().optional(), ...sceneCommon }).strict(),
+  z.object({ type: z.literal("helix"), radius: num, height: num, turns: num, phase: num.optional(), ...sceneCommon }).strict(),
+]);
+export const sceneInput = z.object({
+  title: z.string().describe("What it shows, e.g. \"Water molecule\" (≤ 60 characters)."),
+  objects: z.array(sceneObject).describe(`1–${SCENE_LIMITS.objects} primitives, each centred at its position.`),
+  rotation: z.enum(["slow", "none"]).optional().describe("slow (default): turns slowly; none: holds still."),
+  tilt: num.optional().describe("Viewing elevation in degrees, −60…60 (default 15; positive looks down on it)."),
+}).strict();
+
+export const showSceneInput = z.object({
+  preset: z.enum(SCENE_PRESET_NAMES as [string, ...string[]]).optional().describe(`A curated scene: ${SCENE_PRESET_NAMES.join(", ")}.`),
+  scene: sceneInput.optional().describe("Your own scene of primitives, when no preset fits."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const setSceneViewInput = z.object({
+  rotate: z.enum(["left", "right", "up", "down"]).optional().describe("Turn the object (left/right) or tilt it (up: see it more from above; down: from below)."),
+  degrees: z.number().min(5).max(180).optional().describe("How far to turn (default 45)."),
+  zoom: z.enum(["in", "out"]).optional(),
+  spin: z.boolean().optional().describe("Resume (true) or stop (false) its slow turn."),
+  reset: z.boolean().optional().describe("Back to the default view."),
 }).strict();
 
 export const openPresenceInput = z.object({

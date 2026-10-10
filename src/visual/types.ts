@@ -1,3 +1,5 @@
+import type { Scene3D } from "./scene3d/types";
+
 /**
  * The visual vocabulary the particle body understands (from SCF Presence's Visual Resolver). The body only
  * ever sees a VisualTarget; whether it came from a procedural visual form, a glyph, an image or real elevation
@@ -101,7 +103,16 @@ export interface PointLayoutTarget {
   style: "celestial";
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget;
+/**
+ * A genuine 3D object: a validated scene of procedural primitives (see scene3d/), built and sampled into particles
+ * with depth. While formed it can be turned and zoomed (the runtime's view rotation), never edited as code.
+ */
+export interface Mesh3DTarget {
+  kind: "mesh3d";
+  scene: Scene3D;
+}
+
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget;
 
 /** A particle arrangement ready for the runtime: a visual target plus how long to hold it. */
 export interface MorphTarget {
@@ -111,6 +122,10 @@ export interface MorphTarget {
   label: string;
   /** Optional morph durations in seconds for this target (default `transitionSeconds`). */
   transition?: { form?: number; return?: number };
-  /** Optional movement while formed. `spin`: radians per second about the view axis (anticlockwise positive). */
-  motion?: { spin?: number };
+  /**
+   * Optional movement while formed. `spin`: radians per second about the view axis (anticlockwise positive).
+   * `orbit`: a 3D object — it turns about its vertical axis at this many radians per second (0: still) and can be
+   * turned and zoomed by the user; `tilt` is its viewing elevation (radians).
+   */
+  motion?: { spin?: number; orbit?: number; tilt?: number };
 }

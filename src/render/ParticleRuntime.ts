@@ -8,6 +8,7 @@ import { morphSpeechBlend } from "./morphBlend";
 import { AdaptiveQuality, qualityRange, qualityTiers } from "./quality";
 import { createParticleSystem } from "./ParticleSystem";
 import { PointerPusher } from "./interaction/pointer";
+import type { OrbitView } from "./interaction/orbit";
 import { syncUniforms } from "./physics/uniforms";
 import { createPostFX } from "./rendering/postfx";
 import { SpeechMotion } from "./speechMotion";
@@ -18,7 +19,10 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource }
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource }
+
+/** How a formed 3D object is viewed (see interaction/orbit.ts). */
+export interface OrbitSource { sample(dt: number): OrbitView }
 
 /**
  * Where the body sits in the frame: `x` shifts it sideways and `y` upward (fractions of the view), `scale`
@@ -166,6 +170,9 @@ export async function createParticleRuntime(
     const spin = inputs.morph.target?.motion?.spin ?? 0;
     if (morph > 0 && Number.isFinite(spin) && spin !== 0) spinAngle = (spinAngle + spin * dt * (calm() ? 0.15 : 1)) % (Math.PI * 2);
     u.formedAngle.value = spinAngle;
+    const view = inputs.orbit?.sample(dt) ?? { yaw: 0, pitch: 0, zoom: 1, depth: 0 };
+    u.formedYaw.value = view.depth ? view.yaw : 0; u.formedPitch.value = view.depth ? view.pitch : 0;
+    u.formedZoom.value = view.depth ? view.zoom : 1; u.formedDepth.value = view.depth;
     const blend = morphSpeechBlend(morph);
     u.speechGain.value = blend.speech; u.formedShimmer.value = blend.shimmer;
     for (let i = 0; i < presence.assistantBands.length; i++) u.spectrum.array[i] = presence.assistantBands[i];

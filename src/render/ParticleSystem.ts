@@ -65,8 +65,9 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
     const shimmer = u.spectrum.element(column).mul(0.03).add(u.voiceBody.mul(0.022)).add(twinkle).mul(u.formedShimmer);
     // Listening and answering keep a formed visual alive too (a little deeper ripple), so it never freezes.
     const alive = float(1).add(u.responding.mul(0.9)).add(u.listeningAudio.mul(1.4));
+    // A 3D object keeps only a trace of it: depth is its shape, not a ripple.
     const ripple = vec3(0, 0, sin(u.clock.mul(0.85).add(base.x.mul(2))).mul(0.016).mul(alive).add(shimmer))
-      .mul(m).mul(u.stiffness).mul(u.motion);
+      .mul(m).mul(float(1).sub(u.formedDepth.mul(0.8))).mul(u.stiffness).mul(u.motion);
     // The figure glimmers with the voice along the view axis, never scattering its outline.
     const glimmer = vec3(0, 0, u.voiceBody.mul(0.02).add(twinkle.mul(1.5)).add(sin(s.y.mul(30).add(u.clock.mul(5))).mul(u.listeningAudio).mul(0.01)))
       .mul(b.max(e).mul(float(1).sub(m))).mul(u.stiffness).mul(u.motion);
