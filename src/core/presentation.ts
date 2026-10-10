@@ -1,4 +1,4 @@
-import { IMAGE_FITS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type SymbolName, type TerrainStyle } from "../visual/types";
+import { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -20,7 +20,7 @@ export type ArtifactType = typeof ARTIFACT_TYPES[number];
 
 export const IMAGE_MODES = ["particles", "framed"] as const;
 export type ImageMode = typeof IMAGE_MODES[number];
-export { IMAGE_FITS, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type SymbolName, type TerrainStyle };
+export { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle };
 
 export const CHANGE_KINDS = ["added", "modified", "deleted", "renamed"] as const;
 export type ChangeKind = typeof CHANGE_KINDS[number];
@@ -67,8 +67,9 @@ export type PresentationContent =
    * a looked-up picture came from. `width`/`height`: the original picture's size (the card shows the original,
    * never the particle raster). `origin`: looked up on public sources, or a file on this machine. `mode`: the
    * v0.2 preference (particles → body, framed → card), still honoured when no presentation preference is given.
+   * `style` (portraits only): classic, or heritage — the body forms an antique oval portrait (the card is unchanged).
    */
-  | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local" }
+  | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local"; style?: PortraitStyle }
   /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
   | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string }
   | { kind: "clock"; time: string }
@@ -171,7 +172,7 @@ export const RESULT_SYMBOL: Record<ResultStatus, string | null> = {
 export type BodyVisual =
   | { type: "form"; form: string; variant?: string }
   | { type: "text"; text: string }
-  | { type: "image"; media: MediaRef; fit: ImageFit }
+  | { type: "image"; media: MediaRef; fit: ImageFit; style?: PortraitStyle }
   | { type: "terrain"; media: MediaRef; style: TerrainStyle }
   | { type: "emoji"; emoji: string }
   | { type: "none" };
@@ -184,7 +185,10 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "form": return { type: "form", form: presentation.form, variant: presentation.variant };
     case "text": return isGlyphText(presentation.text) ? { type: "text", text: presentation.text } : { type: "none" };
     case "result": { const symbol = RESULT_SYMBOL[presentation.status]; return symbol ? { type: "form", form: symbol } : { type: "none" }; }
-    case "image": return { type: "image", media: presentation.media, fit: presentation.fit ?? "object" };
+    case "image": {
+      const fit = presentation.fit ?? "object";
+      return { type: "image", media: presentation.media, fit, ...(fit === "portrait" && presentation.style ? { style: presentation.style } : {}) };
+    }
     case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
     case "clock": return { type: "text", text: presentation.time };
     case "number": return { type: "text", text: presentation.value };
@@ -206,7 +210,7 @@ export function describePresentation(presentation: PresentationContent): string 
     case "form": return `form: ${presentation.label}`;
     case "text": return `text: ${presentation.title ?? presentation.text.slice(0, 40)}`;
     case "result": return `result (${presentation.status}): ${presentation.title}`;
-    case "image": return `${presentation.fit === "portrait" ? "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
+    case "image": return `${presentation.fit === "portrait" ? presentation.style === "heritage" ? "heritage portrait" : "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
     case "terrain": return `terrain: ${presentation.label}`;
     case "clock": return `clock: ${presentation.time}`;
     case "number": return `number: ${presentation.value}`;

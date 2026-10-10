@@ -1,4 +1,5 @@
 import { subjectMap } from "./image";
+import { HERITAGE_OVAL, ovalMask } from "./oval";
 import type { HeightFieldTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
 
 /**
@@ -47,6 +48,7 @@ function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
   validateRaster(image);
   if (target.style === "emoji") return emojiPoints(image, count);
   if (target.style === "ink") return inkPoints(image, count);
+  if (target.style === "portrait" && target.frame === "oval") return heritagePoints(image, count);
   const { width, height, data } = image;
   const { style } = target;
   const glyph = style === "glyph", logo = style === "logo";
@@ -107,6 +109,86 @@ function rasterPoints(target: Raster2DTarget, count: number): TargetPoints {
       positions.set([x, y, (value - 0.5) * 0.17 + (next() - 0.5) * 0.07], i * 3);
       tones[i] = subject ? 0.14 + Math.pow(value, 1.1) * 0.78 : 0.08 + Math.pow(value, 1.15) * 0.82;
     }
+  }
+  return { positions, tones };
+}
+
+/**
+ * A heritage portrait: the photograph inside the oval of HERITAGE_OVAL (the raster is already 3:4, so the oval is
+ * inscribed in it and nothing is stretched), drawn with portrait sampling — luminance and edges, a gentle weight
+ * toward the face — fading over the oval's last few percent, and a fine silver outline of particles with a faint
+ * second ring just outside it, lit a little from the upper left like polished metal. Nothing outside the oval.
+ * Every particle chooses photograph or outline from the same stable sequence, so every quality tier shows both.
+ */
+function heritagePoints(image: Raster, count: number): TargetPoints {
+  const { width, height, data } = image;
+  const length = width * height;
+  const tone = new Float32Array(length), distribution = new Float64Array(length);
+  for (let i = 0; i < length; i++) tone[i] = luminance(data, i);
+  const inside: number[] = [];
+  for (let i = 0; i < length; i += 3) {
+    if (ovalMask(((i % width + 0.5) / width - 0.5) * 2, (0.5 - (Math.floor(i / width) + 0.5) / height) * 2) > 0.5) inside.push(i);
+  }
+  const sorted = inside.map(i => tone[i]).sort((a, b) => a - b);
+  const quantile = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))] ?? 0;
+  let drawing = false;
+  if (quantile(0.25) > 0.4) {
+    // A light ground covers most of the oval: a drawing or engraving on paper (Leonardo's red-chalk self-portrait).
+    // Its likeness is the ink, so particles follow how far each pixel is from the paper's colour (darker only),
+    // and the lines become light on Aion's dark stage.
+    const channel = (k: number) => { const values = inside.map(i => data[i * 4 + k]).sort((a, b) => a - b); return values[values.length >> 1] ?? 255; };
+    const paper = [channel(0), channel(1), channel(2)], paperLight = luminance(new Uint8ClampedArray([...paper, 255]), 0);
+    for (let i = 0; i < length; i++) {
+      const distance = Math.hypot(data[i * 4] - paper[0], data[i * 4 + 1] - paper[1], data[i * 4 + 2] - paper[2]) / 255;
+      tone[i] = Math.pow(Math.min(1, distance / 0.3), 0.85) * (luminance(data, i) < paperLight + 0.03 ? 1 : 0.25);
+    }
+    drawing = true;
+  } else {
+    // Old photographs are often faded: their tones inside the oval are stretched between the 3rd and 97th
+    // percentiles, so the likeness carries the particles rather than the paper's tint.
+    const low = quantile(0.03), high = quantile(0.97);
+    if (high - low > 0.05) for (let i = 0; i < length; i++) tone[i] = Math.max(0, Math.min(1, (tone[i] - low) / (high - low)));
+  }
+  let total = 0;
+  for (let i = 0; i < length; i++) {
+    const col = i % width, row = Math.floor(i / width);
+    const x = ((col + 0.5) / width - 0.5) * 2, y = (0.5 - (row + 0.5) / height) * 2;
+    const mask = ovalMask(x, y);
+    if (mask > 0) {
+      const edge = Math.abs(tone[i] - tone[Math.max(0, i - 1)]) + Math.abs(tone[i] - tone[Math.max(0, i - width)]);
+      // Faces sit in the upper middle of a portrait: a soft preference there keeps them crisp against the background.
+      const face = Math.exp(-(x * x) / 0.5 - ((y - 0.22) * (y - 0.22)) / 0.7);
+      total += (0.02 + Math.pow(tone[i], 1.5) + edge * (drawing ? 1.4 : 0.55)) * mask * (0.6 + 0.4 * face) * (data[i * 4 + 3] / 255);
+    }
+    distribution[i] = total;
+  }
+  if (total < 0.01) throw new Error("empty-raster");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  const aspect = width / height;
+  const h = 3.6 / Math.max(1, aspect), w = h * aspect;
+  const next = random(0x0a1e);
+  const gaussian = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
+  // Arc-length weighting: an ellipse's angle parameter crowds its flatter sides, so angles are drawn by speed.
+  const speed = (t: number) => Math.hypot(Math.sin(t) * w, Math.cos(t) * h);
+  const fastest = Math.max(w, h);
+  for (let i = 0; i < count; i++) {
+    if (next() < HERITAGE_OVAL.outline) {
+      let t = next() * Math.PI * 2;
+      while (next() * fastest > speed(t)) t = next() * Math.PI * 2;
+      const bevel = next() < HERITAGE_OVAL.bevel;
+      const r = (bevel ? HERITAGE_OVAL.bevelRadius : 1) + gaussian() * (bevel ? 0.0016 : 0.0022);
+      const sheen = 0.84 + 0.16 * Math.cos(t - 2.2);
+      positions.set([Math.cos(t) * r * w / 2, Math.sin(t) * r * h / 2, gaussian() * 0.01], i * 3);
+      tones[i] = Math.min(1, (bevel ? 0.26 + next() * 0.1 : 0.6 + next() * 0.2) * sheen);
+      continue;
+    }
+    const cell = pickCell(distribution, next() * total);
+    const x = ((cell % width + next()) / width - 0.5) * w;
+    const y = (0.5 - (Math.floor(cell / width) + next()) / height) * h;
+    const value = tone[cell];
+    const fade = Math.sqrt(ovalMask(x / w * 2, y / h * 2));
+    positions.set([x, y, (value - 0.5) * 0.15 + (next() - 0.5) * 0.05], i * 3);
+    tones[i] = (0.08 + Math.pow(value, 1.15) * 0.82) * (0.55 + 0.45 * fade);
   }
   return { positions, tones };
 }
