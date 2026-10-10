@@ -64,7 +64,7 @@ export const bodyTransition = {
   /** Seconds for the particles to re-form from one persistent body into another. */
   seconds: 2.2,
 };
-const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
+const ease = (x: number) => Math.min(1, Math.max(0, x * x * x * (x * (x * 6 - 15) + 10)));
 
 /**
  * The persistent body and its transition. Each body besides the sphere has a layer weight (the sphere is what is

@@ -241,6 +241,9 @@ export function solvePose(pose: PoseParams, out = new Float32Array(ANCHOR_COUNT 
   return out;
 }
 
+/** Seconds over which the clips of a state just left fade out. */
+const FADE_OUT = 0.7;
+
 /** How fast each kind of channel follows a change of state (critically damped spring, rad/s). */
 const omega = (channel: string) => channel.startsWith("left.") || channel.startsWith("right.") ? 7
   : channel === "tilt" || channel === "nod" || channel === "turn" ? 8 : channel.startsWith("foot") ? 10 : 4.5;
@@ -276,6 +279,9 @@ export class FigureAnimator {
   private readonly final = new Springs();
   private cueClip: { clip: Clip; t: number } | null = null;
   private clock = 0;
+  private current: { state: AionState; t: number } = { state: "idle", t: 0 };
+  /** The state just left: its clips play on and fade out, so a gesture is never cut off mid-movement. */
+  private outgoing: { state: AionState; t: number; age: number } | null = null;
   /** The pose most recently solved (flat channels), for diagnostics and tests. */
   pose: Channels = flattenPose(NEUTRAL_POSE);
 
@@ -293,10 +299,20 @@ export class FigureAnimator {
     const step = Number.isFinite(dt) ? Math.max(0, Math.min(0.1, dt)) : 0;
     this.clock += step;
     const safe = sanitizeState(state);
+    const since = Number.isFinite(t) ? Math.max(0, t) : 0;
+    if (safe !== this.current.state) this.outgoing = { state: this.current.state, t: this.current.t, age: 0 };
+    this.current = { state: safe, t: since };
     const pose = this.base.follow(flattenPose(statePose(safe, amplitude, listen)), step, omega);
     const cue = this.cueClip;
-    const quiet = calm ? 0.3 : 1;
-    applyStateMotion(pose, safe, Number.isFinite(t) ? Math.max(0, t) : 0, quiet * (cue ? 1 - clipWeight(cue.clip, cue.t) : 1));
+    const quiet = calm ? 0.3 : 1, cueGap = cue ? 1 - clipWeight(cue.clip, cue.t) : 1;
+    if (this.outgoing) {
+      const out = this.outgoing;
+      out.age += step;
+      const fade = 1 - Math.min(1, out.age / FADE_OUT) ** 2 * (3 - 2 * Math.min(1, out.age / FADE_OUT));
+      if (fade <= 0) this.outgoing = null;
+      else applyStateMotion(pose, out.state, out.t + out.age, quiet * cueGap * fade);
+    }
+    applyStateMotion(pose, safe, since, quiet * cueGap);
     if (cue) {
       applyClip(pose, cue.clip, cue.t, calm ? 0.5 : 1);
       cue.t += step;
