@@ -32,6 +32,8 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   { say: "a yin-yang", ask: "Ask me to show the yin-yang.", tool: "show_form", args: { form: "yin yang" } },
   { say: "the time", ask: "Ask me what time it is.", tool: "show_clock", args: {} },
   { say: "a human form", ask: "Ask me to take a human form.", tool: "set_body_form", args: { body: "figure" } },
+  { say: "my eyes", ask: "Ask me to show you my eyes.", tool: "set_body_form", args: { body: "eyes" } },
+  { say: "Saturn in 3D", ask: "Ask me to show you Saturn in 3D.", tool: "show_scene", args: { preset: "saturn" } },
 ];
 
 const list = (items: string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;

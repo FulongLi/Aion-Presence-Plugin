@@ -75,6 +75,8 @@ you, or ask you to show something. Offer two to four of these real examples, nev
 - "Ask me to show the yin-yang." (`show_form`)
 - "Ask me what time it is." (`show_clock`)
 - "Ask me to take a human form." (`set_body_form`)
+- "Ask me to show you my eyes." (`set_body_form`)
+- "Ask me to show you Saturn in 3D." (`show_scene`)
 
 ## Visual Intent Policy
 
