@@ -133,3 +133,23 @@ without it. These are **adapted**, not regressions:
 | Responding | not applicable (real speech) | semantic travelling swell, current, light; figure articulation | smoke `responding` (measured motion) |
 | Answer duration | the audio itself | the Stop hook's spoken-length estimate (no text forwarded) | tests/liveState.test.ts |
 | Presentation | body or a framed panel | Presentation Router: body · card · hybrid | tests/presentationRouter.test.ts |
+
+## v0.4: beyond SCF (plugin-only)
+
+New capabilities, not ported from SCF. Each is **present** (plugin-only, kept and verified).
+
+| Capability | Implementation | Proof |
+| --- | --- | --- |
+| Heritage portrait | `visual/oval.ts`, `normalizeImage(…, { portraitStyle: "heritage" })`, the oval sampler in `visual/points.ts`; `style` on `show_portrait` and `show_image` | tests/v4.test.ts (mask, 3:4 crop, distribution, drawings), smoke, showcase `heritage` |
+| Figure 2.0 (visual) | `core/figure/layout.ts` (strokes, ring, joint beads; no dust, halo or veil), no sphere field on the figure | tests/v4.test.ts (allocation, stroke precision), showcase `figure-idle` |
+| Expressive Motion System | `core/figure/motion.ts`, `core/figure/pose.ts` (clips, tracks, IK, springs, cross-faded states) | tests/v4.test.ts, tests/core.test.ts, smoke (hands while answering), showcase `figure-gestures`, `figure-listening` |
+| Explaining a card | `show_text` `emphasis`; `EXPLAIN` cue; `RuntimeHandle.toWorld` | tests/v4.test.ts, smoke, showcase `figure-explain` |
+| Aion Eyes (third body) | `core/eyes/`, `render/physics/eyes.ts`, three-layer body blend | tests/v4.test.ts, smoke, showcase `eyes`, `transitions` |
+| `express` | hub `express` command, `Aion.express` per body | tests/v4.test.ts, smoke, codex:verify (19 tools) |
+| 3D Scene Engine | `visual/scene3d/`, `mesh3d` target, view uniforms, `interaction/orbit.ts`; `show_scene`, `set_scene_view` | tests/v4.test.ts, smoke (both renderers), showcase `pyramid`, `saturn`, `dna` |
+| Native audio bridge | `experiments/audio-bridge/` (not in the runtime) | [AUDIO-BRIDGE.md](AUDIO-BRIDGE.md) |
+
+v0.4 changes one earlier behaviour on purpose: the figure is no longer "restrained" (v0.3 kept every state within
+0.12 of neutral). Its motion is now expressive and bounded: limb lengths kept, feet planted, hands below the head
+while answering, no seam at any state or cue change. tests/core.test.ts and tests/conversation.test.ts were updated
+to say so.

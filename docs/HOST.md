@@ -14,9 +14,17 @@ for v0.3 (Codex CLI 0.159.2, bundled with the ChatGPT desktop app; Chrome 154; m
 
 Aion never starts its own voice or model session to obtain audio.
 
-**Desktop audio capture** (a future native shell): macOS can capture system or app audio (ScreenCaptureKit), but it
-needs a screen-recording-class permission and would capture whatever is playing, not only the assistant. It is not
-used and not required; if ever added, it would be opt-in, explained, and only reduced to loudness locally.
+**v0.4 findings** (Codex CLI 0.162, ChatGPT desktop 26.1007, macOS 26.6; details in [AUDIO-BRIDGE.md](AUDIO-BRIDGE.md)):
+
+- The Codex **app-server** protocol now has `thread/realtime/outputAudio/delta` (EXPERIMENTAL): the assistant's
+  output audio as PCM chunks, sent to app-server clients. That is the right source for real speech motion, once it
+  is stable and a plugin may observe it. Plugins (MCP, hooks, Skill) still receive no audio.
+- **Core Audio process taps** (macOS 14.2+) can capture one app's output in isolation, with about 50 ms latency and
+  1–2 % CPU, after the user grants "System Audio Recording Only". A standalone prototype is in
+  `experiments/audio-bridge/`. It is not part of the plugin and is not yet verified against Codex Voice itself.
+- ScreenCaptureKit can do the same with a broader permission (screen recording). Not used.
+
+Until one of these is verified and integrated, `responding` stays semantic.
 
 ## Echo without host audio
 

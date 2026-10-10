@@ -229,6 +229,40 @@ const DEMOS: Demo[] = [
       await ctx.wait(2);
     },
   },
+  {
+    name: "acceptance", title: "The v0.4 acceptance sequence, one continuous presence", seconds: 80, speech: true,
+    async run(ctx) {
+      const state = () => ctx.view<string>("v.aion.currentState");
+      ctx.log("sphere"); await ctx.wait(2); await ctx.shot("01-sphere");
+      ctx.log("→ eyes"); ctx.apply({ type: "body", body: "eyes" }); await ctx.wait(3);
+      ctx.log(`eyes, the user speaks: ${await state()}`); await ctx.wait(2.5); await ctx.shot("02-eyes-listening");
+      await ctx.wait(4.5);
+      ctx.log("→ figure"); ctx.apply({ type: "body", body: "figure" }); await ctx.wait(3.5); await ctx.shot("03-figure");
+      ctx.log("figure answers"); ctx.apply({ type: "activity", state: "responding" }); await ctx.wait(3); await ctx.shot("04-figure-responding");
+      await ctx.wait(3); ctx.apply({ type: "activity", state: "complete" }); await ctx.wait(1.5);
+      ctx.log("figure explains a² + b² = c²");
+      ctx.apply({ type: "present", content: { kind: "text", text: "a² + b² = c²", emphasis: "c²" }, presentation: "card", hold: 9 });
+      await ctx.wait(4.2); await ctx.shot("05-figure-points"); await ctx.wait(5.5);
+      ctx.apply({ type: "clear" }); await ctx.wait(1);
+      ctx.log("→ sphere"); ctx.apply({ type: "body", body: "sphere" }); await ctx.wait(3.2); await ctx.shot("06-sphere");
+      const tesla = await ctx.portrait("Nikola Tesla");
+      ctx.log("heritage Tesla");
+      ctx.apply({ type: "present", content: { kind: "image", media: tesla.media, fit: "portrait", origin: "lookup", alt: "Nikola Tesla", style: "heritage", width: tesla.width, height: tesla.height }, presentation: "body", hold: 6 });
+      await ctx.wait(4.5); await ctx.shot("07-heritage-tesla"); await ctx.wait(5.5);
+      await ctx.shot("08-sphere-again");
+      ctx.log("3D pyramid");
+      ctx.apply({ type: "present", content: { kind: "scene", scene: SCENE_PRESETS.pyramid, label: "Egyptian pyramid", preset: "pyramid" }, hold: 30 });
+      await ctx.wait(5); await ctx.shot("09-pyramid");
+      ctx.log("the user turns it");
+      await ctx.page.mouse.move(480, 360); await ctx.page.mouse.down();
+      for (let i = 1; i <= 30; i++) { await ctx.page.mouse.move(480 + i * 7, 360 - i * 2); await ctx.wait(0.03); }
+      await ctx.page.mouse.up(); await ctx.wait(1); await ctx.shot("10-pyramid-turned");
+      await ctx.wait(3);
+      ctx.log("return to the sphere"); ctx.apply({ type: "clear" }); await ctx.wait(3); await ctx.shot("11-sphere-end");
+      const frames = await ctx.view<number>("v.runtime.quality().frames");
+      ctx.log(`responsive throughout: ${frames} frames drawn`);
+    },
+  },
 ];
 
 /** Demos register here as they are built (later phases append to DEMOS). */
