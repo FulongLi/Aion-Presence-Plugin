@@ -10,6 +10,7 @@ import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/pre
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
+import { portraitStyleFor } from "../../visual/types";
 import { visualForms, type VisualFormRegistry } from "../../visual/forms";
 import { clockText } from "../../visual/validate";
 import { SCENE_PRESETS, SCENE_PRESET_NAMES, type ScenePreset } from "../../visual/scene3d/presets";
@@ -121,9 +122,10 @@ export const TOOL_DESCRIPTIONS = {
     + "materially helps, e.g. the user asks what something looks like or wants to see it. For a real person's face prefer show_portrait; "
     + "for Taoist symbols, constellations and zodiac signs always use show_form.",
   show_portrait: "Form a portrait of a real, recognizable person with Aion's particle body, from public photos (Wikipedia, then other open "
-    + "image sources), framed head and shoulders. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look "
-    + "like?\", \"Show me Albert Einstein\"), or when a portrait materially helps the answer. Do not call just because a name appears in "
-    + "conversation.",
+    + "image sources): by default a heritage portrait, an antique oval of particles with a silver outline, while the original photograph "
+    + "stands beside it. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look like?\", \"Show me Albert "
+    + "Einstein\", \"展示一下牛顿的肖像\"), or when a portrait materially helps the answer. Leave style out unless the user asks for the "
+    + "classic head-and-shoulders portrait (style \"classic\"). Do not call just because a name appears in conversation.",
   show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
     + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
     + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
@@ -414,9 +416,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const alt = args.alt ?? label(found.label);
       const by = credit(found.source);
+      // A person's picture is a heritage portrait unless classic was asked for; nothing else is ever framed as one.
+      const style = portraitStyleFor(found.fit, args.style);
       return present(ctx, {
-        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup",
-        ...(found.fit === "portrait" && args.style ? { style: args.style } : {}),
+        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup", ...(style ? { style } : {}),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation, detail: args.detail });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.query!)); }
@@ -434,7 +437,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const by = credit(found.source);
       return present(ctx, {
-        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, ...(args.style ? { style: args.style } : {}),
+        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, style: portraitStyleFor("portrait", args.style),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }

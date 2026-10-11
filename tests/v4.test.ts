@@ -52,7 +52,7 @@ test("heritage oval: a soft elliptical mask, 1 inside, easing to 0 exactly on th
   for (let r = 0; r <= 1; r += 0.01) { const m = ovalMask(r * 0.6, r * 0.8); assert.ok(m <= previous + 1e-9, "monotonic"); previous = m; }
 });
 
-test("heritage normalization: exactly 3:4, cropped never stretched, the face kept; classic is unchanged", () => {
+test("heritage normalization: exactly 3:4, cropped never stretched, the face kept; classic only when asked for", () => {
   for (const [width, height] of [[600, 900], [800, 800], [1200, 700], [300, 400]] as const) {
     const target = normalizeImage(photo(width, height), "portrait", { portraitStyle: "heritage" });
     assert.equal(target.frame, "oval");
@@ -63,9 +63,11 @@ test("heritage normalization: exactly 3:4, cropped never stretched, the face kep
     assert.ok(target.raster.width <= Math.ceil(Math.min(width, height * 0.75) * scale) + 1);
   }
   assert.ok(HERITAGE_ANCHOR_Y < 0.2, "a tall picture keeps its top (the head)");
-  const classic = normalizeImage(photo(600, 900), "portrait");
+  // v0.4.1: a portrait with no style is a heritage portrait; classic is the explicit alternative.
+  assert.deepEqual(normalizeImage(photo(600, 900), "portrait"), normalizeImage(photo(600, 900), "portrait", { portraitStyle: "heritage" }));
+  const classic = normalizeImage(photo(600, 900), "portrait", { portraitStyle: "classic" });
   assert.equal(classic.frame, undefined);
-  assert.deepEqual(normalizeImage(photo(600, 900), "portrait", { portraitStyle: "classic" }), classic);
+  assert.ok(Math.abs(classic.raster.width / classic.raster.height - 0.72) < 0.02, "the classic head-and-shoulders band (a 2:3 photo cropped to 0.72)");
 });
 
 test("heritage sampling: nothing outside the oval, a silver outline of about a tenth of the particles, the face denser", () => {

@@ -1,4 +1,4 @@
-import { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
+import { IMAGE_FITS, PORTRAIT_STYLES, portraitStyleFor, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
 import type { Scene3D } from "../visual/scene3d/types";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
@@ -70,7 +70,8 @@ export type PresentationContent =
    * a looked-up picture came from. `width`/`height`: the original picture's size (the card shows the original,
    * never the particle raster). `origin`: looked up on public sources, or a file on this machine. `mode`: the
    * v0.2 preference (particles → body, framed → card), still honoured when no presentation preference is given.
-   * `style` (portraits only): classic, or heritage — the body forms an antique oval portrait (the card is unchanged).
+   * `style` (portraits only): heritage (the default when it is absent) — the body forms an antique oval portrait — or
+   * classic, the head-and-shoulders band. The card shows the original photograph either way.
    */
   | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local"; style?: PortraitStyle }
   /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
@@ -193,7 +194,8 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "result": { const symbol = RESULT_SYMBOL[presentation.status]; return symbol ? { type: "form", form: symbol } : { type: "none" }; }
     case "image": {
       const fit = presentation.fit ?? "object";
-      return { type: "image", media: presentation.media, fit, ...(fit === "portrait" && presentation.style ? { style: presentation.style } : {}) };
+      const style = portraitStyleFor(fit, presentation.style);
+      return { type: "image", media: presentation.media, fit, ...(style ? { style } : {}) };
     }
     case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
     case "clock": return { type: "text", text: presentation.time };
@@ -217,7 +219,10 @@ export function describePresentation(presentation: PresentationContent): string 
     case "form": return `form: ${presentation.label}`;
     case "text": return `text: ${presentation.title ?? presentation.text.slice(0, 40)}`;
     case "result": return `result (${presentation.status}): ${presentation.title}`;
-    case "image": return `${presentation.fit === "portrait" ? presentation.style === "heritage" ? "heritage portrait" : "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
+    case "image": {
+      const style = portraitStyleFor(presentation.fit, presentation.style);
+      return `${style ? `${style} portrait` : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
+    }
     case "terrain": return `terrain: ${presentation.label}`;
     case "clock": return `clock: ${presentation.time}`;
     case "number": return `number: ${presentation.value}`;

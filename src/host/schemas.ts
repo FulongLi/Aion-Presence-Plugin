@@ -41,11 +41,11 @@ const checked = (max: number, valid: (value: string) => boolean, what: string) =
   return clean;
 });
 
-/** A portrait's composition (the card always shows the original photograph). */
+/** A portrait's composition (the card always shows the original photograph). Omitted: heritage, enforced by Aion. */
 const portraitStyle = z.enum(PORTRAIT_STYLES).describe(
-  "classic (default): a head-and-shoulders particle portrait. heritage: an antique oval portrait in particles with a fine silver outline, "
-  + "like a Victorian locket or pocket-watch portrait. Heritage often suits historical figures from old photographs, but choose it only when it "
-  + "fits the moment or the user asks for it; use exactly what the user asks for.");
+  "Omit it: every portrait is a heritage portrait by default — an antique 3:4 oval of particles with a soft edge and a fine silver outline, "
+  + "like a Victorian locket. classic: the head-and-shoulders particle portrait, only when the user asks for it (\"the classic portrait\", "
+  + "\"without the oval\", \"show the classic portrait instead\").");
 
 export const activityStateSchema = z.enum(ACTIVITY_STATES);
 export const bodySchema = z.enum(AION_BODIES);
@@ -94,7 +94,7 @@ export const showImageInput = z.object({
   mode: z.enum(IMAGE_MODES).optional().describe("Older form of presentation (particles = body, framed = card). Prefer presentation."),
   presentation: presentation.optional(),
   detail: z.boolean().optional().describe("true when the user wants to inspect the picture's exact detail: it is shown as a card, not dissolved into particles."),
-  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity): classic (default) or heritage, an antique oval portrait."),
+  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity): heritage (default, an antique oval) or classic. Ignored for anything else."),
   hold_seconds: hold.optional(),
 }).strict();
 

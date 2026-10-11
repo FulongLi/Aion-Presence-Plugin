@@ -24,11 +24,22 @@ export const fitForIntent = (intent: ImageIntent): ImageFit =>
   PORTRAIT_INTENTS.includes(intent) ? "portrait" : intent === "map" ? "map" : "object";
 
 /**
- * How a portrait is composed: classic (SCF's head-and-shoulders band) or heritage (a 3:4 oval with a soft edge and
- * a silver particle outline, like an antique oval portrait or a locket; see oval.ts). Only portraits have a style.
+ * How a portrait is composed: heritage (the default since v0.4.1: a 3:4 oval with a soft edge and a silver particle
+ * outline, like an antique oval portrait or a locket; see oval.ts) or classic (SCF's head-and-shoulders band). Only
+ * portraits have a style.
  */
-export const PORTRAIT_STYLES = ["classic", "heritage"] as const;
+export const PORTRAIT_STYLES = ["heritage", "classic"] as const;
 export type PortraitStyle = typeof PORTRAIT_STYLES[number];
+export const DEFAULT_PORTRAIT_STYLE: PortraitStyle = "heritage";
+
+/**
+ * The style a picture is composed in: every portrait has one (heritage unless classic was asked for), anything else
+ * (a vehicle, a building, a landscape, a local file) has none, whatever was asked.
+ */
+export function portraitStyleFor(fit: ImageFit | undefined, style?: PortraitStyle): PortraitStyle | undefined {
+  if (fit !== "portrait") return undefined;
+  return style !== undefined && (PORTRAIT_STYLES as readonly string[]).includes(style) ? style : DEFAULT_PORTRAIT_STYLE;
+}
 
 /** How a height field is lit and toned. The geometry is the same real elevation for every style. */
 export const TERRAIN_STYLES = ["terrain", "topography", "relief", "heightmap"] as const;
