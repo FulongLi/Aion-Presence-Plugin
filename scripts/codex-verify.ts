@@ -138,7 +138,7 @@ try {
         if (!offline) {
           const portrait = await call("show_portrait", { person: "Nikola Tesla" });
           const shown = (portrait.structuredContent as { presentation: { description: string; route: string } } | undefined)?.presentation;
-          check(!portrait.isError && shown?.description === "portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source");
+          check(!portrait.isError && shown?.description === "heritage portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source, a heritage portrait by default");
           check(shown?.route === "hybrid", "the Presentation Router: a particle portrait and the original photograph (hybrid)");
           check(await until(/visual holding/), "the portrait forms");
           await page.screenshot({ path: join(E2E, "verify-portrait.png") });
