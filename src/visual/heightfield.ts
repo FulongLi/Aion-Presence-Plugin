@@ -1,5 +1,6 @@
 import { ResolveError } from "./errors";
 import type { HeightField, Raster, TerrainStyle } from "./types";
+import { validFrame, type Frame } from "./geo/projection";
 
 /** Terrain as real elevations (metres) on a grid, plus an optional region mask (SCF's TerrainSource). */
 export interface TerrainSource {
@@ -12,6 +13,8 @@ export interface TerrainSource {
   mask?: Uint8Array;
   aspect: number;
   label: string;
+  /** Where the grid lies on Earth (its outer edges in a projection): kept through the crop for markers. */
+  geo?: Frame;
 }
 
 /**
@@ -167,10 +170,18 @@ export function buildHeightField(source: TerrainSource, style: TerrainStyle = "t
   if (!(max >= min)) throw new ResolveError("heightfield-invalid");
   let relief = elevation ? 0.5 + 0.5 * Math.min(1, span / 3000) : 0.75;
   if (style === "relief") relief = Math.min(1, relief * 1.3);
+  // The crop's window on Earth: columns left…right, rows top (north)…bottom.
+  const g = source.geo;
+  const geo = g ? {
+    projection: g.projection,
+    x0: g.x0 + (g.x1 - g.x0) * left / width, x1: g.x0 + (g.x1 - g.x0) * (right + 1) / width,
+    y1: g.y1 - (g.y1 - g.y0) * top / height, y0: g.y1 - (g.y1 - g.y0) * (bottom + 1) / height,
+  } : undefined;
   return {
     width: w, height: h, values: out, mask, relief,
     aspect: source.aspect * (w / width) / (h / height),
     elevation: elevation ? { min: Math.round(rawMin), max: Math.round(rawMax) } : undefined,
+    ...(geo ? { geo } : {}),
   };
 }
 
@@ -188,24 +199,32 @@ export function heightRange(field: HeightField) {
  * The height field as bytes, so a terrain travels to the surface like any other presented media: the server
  * resolves it, the surface only decodes it. Little-endian:
  *
- *   "AHF1" · u16 width · u16 height · f32 aspect · f32 relief · i32 min m · i32 max m · u8 flags (1: mask, 2: elevation)
- *   · u16 × n heights (0…65535 = 0…1) · [u8 × n mask]
+ *   "AHF1" · u16 width · u16 height · f32 aspect · f32 relief · i32 min m · i32 max m · u8 flags (1: mask, 2: elevation,
+ *   4: geography) · u16 × n heights (0…65535 = 0…1) · [u8 × n mask] · [geography: u8 projection (1 laea, 2 equal-earth)
+ *   · f64 lon0 · f64 lat0 · f64 x0 · f64 y0 · f64 x1 · f64 y1]
  */
 export const HEIGHTFIELD_MIME = "application/vnd.aion.heightfield";
 const MAGIC = [0x41, 0x48, 0x46, 0x31];
 const HEADER = 25;
 
+const GEO_BYTES = 1 + 6 * 8;
 export function encodeHeightField(field: HeightField): Uint8Array {
   const n = field.width * field.height;
-  const bytes = new Uint8Array(HEADER + n * 2 + (field.mask ? n : 0));
+  const geo = field.geo && validFrame(field.geo) ? field.geo : undefined;
+  const bytes = new Uint8Array(HEADER + n * 2 + (field.mask ? n : 0) + (geo ? GEO_BYTES : 0));
   const view = new DataView(bytes.buffer);
   bytes.set(MAGIC, 0);
   view.setUint16(4, field.width, true); view.setUint16(6, field.height, true);
   view.setFloat32(8, field.aspect, true); view.setFloat32(12, field.relief, true);
   view.setInt32(16, field.elevation?.min ?? 0, true); view.setInt32(20, field.elevation?.max ?? 0, true);
-  view.setUint8(24, (field.mask ? 1 : 0) | (field.elevation ? 2 : 0));
+  view.setUint8(24, (field.mask ? 1 : 0) | (field.elevation ? 2 : 0) | (geo ? 4 : 0));
   for (let i = 0; i < n; i++) view.setUint16(HEADER + i * 2, Math.round(Math.max(0, Math.min(1, field.values[i] || 0)) * 65535), true);
   if (field.mask) bytes.set(field.mask.subarray(0, n).map(value => value ? 1 : 0), HEADER + n * 2);
+  if (geo) {
+    const o = HEADER + n * 2 + (field.mask ? n : 0), p = geo.projection;
+    view.setUint8(o, p.kind === "laea" ? 1 : 2);
+    [p.lon0, p.kind === "laea" ? p.lat0 : 0, geo.x0, geo.y0, geo.x1, geo.y1].forEach((value, k) => view.setFloat64(o + 1 + k * 8, value, true));
+  }
   return bytes;
 }
 
@@ -218,12 +237,19 @@ export function decodeHeightField(bytes: Uint8Array): HeightField {
   const aspect = view.getFloat32(8, true), relief = view.getFloat32(12, true);
   const flags = view.getUint8(24), n = width * height;
   if (width < 2 || height < 2 || n > 256 * 256 || !(aspect > 0.05 && aspect < 20) || !(relief >= 0 && relief <= 1)) fail();
-  if (bytes.length !== HEADER + n * 2 + (flags & 1 ? n : 0)) fail();
+  if (flags & ~7 || bytes.length !== HEADER + n * 2 + (flags & 1 ? n : 0) + (flags & 4 ? GEO_BYTES : 0)) fail();
   const values = new Float32Array(n);
   for (let i = 0; i < n; i++) values[i] = view.getUint16(HEADER + i * 2, true) / 65535;
   const field: HeightField = { width, height, values, aspect, relief };
   if (flags & 1) field.mask = bytes.slice(HEADER + n * 2, HEADER + n * 3);
   if (flags & 2) field.elevation = { min: view.getInt32(16, true), max: view.getInt32(20, true) };
+  if (flags & 4) {
+    const o = HEADER + n * 2 + (flags & 1 ? n : 0), kind = view.getUint8(o);
+    const [lon0, lat0, x0, y0, x1, y1] = [0, 1, 2, 3, 4, 5].map(k => view.getFloat64(o + 1 + k * 8, true));
+    const geo: Frame = { projection: kind === 1 ? { kind: "laea", lon0, lat0 } : { kind: "equal-earth", lon0 }, x0, y0, x1, y1 };
+    if ((kind !== 1 && kind !== 2) || !validFrame(geo)) fail();
+    field.geo = geo;
+  }
   return field;
 }
 

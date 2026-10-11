@@ -1,4 +1,7 @@
 import { ResolveError } from "../../../visual/errors";
+import { frameWindow } from "../../../visual/geo/extent";
+import { project, unproject } from "../../../visual/geo/projection";
+import { regionFrame, resolveRegion, type GeoRegion } from "../../geo/region";
 import { decodeTerrarium, downsampleGrid, heightFieldLimits, rasterizePolygon, type TerrainSource } from "../../../visual/heightfield";
 import type { Raster, TerrainStyle } from "../../../visual/types";
 import { fetchImage, fetchJSON, HOSTS, type Fetcher } from "../net";
@@ -6,23 +9,30 @@ import { decodePng } from "../png";
 
 export interface TerrainProvider {
   readonly name: string;
-  resolve(region: string, style: TerrainStyle, signal: AbortSignal): Promise<TerrainSource>;
+  /** `include`: points (markers) that must be in view. */
+  resolve(region: string, style: TerrainStyle, signal: AbortSignal, options?: { include?: [number, number][] }): Promise<TerrainSource>;
 }
 
 /**
  * Real elevation for any named place, keyless (SCF's sources/terrain.ts, run in the local MCP process):
  *
- *   region name ─► geocoder (OpenStreetMap Nominatim, then Photon) ─► bounding box (+ outline polygon)
- *               ─► AWS Terrain Tiles ("terrarium" PNG, metres in RGB, Web Mercator) ─► elevation grid
+ *   region name ─► the region (Aion's offline world: continents, countries, their parts; else Nominatim/Photon)
+ *               ─► its equal-area frame (see visual/geo) ─► the longitude/latitude window it covers
+ *               ─► AWS Terrain Tiles ("terrarium" PNG, metres in RGB, Web Mercator) ─► mosaic
+ *               ─► resampled into the frame ─► elevation grid, masked by the region's outline
  *
- * The outline masks the grid, so "Wales" is Wales rather than its bounding box. Not a GIS engine:
- * one geocoder hit, one tile zoom, at most 16 tiles, a grid of at most 160 cells a side. Only the region
- * name goes to the geocoder; the tiles are fetched by coordinates.
+ * Resampling into the region's own equal-area frame means high latitudes keep their true shape (Mercator would stretch
+ * Svalbard fourfold), a continent is never cropped, and the date line is not a seam. The grid carries its frame so a
+ * marker's latitude and longitude land on the right cell. Bounded: at most 16 tiles, a grid of at most 160 cells a
+ * side. Only the region name goes to a geocoder (and only when the offline world does not know it); the tiles are
+ * fetched by coordinates. Web Mercator tiles stop at ±85.05°: nearer the poles there is no data (Antarctica's
+ * interior is shown up to that latitude).
  */
 export type Box = { west: number; south: number; east: number; north: number };
+/** The v0.3 place shape (a box and outline rings), still accepted from an injected locator. */
 export interface Place { label: string; box: Box; rings?: [number, number][][]; provider: string }
 
-export const terrainLimits = { maxTiles: 16, maxPixels: 640, maxZoom: 12, minSpan: 0.25, pointSpan: 0.8, maxSpan: 70, tileBytes: 1024 * 1024 };
+export const terrainLimits = { maxTiles: 16, maxPixels: 640, maxZoom: 12, minSpan: 0.25, pointSpan: 0.8, tileBytes: 1024 * 1024, mercatorLat: 85.0511 };
 const TILE_URL = (z: number, x: number, y: number) => `https://${HOSTS.elevation}/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 
 type NominatimHit = { display_name?: string; name?: string; boundingbox?: string[]; geojson?: { type: string; coordinates: unknown } };
@@ -40,20 +50,17 @@ function polygonRings(geojson: NominatimHit["geojson"]): [number, number][][] | 
   return undefined;
 }
 
-/** Expands point-like places, limits continent-sized ones, and keeps latitudes inside Web Mercator. */
+/** Expands point-like boxes to a visible span and keeps latitudes on the globe. Large boxes are kept whole (never cropped). */
 export function normalizeBox(box: Box): Box {
-  let { west, east } = box;
+  const west = box.west;
+  let east = box.east;
   if (east < west) east += 360; // crosses the antimeridian
-  let south = Math.max(-84, Math.min(84, box.south)), north = Math.max(-84, Math.min(84, box.north));
+  const south = Math.max(-90, Math.min(90, box.south)), north = Math.max(-90, Math.min(90, box.north));
   const point = east - west < 0.02 && north - south < 0.02;
   const minimum = point ? terrainLimits.pointSpan : terrainLimits.minSpan;
-  const grow = (lo: number, hi: number, span: number) => {
-    const mid = (lo + hi) / 2, half = Math.min(terrainLimits.maxSpan, Math.max(span, hi - lo)) / 2;
-    return [mid - half, mid + half];
-  };
-  [west, east] = grow(west, east, minimum);
-  [south, north] = grow(south, north, minimum);
-  return { west, east, south: Math.max(-84, south), north: Math.min(84, north) };
+  const grow = (lo: number, hi: number, span: number) => { const mid = (lo + hi) / 2, half = Math.max(span, hi - lo) / 2; return [mid - half, mid + half]; };
+  const [w, e] = grow(west, east, minimum), [s, n] = grow(south, north, minimum);
+  return { west: w, east: e, south: Math.max(-90, s), north: Math.min(90, n) };
 }
 
 export async function geocode(region: string, signal: AbortSignal, request?: Fetcher): Promise<Place> {
@@ -93,7 +100,8 @@ export const mercatorY = (lat: number, z: number) => {
 };
 
 /** The most detailed zoom whose pixel window and tile count stay within bounds. */
-export function planTiles(box: Box) {
+export function planTiles(window: Box) {
+  const box = { ...window, south: Math.max(-terrainLimits.mercatorLat, window.south), north: Math.min(terrainLimits.mercatorLat, window.north) };
   for (let z = terrainLimits.maxZoom; z >= 0; z--) {
     const x0 = mercatorX(box.west, z), x1 = mercatorX(box.east, z), y0 = mercatorY(box.north, z), y1 = mercatorY(box.south, z);
     const tiles = (Math.floor((x1 - 1e-9) / 256) - Math.floor(x0 / 256) + 1) * (Math.floor((y1 - 1e-9) / 256) - Math.floor(y0 / 256) + 1);
@@ -106,17 +114,28 @@ export function planTiles(box: Box) {
 
 export type TileDecoder = (bytes: Uint8Array) => Raster;
 
+/** A located place, from the region resolver or from an injected v0.3-style locator. */
+type Located = GeoRegion | Place;
+const asRegion = (found: Located): GeoRegion => {
+  if ("focus" in found) return found;
+  const b = normalizeBox(found.box);
+  const rings = found.rings?.length ? found.rings : [[[b.west, b.south], [b.east, b.south], [b.east, b.north], [b.west, b.north]] as [number, number][]];
+  return { label: found.label, kind: "place", focus: rings.map(ring => [ring]), ids: [], provider: found.provider as GeoRegion["provider"] };
+};
+
 /**
  * Elevation from AWS Terrain Tiles (Mapzen terrarium encoding; SRTM, GMTED, ETOPO1 and others,
  * roughly 30 m–1 km). Public dataset on the Registry of Open Data on AWS; no key.
  */
-export function elevationTilesProvider(decode: TileDecoder = decodePng, request?: Fetcher, locate = geocode): TerrainProvider {
+export function elevationTilesProvider(decode: TileDecoder = decodePng, request?: Fetcher,
+  locate: (region: string, signal: AbortSignal, request?: Fetcher) => Promise<Located> = resolveRegion): TerrainProvider {
   return {
     name: "aws-terrain-tiles",
-    async resolve(region, _style, signal) {
-      const place = await locate(region, signal, request);
-      const box = normalizeBox(place.box);
-      const plan = planTiles(box);
+    async resolve(name, _style, signal, options = {}) {
+      const region = asRegion(await locate(name, signal, request));
+      const frame = regionFrame(region, options.include ?? []);
+      const window = frameWindow(frame);
+      const plan = planTiles(window);
       const cols = plan.tx1 - plan.tx0 + 1, rows = plan.ty1 - plan.ty0 + 1, n = 2 ** plan.z;
       const mosaicW = cols * 256, mosaicH = rows * 256;
       const mosaic = new Float32Array(mosaicW * mosaicH).fill(NaN);
@@ -136,28 +155,46 @@ export function elevationTilesProvider(decode: TileDecoder = decodePng, request?
       for (let i = 0; i < jobs.length; i += 4) await Promise.all(jobs.slice(i, i + 4).map(job => job()));
       signal.throwIfAborted();
 
-      const left = Math.floor(plan.x0 - plan.tx0 * 256), top = Math.floor(plan.y0 - plan.ty0 * 256);
-      const width = Math.max(2, Math.min(mosaicW - left, Math.ceil(plan.x1 - plan.x0))), height = Math.max(2, Math.min(mosaicH - top, Math.ceil(plan.y1 - plan.y0)));
-      const window = new Float32Array(width * height);
-      for (let y = 0; y < height; y++) window.set(mosaic.subarray((top + y) * mosaicW + left, (top + y) * mosaicW + left + width), y * width);
-      const grid = downsampleGrid(window, width, height, heightFieldLimits.maxSide);
+      // The mosaic resampled into the region's frame, at twice the final resolution, then area-averaged down.
+      const aspect = (frame.x1 - frame.x0) / (frame.y1 - frame.y0), long = heightFieldLimits.maxSide * 2;
+      const width = Math.max(2, Math.round(aspect >= 1 ? long : long * aspect)), height = Math.max(2, Math.round(aspect >= 1 ? long / aspect : long));
+      const fine = new Float32Array(width * height).fill(NaN);
+      const at = (x: number, y: number) => x >= 0 && y >= 0 && x < mosaicW && y < mosaicH ? mosaic[y * mosaicW + x] : NaN;
+      for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) {
+        const geo = unproject(frame.x0 + (i + 0.5) / width * (frame.x1 - frame.x0), frame.y1 - (j + 0.5) / height * (frame.y1 - frame.y0), frame.projection);
+        if (!geo || Math.abs(geo[1]) > terrainLimits.mercatorLat) continue;
+        // Longitude on the same turn of the globe as the tile window.
+        let lon = geo[0];
+        while (lon < window.west) lon += 360;
+        while (lon >= window.west + 360) lon -= 360;
+        const px = mercatorX(lon, plan.z) - plan.tx0 * 256 - 0.5, py = mercatorY(geo[1], plan.z) - plan.ty0 * 256 - 0.5;
+        const x0 = Math.floor(px), y0 = Math.floor(py), fx = px - x0, fy = py - y0;
+        const a = at(x0, y0), b = at(x0 + 1, y0), c = at(x0, y0 + 1), d = at(x0 + 1, y0 + 1);
+        fine[j * width + i] = [a, b, c, d].every(Number.isFinite)
+          ? (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
+          : [a, b, c, d].find(Number.isFinite) ?? NaN;
+      }
+      const grid = downsampleGrid(fine, width, height, heightFieldLimits.maxSide);
       let mask: Uint8Array | undefined;
-      if (place.rings?.length) {
-        const sx = grid.width / (plan.x1 - plan.x0), sy = grid.height / (plan.y1 - plan.y0);
-        const project = ([lon, lat]: [number, number]): [number, number] => {
-          // Keep polygon longitudes on the same side of the antimeridian as the box.
-          const shifted = lon < box.west - 180 ? lon + 360 : lon > box.east + 180 ? lon - 360 : lon;
-          return [(mercatorX(shifted, plan.z) - plan.x0) * sx, (mercatorY(lat, plan.z) - plan.y0) * sy];
-        };
-        mask = rasterizePolygon(place.rings.map(ring => ring.map(project)), grid.width, grid.height);
+      if (region.focus.length) {
+        const rings: [number, number][][] = [];
+        for (const polygon of region.focus) for (const ring of polygon) {
+          const projected: [number, number][] = [];
+          for (const [lon, lat] of ring) {
+            const xy = project(lon, lat, frame.projection);
+            if (xy) projected.push([(xy[0] - frame.x0) / (frame.x1 - frame.x0) * grid.width, (frame.y1 - xy[1]) / (frame.y1 - frame.y0) * grid.height]);
+          }
+          if (projected.length > 2) rings.push(projected);
+        }
+        mask = rasterizePolygon(rings, grid.width, grid.height);
         let inside = 0;
         for (const cell of mask) inside += cell;
-        if (inside < heightFieldLimits.minCells) mask = undefined; // outline too small to use: show the box
+        if (inside < heightFieldLimits.minCells) mask = undefined; // outline too small to use: show the window
       }
       return {
-        provider: `aws-terrain-tiles z${plan.z} · ${place.provider}`, kind: "elevation",
+        provider: `aws-terrain-tiles z${plan.z} · ${region.provider}`, kind: "elevation",
         width: grid.width, height: grid.height, values: grid.values, mask,
-        aspect: (plan.x1 - plan.x0) / (plan.y1 - plan.y0), label: place.label,
+        aspect, label: region.label, geo: frame,
       } satisfies TerrainSource;
     },
   };

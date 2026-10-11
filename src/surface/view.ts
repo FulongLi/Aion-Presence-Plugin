@@ -11,6 +11,10 @@ import type { Framing, RuntimeHandle, RuntimeInputs } from "../render";
 import { VisualActionController } from "../visual/controller";
 import { visualForms } from "../visual/forms";
 import { decodeHeightField } from "../visual/heightfield";
+import { decodeMap } from "../visual/geo/map";
+import { MarkerLayer } from "./markers";
+import { accentColor, particlePalette, type Appearance } from "../core/colors";
+import { HOLD_SECONDS, markerWords, type GeoMarker } from "../core/presentation";
 import { normalizeImage } from "../visual/image";
 import type { MorphTarget } from "../visual/types";
 import { buildCard } from "./card";
@@ -27,6 +31,8 @@ export interface ViewElements {
   debug: HTMLElement;
   entry: HTMLElement;
   enter: HTMLButtonElement;
+  /** The overlay the places marked on a map or terrain are drawn on (optional: absent, no markers are drawn). */
+  markers?: HTMLCanvasElement;
 }
 
 /** A body visual with the seconds it stays formed (Infinity: until the presentation ends). */
@@ -63,8 +69,17 @@ export class PresenceView {
   readonly aion: Aion;
   readonly visual: VisualActionController<BodyRequest>;
   readonly immersive: ImmersiveController;
-  runtime: RuntimeHandle | null = null;
+  private renderer: RuntimeHandle | null = null;
+  /** The particle renderer. A replacement (the canvas after a lost GPU) gets Aion's colours at once. */
+  get runtime() { return this.renderer; }
+  set runtime(handle: RuntimeHandle | null) {
+    this.renderer = handle;
+    if (handle && this.appearance) handle.setPalette(particlePalette(this.appearance.base.hex), true);
+  }
   snapshot: HubSnapshot | null = null;
+  readonly markerLayer: MarkerLayer | null;
+  private appearance: Appearance | null = null;
+  private markersKey = "";
   cardState: CardState = "none";
   private stream: MediaStream | null = null;
   private activity: ActivityState = "idle";
@@ -89,6 +104,11 @@ export class PresenceView {
     this.aion = new Aion({ activity: () => this.presence.activity, presenting: () => this.visual.presenting, signal: () => this.presence.signal });
     this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity });
     this.immersive = new ImmersiveController({ entry: elements.entry, enter: elements.enter }, transport, () => this.userGesture());
+    this.markerLayer = elements.markers ? new MarkerLayer(elements.markers, {
+      target: () => this.visual.phase === "sphere" ? null : this.visual.target,
+      level: () => this.visual.level,
+      project: point => this.runtime?.project(point) ?? null,
+    }) : null;
     // An AnalyserNode fallback may wait for a first interaction (autoplay policy).
     for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => this.listener.resume(), { passive: true });
     elements.fullscreen.addEventListener("click", () => void this.toggleFullscreen());
@@ -161,14 +181,36 @@ export class PresenceView {
       const word = STATE_WORDS[snapshot.activity.state];
       if (word && previous) this.say([word, snapshot.activity.label].filter(Boolean).join(" · "));
     }
+    // Aion's colours: the particles ease to the new base colour; the accent marks emphasis in cards.
+    const appearance = snapshot.appearance;
+    if (appearance && (appearance.base.hex !== this.appearance?.base.hex || appearance.accent.hex !== this.appearance?.accent.hex)) {
+      const first = !this.appearance;
+      this.appearance = appearance;
+      this.runtime?.setPalette(particlePalette(appearance.base.hex), first);
+      this.elements.root.style.setProperty("--accent", accentColor(appearance.accent.hex));
+    }
     const presentation = snapshot.presentation;
+    // Places marked on the map or terrain on show: they change in place, and the map stays up a while longer.
+    const markers: GeoMarker[] = presentation?.kind === "map" ? presentation.markers : presentation?.kind === "terrain" ? presentation.markers ?? [] : [];
+    const markersKey = `${presentation?.id ?? ""}|${markers.map(marker => `${marker.id}:${marker.color}:${marker.lat},${marker.lon}:${marker.label}:${marker.highlight ? 1 : 0}`).join(";")}`;
+    if (markersKey !== this.markersKey) {
+      const samePresentation = (presentation?.id ?? null) === this.presentationId && this.markersKey.startsWith(`${presentation?.id ?? ""}|`);
+      this.markersKey = markersKey;
+      this.markerLayer?.set(markers);
+      if (samePresentation && presentation) {
+        this.visual.holdFor(presentation.hold === 0 ? Infinity : HOLD_SECONDS.map);
+        if (markers.length) this.say(markerWords(markers), 5_000);
+        if (this.cardState === "shown" && presentation.kind === "map") void this.showCard(presentation);
+      }
+    }
     if ((presentation?.id ?? null) !== this.presentationId) {
       this.presentationId = presentation?.id ?? null;
       void this.present(presentation);
       // A looked-up picture or terrain shown only as particles names itself and its public source, quietly, once.
       const caption = presentation?.route !== "body" ? ""
         : presentation.kind === "terrain" ? presentation.label
-          : presentation.kind === "image" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
+          : presentation.kind === "map" ? [presentation.label, markerWords(presentation.markers)].filter(Boolean).join(" · ")
+            : presentation.kind === "image" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
       if (caption) this.say(caption, 6_000);
     }
     this.immersive.update(snapshot.hub.display);
@@ -288,6 +330,11 @@ export class PresenceView {
         const blob = await this.transport.media(request.media.id);
         signal.throwIfAborted();
         return { visual: { kind: "heightfield", field: decodeHeightField(new Uint8Array(await blob.arrayBuffer())), style: request.style }, hold, label: "terrain" };
+      }
+      case "map": {
+        const blob = await this.transport.media(request.media.id);
+        signal.throwIfAborted();
+        return { visual: { kind: "map", map: decodeMap(new Uint8Array(await blob.arrayBuffer())) }, hold, label: "map" };
       }
       case "emoji":
         return { visual: { kind: "raster2d", style: "emoji", raster: rasterizeEmoji(request.emoji) }, hold, label: request.emoji };

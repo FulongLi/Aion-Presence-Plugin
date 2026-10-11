@@ -269,3 +269,285 @@ test("expressive timing: happy hops, thinking narrows before it glances, sleep c
   const progress = (i: number) => (p[i] - from[i]) / (to[i] - from[i]);
   assert.ok(progress(3) > progress(EYE_PARAMS + 3) + 0.02, `the right eye trails a hair behind (${progress(3).toFixed(2)} vs ${progress(EYE_PARAMS + 3).toFixed(2)})`);
 });
+
+// ── 3. Geography: coverage, projection, extents ──────────────────────────────────────────────────────────────
+
+import { resolveRegion, regionFrame, inside } from "../src/host/geo/region";
+import { buildMap } from "../src/host/geo/map";
+import { findPlace, findRegion, REGION_GROUPS, worldRegions } from "../src/host/geo/world";
+import { decodeMap, encodeMap, frameBounds, mapWorldPoint, MAP_LIMITS, MAP_SCALE } from "../src/visual/geo/map";
+import { frameWindow, primaryExtent } from "../src/visual/geo/extent";
+import { geoToNormal, project, unproject, type GeoProjection } from "../src/visual/geo/projection";
+import { markerWorldPoint } from "../src/visual/geo/markers";
+import { createTargetPoints, terrainWorldPoint } from "../src/visual/points";
+import { buildHeightField, decodeHeightField, encodeHeightField } from "../src/visual/heightfield";
+
+/** Nothing in these tests may reach the network: the offline world must answer. */
+const offline = (async () => { throw new Error("network used"); }) as unknown as typeof fetch;
+const signal = () => new AbortController().signal;
+const region = (name: string) => resolveRegion(name, signal(), offline);
+
+test("projections: equal-area azimuthal and Equal Earth invert exactly; the date line and the poles are not seams", () => {
+  const laea: GeoProjection = { kind: "laea", lon0: 178, lat0: -17 }, world: GeoProjection = { kind: "equal-earth", lon0: 0 };
+  for (const p of [laea, { kind: "laea", lon0: 0, lat0: 90 } as GeoProjection, { kind: "laea", lon0: -98, lat0: 39 } as GeoProjection, world]) {
+    for (let k = 0; k < 200; k++) {
+      const lon = ((k * 137.5) % 360) - 180, lat = ((k * 61.3) % 170) - 85;
+      const xy = project(lon, lat, p);
+      if (!xy) continue;
+      const back = unproject(xy[0], xy[1], p)!;
+      const dlon = Math.abs(((back[0] - lon + 540) % 360) - 180);
+      assert.ok(dlon * Math.cos(lat * Math.PI / 180) < 1e-6 && Math.abs(back[1] - lat) < 1e-6, `${p.kind} round trip at ${lon},${lat}`);
+    }
+  }
+  // Fiji: 179.9° E and 179.9° W are neighbours, not opposite sides of the map.
+  const a = project(179.9, -17, laea)!, b = project(-179.9, -17, laea)!;
+  assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) < 0.01, "across the date line");
+  // The pole is an ordinary point of a polar map.
+  assert.ok(Math.hypot(...project(0, 90, { kind: "laea", lon0: 0, lat0: 90 })!) < 1e-9);
+});
+
+test("coverage: every country, named part and group of Aion's offline world resolves, frames and maps within bounds", async () => {
+  const names = [...worldRegions().map(r => r.name), ...REGION_GROUPS.map(group => group.label)];
+  assert.ok(names.length > 290, `${names.length} names`);
+  for (const name of names) {
+    const found = await region(name);
+    const frame = regionFrame(found);
+    assert.ok([frame.x0, frame.y0, frame.x1, frame.y1].every(Number.isFinite) && frame.x1 > frame.x0 && frame.y1 > frame.y0, `${name}: a frame`);
+    const map = decodeMap(encodeMap(buildMap(found, frame)));
+    const vertices = [...map.focus, ...map.borders, ...map.context, ...map.fill, ...map.contextFill].reduce((n, line) => n + line.length / 2, 0);
+    assert.ok(vertices > 0 && vertices <= MAP_LIMITS.vertices, `${name}: ${vertices} vertices`);
+    assert.ok(map.focus.length + map.borders.length > 0 || map.fill.length > 0, `${name}: its own outline is drawn`);
+  }
+});
+
+test("names: English, Chinese, common aliases and codes; continents and well-known groups", async () => {
+  for (const [name, id] of [["United States", "USA"], ["USA", "USA"], ["美国", "USA"], ["中国", "CHN"], ["China", "CHN"], ["Japan", "JPN"], ["日本", "JPN"],
+    ["Scotland", "GBR.SCT"], ["苏格兰", "GBR.SCT"], ["UK", "GBR"], ["Britain", "GBR"], ["Côte d'Ivoire", "CIV"], ["Ivory Coast", "CIV"], ["Svalbard", "NOR.NSV"]] as const) {
+    assert.equal(findRegion(name)?.id, id, name);
+  }
+  for (const [name, label] of [["Africa", "Africa"], ["非洲", "Africa"], ["Europe", "Europe"], ["South America", "South America"], ["Antarctica", "Antarctica"],
+    ["world", "The world"], ["世界", "The world"], ["Middle East", "The Middle East"], ["Scandinavia", "Scandinavia"]] as const) {
+    assert.equal((await region(name)).label, label, name);
+  }
+  await assert.rejects(region("Narnia"), /network used|region-not-found|geocoder-unavailable/, "anything else goes to the geocoder");
+});
+
+test("extents: the main part plus what is near it — no unintended cropping, no far territories", async () => {
+  const lonRange = async (name: string) => { const w = frameWindow(regionFrame(await region(name))); return w; };
+  const usaFrame = regionFrame(await region("United States"));
+  assert.ok(inside(usaFrame, [-98, 39]) && inside(usaFrame, [-122.4, 37.8]) && inside(usaFrame, [-80.2, 25.8]) && inside(usaFrame, [-69, 45]), "the contiguous states, coast to coast");
+  assert.ok(!inside(usaFrame, [-149.9, 61.2]) && !inside(usaFrame, [-157.86, 21.31]) && !inside(usaFrame, [144.8, 13.4]), "not Anchorage, Honolulu or Guam");
+  const contains = async (name: string, lon: number, lat: number) => {
+    const found = await region(name);
+    // Point in polygon (even-odd) on the outer rings: the place is part of what is framed.
+    return found.focus.some(([ring]) => {
+      let within = false;
+      for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const [xi, yi] = ring[i], [xj, yj] = ring[j];
+        if ((yi > lat) !== (yj > lat) && lon < (xj - xi) * (lat - yi) / (yj - yi) + xi) within = !within;
+      }
+      return within;
+    });
+  };
+  assert.ok(await contains("France", 9.1, 42.2), "France keeps Corsica");
+  assert.ok(!(await contains("France", 55.5, -21.1)), "but not Réunion");
+  assert.ok(await contains("Japan", 142.5, 43.5) && await contains("Japan", 130.7, 32.5), "Japan: Hokkaido and Kyushu");
+  assert.ok(await contains("Indonesia", 110.4, -7.5) && await contains("Indonesia", 101, 0) && await contains("Indonesia", 138, -4), "Indonesia chains Java, Sumatra and Papua");
+  assert.ok(await contains("Russia", -175, 66), "Russia keeps Chukotka across the date line");
+  const fiji = await lonRange("Fiji");
+  assert.ok(fiji.east - fiji.west < 12, `Fiji is not stretched across the world (${(fiji.east - fiji.west).toFixed(1)}°)`);
+  const africa = await lonRange("Africa");
+  assert.ok(africa.west < -17 && africa.east > 51 && africa.south < -34 && africa.north > 37, "Africa whole, never cropped to 70°");
+  const russia = await lonRange("Russia");
+  assert.ok(russia.east - russia.west > 150, "Russia whole");
+  // High latitude: an equal-area frame keeps Svalbard's true proportions (Web Mercator would make it 3–4× taller).
+  const sv = regionFrame(await region("Svalbard"));
+  const aspect = (sv.x1 - sv.x0) / (sv.y1 - sv.y0);
+  assert.ok(aspect > 0.7 && aspect < 1.6, `Svalbard keeps its shape (${aspect.toFixed(2)})`);
+  // A marker outside widens the view; the primary extent brings in the part a marker sits on.
+  assert.ok(!inside(regionFrame(await region("United States")), [-157.86, 21.31]), "Honolulu is outside the contiguous states");
+  assert.ok(inside(regionFrame(await region("United States"), [[-157.86, 21.31]]), [-157.86, 21.31]), "until it is marked");
+  assert.equal(primaryExtent([]).length, 0);
+});
+
+test("markers sit at their real coordinates: on a map through the frame, on terrain onto its cell and relief", async () => {
+  const usa = await region("United States");
+  const la = findPlace("Los Angeles", place => place.country === "USA")!, ny = findPlace("New York", place => place.country === "USA")!;
+  assert.ok(Math.abs(la.lat - 34.05) < 0.15 && Math.abs(la.lon + 118.24) < 0.15, "Los Angeles from the gazetteer");
+  assert.ok(Math.abs(ny.lat - 40.71) < 0.15 && Math.abs(ny.lon + 74.0) < 0.15, "New York from the gazetteer");
+  assert.equal(findPlace("Glasgow", place => place.country === "GBR")?.country, "GBR", "Glasgow on Scotland is Glasgow, Scotland");
+  const frame = regionFrame(usa, [[la.lon, la.lat], [ny.lon, ny.lat]]);
+  const map = buildMap(usa, frame);
+  const target = { kind: "map" as const, map };
+  const pLA = markerWorldPoint(target, la.lon, la.lat)!, pNY = markerWorldPoint(target, ny.lon, ny.lat)!;
+  assert.ok(pLA[0] < pNY[0] - 2 && pLA[1] < pNY[1], "Los Angeles is south-west of New York, far apart");
+  const bounds = frameBounds(frame);
+  for (const p of [pLA, pNY]) assert.ok(Math.abs(p[0]) < bounds.x * MAP_SCALE && Math.abs(p[1]) < bounds.y * MAP_SCALE, "on the stage");
+  assert.deepEqual(pLA, mapWorldPoint(...geoToNormal(la.lon, la.lat, frame)!, 0.06), "the same transform the map sampler uses");
+  // The coastline the sampler drew passes within a few hundredths of the coastal city.
+  const points = createTargetPoints(target, 20_000);
+  let nearest = Infinity;
+  for (let i = 0; i < 20_000; i++) nearest = Math.min(nearest, Math.hypot(points.positions[i * 3] - pLA[0], points.positions[i * 3 + 1] - pLA[1]));
+  assert.ok(nearest < 0.05, `particles of the map at Los Angeles (${nearest.toFixed(3)})`);
+  // Terrain: a synthetic georeferenced grid, a peak at a known place; the marker stands on that peak.
+  const scotland = await region("Scotland");
+  const sframe = regionFrame(scotland);
+  const W = 60, H = 80, values = new Float32Array(W * H);
+  const peak = { lon: -5.0, lat: 56.8 };
+  const pxy = project(peak.lon, peak.lat, sframe.projection)!;
+  const pu = (pxy[0] - sframe.x0) / (sframe.x1 - sframe.x0), pv = (sframe.y1 - pxy[1]) / (sframe.y1 - sframe.y0);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) values[y * W + x] = 50 + 1300 * Math.exp(-(((x + 0.5) / W - pu) ** 2 + ((y + 0.5) / H - pv) ** 2) / 0.004);
+  const field = decodeHeightField(encodeHeightField(buildHeightField({ provider: "t", kind: "elevation", width: W, height: H, values, aspect: (sframe.x1 - sframe.x0) / (sframe.y1 - sframe.y0), label: "S", geo: sframe })));
+  assert.ok(field.geo, "the frame survives the crop and the codec");
+  const top = markerWorldPoint({ kind: "heightfield", field, style: "terrain" }, peak.lon, peak.lat)!;
+  const low = markerWorldPoint({ kind: "heightfield", field, style: "terrain" }, -2.2, 57.6)!;
+  assert.ok(top[2] > low[2], "the marker on the peak stands higher than one on low ground");
+  assert.deepEqual(markerWorldPoint({ kind: "heightfield", field, style: "terrain" }, 120, 30), null, "outside the terrain: no marker");
+  assert.ok(Number.isFinite(terrainWorldPoint(field, 0.5, 0.5)[0]));
+});
+
+// ── 4. Map mode tools and markers ────────────────────────────────────────────────────────────────────────────
+
+import { PresenceStore } from "../src/core/store";
+import { PresenceHub, loadAppearance } from "../src/host/hub/hub";
+import { tempHome, PAGE } from "./helpers";
+import { accentColor, AION_CORAL, AION_SILVER, contrastOnBlack, hexToRgb, parseColor, particlePalette, SILVER_PALETTE } from "../src/core/colors";
+import type { GeoMarker } from "../src/core/presentation";
+
+type MapPresentation = Extract<HubSnapshot["presentation"], { kind: "map" }>;
+const geoResolver = () => new VisualResolver({ env: {}, request: offline, imageProviders: [], terrainProviders: [] });
+type Output = { presentation: { id: string; description: string } | null; markers?: { label: string; lat: number; lon: number; color: string }[]; colors?: { base: { hex: string; name: string }; accent: { hex: string } } };
+
+test("Test C: the United States, then Los Angeles in red, New York in yellow — one map, markers changed in place", async () => {
+  const aion = await connectAion({ resolver: geoResolver() });
+  try {
+    const shown = output<Output>(await aion.call("show_map", { region: "United States" }));
+    assert.match(shown.presentation!.description, /^map: United States of America$/);
+    const first = (await state(aion)).presentation as MapPresentation;
+    assert.equal(first.route, "body");
+    const la = output<Output>(await aion.call("mark_map", { add: [{ place: "Los Angeles", color: "red" }] }));
+    assert.equal(la.markers?.[0].label, "Los Angeles");
+    assert.equal(la.markers?.[0].color, parseColor("red")!.hex);
+    assert.ok(Math.abs(la.markers![0].lat - 34.05) < 0.15 && Math.abs(la.markers![0].lon + 118.24) < 0.15);
+    const ny = output<Output>(await aion.call("mark_map", { add: [{ place: "New York", color: "yellow" }] }));
+    assert.deepEqual(ny.markers?.map(m => m.label), ["Los Angeles", "New York"], "multiple markers on the same map");
+    let now = (await state(aion)).presentation as MapPresentation;
+    assert.equal(now.id, first.id, "the map was not formed again");
+    assert.equal(now.media.id, first.media.id);
+    output(await aion.call("mark_map", { change: [{ place: "Los Angeles", color: "blue" }] }));
+    output(await aion.call("mark_map", { remove: ["New York"] }));
+    now = (await state(aion)).presentation as MapPresentation;
+    assert.deepEqual(now.markers.map(m => [m.label, m.color]), [["Los Angeles", parseColor("blue")!.hex]]);
+    assert.equal(now.id, first.id);
+    // Default colour: the accent. Highlight. A place outside the view widens the map (a new one).
+    output(await aion.call("mark_map", { add: [{ place: "Honolulu", highlight: true }] }));
+    now = (await state(aion)).presentation as MapPresentation;
+    assert.notEqual(now.id, first.id, "Honolulu needs a wider map");
+    assert.equal(now.markers.find(m => m.label === "Honolulu")?.color, accentColor(AION_CORAL.hex));
+    assert.equal(now.markers.find(m => m.label === "Honolulu")?.highlight, true);
+    // Errors are clear and actionable.
+    assert.match(text(await aion.call("mark_map", { add: [{ place: "Los Angeles", color: "blurple" }] })), /color-unknown: "blurple"/);
+    assert.match(text(await aion.call("mark_map", { remove: ["Atlantis"] })), /No marker called "Atlantis"/);
+    assert.match(text(await aion.call("mark_map", {})), /invalid-arguments/);
+  } finally { await aion.close(); }
+});
+
+test("\"Show me Scotland and mark Glasgow in red\": a map with its marker at once; mark_map brings a map back if it has gone", async () => {
+  const aion = await connectAion({ resolver: geoResolver() });
+  try {
+    const shown = output<Output>(await aion.call("show_map", { region: "Scotland", markers: [{ place: "Glasgow", color: "red" }] }));
+    assert.ok(Math.abs(shown.markers![0].lat - 55.86) < 0.1 && Math.abs(shown.markers![0].lon + 4.25) < 0.1, "Glasgow, Scotland");
+    output(await aion.call("clear_presentation"));
+    assert.equal((await state(aion)).presentation, null);
+    output(await aion.call("mark_map", { add: [{ place: "Edinburgh" }] }));
+    const back = (await state(aion)).presentation as MapPresentation;
+    assert.deepEqual(back.markers.map(m => m.label), ["Glasgow", "Edinburgh"], "the geographic context was kept");
+    const fresh = await connectAion({ resolver: geoResolver() });
+    try { assert.match(text(await fresh.call("mark_map", { add: [{ place: "Paris" }] })), /no-map/); } finally { await fresh.close(); }
+  } finally { await aion.close(); }
+});
+
+test("markers: validated by the hub, replaced in place by the store, which holds the map a while longer", () => {
+  const marker: GeoMarker = { id: "los-angeles", label: "Los Angeles", lat: 34.05, lon: -118.24, color: "#ff3b30" };
+  assert.ok(hubCommandSchema.safeParse({ type: "markers", markers: [marker] }).success);
+  for (const bad of [{ ...marker, lat: 91 }, { ...marker, color: "red" }, { ...marker, id: "Los Angeles!" }, { ...marker, label: "x".repeat(41) }]) {
+    assert.equal(hubCommandSchema.safeParse({ type: "markers", markers: [bad] }).success, false, JSON.stringify(bad));
+  }
+  assert.equal(hubCommandSchema.safeParse({ type: "markers", markers: Array(13).fill(marker) }).success, false, "at most 12");
+  let now = 0;
+  const timers: { at: number; run: () => void }[] = [];
+  const store = new PresenceStore({ now: () => now, schedule: (run, ms) => { const t = { at: now + ms, run }; timers.push(t); return () => { timers.splice(timers.indexOf(t), 1); }; } });
+  assert.equal(store.setMarkers([marker]), false, "nothing on show");
+  const media = { id: "m0123456789abcdef01", mime: "application/vnd.aion.map", bytes: 10 };
+  const shown = store.present({ kind: "map", media, label: "USA", region: "United States", markers: [] });
+  now = 50_000;
+  assert.equal(store.setMarkers([marker]), true);
+  const after = store.snapshot().presentation as MapPresentation;
+  assert.equal(after.id, shown.id);
+  assert.deepEqual(after.markers, [marker]);
+  assert.ok(after.hold > shown.hold, "held longer: the user is working with it");
+  const fire = (until: number) => { now = until; for (const t of [...timers].sort((a, b) => a.at - b.at)) if (t.at <= now && timers.includes(t)) { timers.splice(timers.indexOf(t), 1); t.run(); } };
+  fire(50_000 + 55_000);
+  assert.ok(store.snapshot().presentation, "still on show 55 s after the change");
+  fire(50_000 + 62_000);
+  assert.equal(store.snapshot().presentation, null);
+});
+
+// ── 5. Colours ───────────────────────────────────────────────────────────────────────────────────────────────
+
+test("colours: names in English and Chinese, presets, validated hex; nonsense refused", () => {
+  assert.equal(parseColor("blue")?.hex, "#3b82f6");
+  assert.equal(parseColor("Blue")?.hex, "#3b82f6");
+  assert.equal(parseColor("紫色")?.name, "purple");
+  assert.equal(parseColor("Use #00BFFF".replace("Use ", ""))?.hex, "#00bfff");
+  assert.equal(parseColor("#0bf")?.hex, "#00bbff");
+  assert.equal(parseColor("warm golden")?.name, "warm gold");
+  assert.equal(parseColor("red particles")?.name, "red");
+  assert.equal(parseColor("light purple")?.name, "light purple");
+  assert.equal(parseColor("aion silver")?.hex, AION_SILVER.hex);
+  for (const bad of ["", "blurple", "#12345", "#ggg", "x".repeat(41), 42, null]) assert.equal(parseColor(bad), null, String(bad));
+});
+
+test("colours: Aion Silver is exactly the original palette; others keep the shading and stay visible on black", () => {
+  assert.deepEqual(particlePalette(AION_SILVER.hex), SILVER_PALETTE);
+  for (const words of ["blue", "purple", "red", "warm gold", "navy", "black", "#00BFFF", "green", "white"]) {
+    const palette = particlePalette(parseColor(words)!.hex);
+    for (const rgb of [palette.cool, palette.warm, palette.formed]) {
+      assert.ok(rgb.every(c => c >= 0 && c <= 1));
+      assert.ok(contrastOnBlack(rgb) >= 4.5, `${words} reads on black (${contrastOnBlack(rgb).toFixed(1)})`);
+    }
+    assert.ok(Math.max(...palette.formed) > 0.99, `${words}: formed visuals as bright as silver's`);
+  }
+  // The hue survives: blue stays blue, red stays red.
+  const blue = particlePalette(parseColor("blue")!.hex).cool, red = particlePalette(parseColor("red")!.hex).cool;
+  assert.ok(blue[2] > blue[0] + 0.3 && red[0] > red[2] + 0.3);
+  assert.ok(contrastOnBlack(hexToRgb(accentColor("#111111"))) >= 4, "a black marker is lifted so it never vanishes");
+});
+
+test("Test E: blue, then purple, then back to Aion Silver — remembered across a restart of Aion", async () => {
+  const home = tempHome();
+  const aion = await connectAion({ home, resolver: geoResolver() });
+  try {
+    let shown = output<Output>(await aion.call("set_colors", { base: "blue" }));
+    assert.equal(shown.colors?.base.name, "blue");
+    shown = output<Output>(await aion.call("set_colors", { base: "紫色" }));
+    assert.equal(shown.colors?.base.name, "purple");
+    assert.equal((await state(aion)).appearance.base.hex, parseColor("purple")!.hex);
+    assert.match(text(await aion.call("set_colors", { base: "blurple" })), /color-unknown/);
+    assert.match(text(await aion.call("set_colors", {})), /invalid-arguments/);
+    output(await aion.call("set_colors", { accent: "#00BFFF" }));
+  } finally { await aion.close(); }
+  // A new session (a new hub on the same data directory) remembers.
+  assert.deepEqual(loadAppearance(home).base.name, "purple");
+  const hub = new PresenceHub({ home, port: 0, page: () => PAGE });
+  assert.equal(hub.snapshot().appearance.base.name, "purple");
+  assert.equal(hub.snapshot().appearance.accent.hex, "#00bfff");
+  hub.apply({ type: "appearance", reset: "base" });
+  assert.equal(hub.snapshot().appearance.base.hex, AION_SILVER.hex, "restored");
+  assert.equal(hub.snapshot().appearance.accent.hex, "#00bfff", "the accent is its own choice");
+  assert.equal(loadAppearance(home).base.hex, AION_SILVER.hex);
+  await hub.stop();
+  // A damaged file never breaks Aion: the defaults.
+  assert.deepEqual(loadAppearance(tempHome()), { base: AION_SILVER, accent: AION_CORAL });
+  assert.equal(hubCommandSchema.safeParse({ type: "appearance", base: { hex: "blue", name: "blue" } }).success, false, "the hub takes only validated colours");
+});

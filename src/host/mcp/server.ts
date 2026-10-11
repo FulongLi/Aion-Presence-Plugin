@@ -7,10 +7,17 @@ import {
   cleanCode, cleanText, describePresentation, LIMITS, type Presentation, type PresentationContent,
 } from "../../core/presentation";
 import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
+import type { TerrainStyle } from "../../visual/types";
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
 import { portraitStyleFor } from "../../visual/types";
+import { accentColor, contrastOnBlack, COLOR_PRESETS, hexToRgb, parseColor, type NamedColor } from "../../core/colors";
+import { markerWords, MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
+import { decodeMap } from "../../visual/geo/map";
+import { decodeHeightField } from "../../visual/heightfield";
+import type { Frame } from "../../visual/geo/projection";
+import { inside, regionFrame, type GeoRegion } from "../geo/region";
 import { visualForms, type VisualFormRegistry } from "../../visual/forms";
 import { clockText } from "../../visual/validate";
 import { SCENE_PRESETS, SCENE_PRESET_NAMES, type ScenePreset } from "../../visual/scene3d/presets";
@@ -23,7 +30,8 @@ import { imageSize } from "../resolver/imageInfo";
 import { VisualResolver } from "../resolver";
 import {
   expressInput, mediaInput, setSceneViewInput, showSceneInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
-  showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput,
+  showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput, showMapInput, markMapInput, setColorsInput,
+  type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
@@ -52,7 +60,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "clock", "number", "symbol", "emoji", "scene", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "artifact"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -78,6 +86,10 @@ export const presenceOutput = z.object({
     line: z.string().optional().describe("The canonical introduction in English. Word it naturally; keep the names and facts."),
     line_zh: z.string().optional().describe("The same introduction in Chinese, for a user writing in Chinese."),
   }).optional(),
+  markers: z.array(z.object({ label: z.string(), lat: z.number(), lon: z.number(), color: z.string() })).optional()
+    .describe("The places marked on the map or terrain on show, with their real coordinates (say them if useful)."),
+  colors: z.object({ base: z.object({ hex: z.string(), name: z.string() }), accent: z.object({ hex: z.string(), name: z.string() }) }).optional()
+    .describe("Aion's colours now: the particles' base colour and the accent of markers and highlights. Remembered across sessions."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -129,6 +141,20 @@ export const TOOL_DESCRIPTIONS = {
   show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
     + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
     + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
+  show_map: "Show a geographic map with Aion's particle body — the outline of a continent, country, part of one, state or city, its "
+    + "borders, and its neighbours faintly around it — and mark places on it with coloured markers and labels at their real coordinates. "
+    + "Use when the user asks where something is, or to see a country, region or continent as a map (\"Show me where Los Angeles is in "
+    + "the USA\" → region United States, markers [Los Angeles]; \"Show me Scotland and mark Glasgow in red\"; \"Show me the United States\"; "
+    + "\"Show me Africa\"). For mountains, relief and topography use show_terrain instead (it takes markers too). A map is not a picture: never "
+    + "use show_image for one.",
+  mark_map: "Change the places marked on the map or terrain on show, without forming it again: add places (\"Mark Los Angeles in red\", "
+    + "\"Add New York in yellow\", \"Add it to the map\"), change one (\"Change the Los Angeles marker to blue\"), remove one (\"Remove the "
+    + "New York marker\") or clear them. Places are found by name near the region on show (Glasgow on Scotland is Glasgow, Scotland). If the "
+    + "map has already gone, it comes back with the change. A place outside the view widens it.",
+  set_colors: "Change Aion's colours, remembered across sessions: base is the colour of every particle (the sphere, the eyes, the figure, "
+    + "every particle visual and 3D object); accent is the colour of markers and highlights. Names in any language (\"blue\", \"warm gold\", "
+    + `"紫色"), presets (${COLOR_PRESETS.join(", ")}) or #RRGGBB. "Restore your original colour" → reset base (Aion Silver). Photographs and `
+    + "cards are never tinted. Use only when the user asks for a colour.",
   show_form: () => "Form a symbol or figure from Aion's own visual language directly with its particle body. It is drawn procedurally on the "
     + "device, with no image search: Taoist symbols (the yin-yang/taiji, the yin and yang lines, the eight trigrams 乾 兑 离 震 巽 坎 艮 坤 "
     + "and the bagua), constellations as star maps, the twelve zodiac signs and the planetary symbols. Always prefer it to show_image for "
@@ -188,6 +214,9 @@ function resolveFailure(code: string, what: string): string {
     case "image-not-found": return `image-not-found: no suitable open image of "${what}" was found. Describe it in words, or try a more specific query.`;
     case "region-not-found": return `region-not-found: no place called "${what}" was found. Check the name, or describe the terrain in words.`;
     case "terrain-unavailable": return `terrain-unavailable: elevation data for ${what} could not be loaded right now. Describe the terrain in words.`;
+    case "region-unavailable": return `region-unavailable: the place finder (OpenStreetMap) could not be reached for "${what}". Countries, continents and their named parts work offline; try one of those, or answer in words.`;
+    case "place-not-found": return `place-not-found: no place called "${what}" was found to mark. Check the name, or add the country (e.g. "Springfield, Illinois").`;
+    case "place-unavailable": return `place-unavailable: the place finder could not be reached to find "${what}". Major cities work offline; otherwise answer in words.`;
     default: return `${code}: the public image sources could not be reached right now. Answer in words; Aion stays as it is.`;
   }
 }
@@ -443,6 +472,75 @@ export function createAionServer(options: AionServerOptions): McpServer {
     } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }
   });
 
+  // ── Geography: maps, terrain and the places marked on them ─────────────────────────────────────────────────
+
+  /** The last geographic presentation this server showed: "Add New York" brings it back if it has gone. */
+  let lastGeo: { kind: "map" | "terrain"; region: string; style: TerrainStyle; markers: GeoMarker[] } | null = null;
+  type MarkerArg = z.infer<typeof markerInput>;
+  const appearance = async () => (await link.run(backend => backend.state())).appearance;
+  const colorFailure = (words: string) => failure(`color-unknown: "${words}" is not a colour Aion knows. Use a name (red, orange, yellow, gold, `
+    + `green, teal, cyan, blue, sky blue, navy, purple, violet, pink, rose, white, grey — or in Chinese, e.g. 红色, 紫色), a preset (${COLOR_PRESETS.join(", ")}) or #RRGGBB.`);
+  const slug = (text: string) => text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || `p${Math.random().toString(36).slice(2, 8)}`;
+  const sameMarker = (marker: GeoMarker, name: string) => {
+    const key = name.trim().toLowerCase();
+    return marker.label.toLowerCase() === key || marker.id === slug(name);
+  };
+  /** Finds each place near the region and gives it its colour (the accent unless asked). Throws a failure result. */
+  const placeMarkers = async (list: readonly MarkerArg[], near: { region?: GeoRegion; frame?: Frame }): Promise<GeoMarker[] | CallToolResult> => {
+    const accent = (await appearance()).accent.hex;
+    const out: GeoMarker[] = [];
+    for (const item of list) {
+      let color = accentColor(accent);
+      if (item.color) { const parsed = parseColor(item.color); if (!parsed) return colorFailure(item.color); color = accentColor(parsed.hex); }
+      try {
+        const found = await resolver.place(item.place, near);
+        const label = (item.label ?? item.place).slice(0, MARKER_LIMITS.label);
+        out.push({ id: slug(label), label, lat: Math.round(found.lat * 1e5) / 1e5, lon: Math.round(found.lon * 1e5) / 1e5, color, ...(item.highlight ? { highlight: true } : {}) });
+      } catch (error) { return failure(resolveFailure(errorCode(error), item.place)); }
+    }
+    return out;
+  };
+  const coordinate = (marker: GeoMarker) => `${Math.abs(marker.lat).toFixed(2)}° ${marker.lat >= 0 ? "N" : "S"}, ${Math.abs(marker.lon).toFixed(2)}° ${marker.lon >= 0 ? "E" : "W"}`;
+  const markerOutput = (markers: readonly GeoMarker[]) => markers.map(({ label, lat, lon, color }) => ({ label, lat, lon, color }));
+  const markerShown = (markers: readonly GeoMarker[]) => markers.map(marker => `${marker.label} (${coordinate(marker)})`).join("; ");
+  const merge = (existing: GeoMarker[], added: GeoMarker[]) => {
+    const out = [...existing];
+    for (const marker of added) {
+      const at = out.findIndex(other => other.id === marker.id);
+      if (at >= 0) out[at] = marker; else out.push(marker);
+    }
+    return out.slice(-MARKER_LIMITS.markers);
+  };
+
+  const presentMap = async (ctx: ServerContext, region: string, markers: GeoMarker[], hold?: number, preference?: PresentationPreference) => {
+    const found = await resolver.map(region, markers.map(marker => [marker.lon, marker.lat]));
+    // A place that is a point (a city, a mountain) marks itself when nothing else is marked.
+    if (!markers.length && found.region.point) {
+      const [lon, lat] = found.region.point;
+      markers = [{ id: slug(found.region.label), label: found.region.label.slice(0, MARKER_LIMITS.label), lat, lon, color: accentColor((await appearance()).accent.hex), highlight: true }];
+    }
+    const ref = await hand(found.bytes, found.mime);
+    lastGeo = { kind: "map", region, style: "terrain", markers };
+    const name = label(found.region.label) ?? region;
+    return present(ctx, { kind: "map", media: ref, label: name, region, markers, credit: found.source.provider }, hold,
+      { shown: `${name}${markers.length ? ` — ${markerShown(markers)}` : ""}`, source: found.source, markers: markerOutput(markers) }, { presentation: preference });
+  };
+
+  const presentTerrain = async (ctx: ServerContext, region: string, style: TerrainStyle, markers: GeoMarker[], hold?: number, preference?: PresentationPreference) => {
+    const found = await resolver.terrain(region, style, undefined, markers.map(marker => [marker.lon, marker.lat]));
+    const ref = await hand(found.bytes, found.mime);
+    const { elevation } = found.field;
+    const by = credit(found.source);
+    lastGeo = { kind: "terrain", region, style, markers };
+    return present(ctx, {
+      kind: "terrain", media: ref, style, label: label(found.label) ?? region, region,
+      ...(markers.length ? { markers } : {}), ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
+    }, hold, {
+      shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}${markers.length ? ` — ${markerShown(markers)}` : ""}`,
+      source: found.source, ...(markers.length ? { markers: markerOutput(markers) } : {}),
+    }, { presentation: preference });
+  };
+
   server.registerTool("show_terrain", {
     title: "Show terrain",
     description: TOOL_DESCRIPTIONS.show_terrain,
@@ -451,16 +549,114 @@ export function createAionServer(options: AionServerOptions): McpServer {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
     try {
-      const found = await resolver.terrain(args.region, args.style ?? "terrain");
-      const ref = await hand(found.bytes, found.mime);
-      const { elevation } = found.field;
-      const by = credit(found.source);
-      return present(ctx, {
-        kind: "terrain", media: ref, style: args.style ?? "terrain", label: label(found.label) ?? args.region,
-        ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
-      }, args.hold_seconds, { shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}`, source: found.source },
-      { presentation: args.presentation });
+      let markers: GeoMarker[] = [];
+      if (args.markers?.length) {
+        const region = await resolver.region(args.region);
+        const placed = await placeMarkers(args.markers, { region, frame: regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = placed;
+      }
+      return await presentTerrain(ctx, args.region, args.style ?? "terrain", markers, args.hold_seconds, args.presentation);
     } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+  });
+
+  server.registerTool("show_map", {
+    title: "Show a map",
+    description: TOOL_DESCRIPTIONS.show_map,
+    inputSchema: showMapInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, async (args, ctx) => {
+    try {
+      let markers: GeoMarker[] = [];
+      if (args.markers?.length) {
+        const region = await resolver.region(args.region);
+        const placed = await placeMarkers(args.markers, { region, frame: regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = placed;
+      }
+      return await presentMap(ctx, args.region, markers, args.hold_seconds, args.presentation);
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+  });
+
+  /** The map or terrain on show, with its frame (read back from its own media, whichever process showed it). */
+  const currentGeo = async () => {
+    const snapshot = await link.run(backend => backend.state());
+    const presentation = snapshot.presentation;
+    if (presentation?.kind !== "map" && presentation?.kind !== "terrain") return null;
+    const item = await link.run(backend => backend.media(presentation.media.id));
+    if (!item) return null;
+    try {
+      const bytes = new Uint8Array(item.data);
+      const frame = presentation.kind === "map" ? decodeMap(bytes).frame : decodeHeightField(bytes).geo;
+      const region = presentation.kind === "map" ? presentation.region : presentation.region ?? presentation.label;
+      return { presentation, frame, region, markers: presentation.markers ?? [], style: presentation.kind === "terrain" ? presentation.style : "terrain" as TerrainStyle };
+    } catch { return null; }
+  };
+
+  server.registerTool("mark_map", {
+    title: "Mark places on the map",
+    description: TOOL_DESCRIPTIONS.mark_map,
+    inputSchema: markMapInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (args, ctx) => {
+    if (!args.add && !args.change && !args.remove && !args.clear) return failure("invalid-arguments: give add, change, remove or clear.");
+    const current = await currentGeo();
+    const base = current ?? (lastGeo ? { presentation: null, frame: undefined, region: lastGeo.region, markers: lastGeo.markers, style: lastGeo.style } : null);
+    if (!base) return failure("no-map: no map or terrain is on show. Use show_map (or show_terrain) with the region, and markers.");
+    const kind = current?.presentation.kind ?? lastGeo!.kind;
+    try {
+      const region = await resolver.region(base.region);
+      let markers = args.clear ? [] : [...base.markers];
+      const missing: string[] = [];
+      for (const name of args.remove ?? []) {
+        const before = markers.length;
+        markers = markers.filter(marker => !sameMarker(marker, name));
+        if (markers.length === before) missing.push(name);
+      }
+      for (const change of args.change ?? []) {
+        const at = markers.findIndex(marker => sameMarker(marker, change.place));
+        if (at < 0) { missing.push(change.place); continue; }
+        let color = markers[at].color;
+        if (change.color) { const parsed = parseColor(change.color); if (!parsed) return colorFailure(change.color); color = accentColor(parsed.hex); }
+        markers[at] = { ...markers[at], color, ...(change.label ? { label: change.label } : {}), ...(change.highlight !== undefined ? { highlight: change.highlight } : {}) };
+      }
+      if (args.add?.length) {
+        const placed = await placeMarkers(args.add, { region, frame: base.frame ?? regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = merge(markers, placed);
+      }
+      const note = missing.length ? ` No marker called ${missing.map(name => `"${name}"`).join(", ")} was on the map.` : "";
+      // Everything fits the view on show: only the markers change. Otherwise the map comes (back) with them in view.
+      if (current?.frame && markers.every(marker => inside(current.frame!, [marker.lon, marker.lat]))) {
+        lastGeo = { kind, region: base.region, style: base.style, markers };
+        return run(ctx, backend => backend.apply({ type: "markers", markers }),
+          () => `Markers: ${markers.length ? markerShown(markers) : "none"}.${note} Answer in your own voice; do not narrate this tool call.`,
+          { markers: markerOutput(markers), ...(markers.length ? { shown: markerWords(markers) } : {}) });
+      }
+      const shown = kind === "map" ? await presentMap(ctx, base.region, markers) : await presentTerrain(ctx, base.region, base.style, markers);
+      if (note && !shown.isError) (shown.content[0] as { text: string }).text += note;
+      return shown;
+    } catch (error) { return failure(resolveFailure(errorCode(error), base.region)); }
+  });
+
+  server.registerTool("set_colors", {
+    title: "Set Aion's colours",
+    description: TOOL_DESCRIPTIONS.set_colors,
+    inputSchema: setColorsInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args, ctx) => {
+    if (!args.base && !args.accent && !args.reset) return failure("invalid-arguments: give base, accent or reset.");
+    let base: NamedColor | undefined, accent: NamedColor | undefined;
+    if (args.base) { base = parseColor(args.base) ?? undefined; if (!base) return colorFailure(args.base); }
+    if (args.accent) { accent = parseColor(args.accent) ?? undefined; if (!accent) return colorFailure(args.accent); }
+    const lifted = [base, accent].filter((c): c is NamedColor => !!c && contrastOnBlack(hexToRgb(c.hex)) < 4.5).map(c => c.name);
+    const snapshot = await link.run(backend => backend.apply({ type: "appearance", ...(base ? { base } : {}), ...(accent ? { accent } : {}), ...(args.reset ? { reset: args.reset } : {}) }));
+    const message = `Colours: particles ${snapshot.appearance.base.name}, accent ${snapshot.appearance.accent.name} (remembered).`
+      + `${lifted.length ? ` ${lifted.join(" and ")} is brightened a little so it stays visible on black.` : ""} Say it in the first person if at all.`;
+    return result({ ...summarize(snapshot, modeFor(ctx), message), colors: { base: snapshot.appearance.base, accent: snapshot.appearance.accent } });
   });
 
   server.registerTool("show_form", {

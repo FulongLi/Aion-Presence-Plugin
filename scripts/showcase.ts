@@ -7,6 +7,7 @@ import type { HubCommand } from "../src/host/hub/protocol";
 import { VisualResolver } from "../src/host/resolver";
 import { SCENE_PRESETS } from "../src/visual/scene3d/presets";
 import { speechWav } from "./lib/fakeSpeech";
+import { connectAion } from "../tests/helpers";
 import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
 
 /**
@@ -46,6 +47,8 @@ export interface DemoContext {
    * timing.json (milliseconds per frame), which scripts/media/gif.py turns into an animated GIF at the real pace.
    */
   film(clip: string, seconds: number, area?: { x: number; y: number; width: number; height: number }): Promise<void>;
+  /** Calls an Aion MCP tool by name, exactly as Codex does (the real server, the real resolver, this hub). Returns its text. */
+  tool(name: string, args?: Record<string, unknown>): Promise<string>;
   log(text: string): void;
 }
 
@@ -296,6 +299,94 @@ const DEMOS: Demo[] = [
   },
 ];
 
+DEMOS.push(
+  {
+    name: "portrait-default", title: "v0.4.1 Test A: \"Show me Nikola Tesla\" — a heritage portrait by default; then the classic one on request", seconds: 30,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_portrait", { person: "Nikola Tesla" });
+      await ctx.wait(5.5); await ctx.shot("heritage-default");
+      await ctx.tool("show_portrait", { person: "Nikola Tesla", style: "classic" });
+      await ctx.wait(7.5); await ctx.shot("classic-on-request");
+      await ctx.tool("show_portrait", { person: "Albert Einstein" });
+      await ctx.wait(5.5); await ctx.shot("einstein");
+      await ctx.tool("show_portrait", { person: "Isaac Newton" });
+      await ctx.wait(5.5); await ctx.shot("newton");
+    },
+  },
+  {
+    name: "map-usa", title: "v0.4.1 Test C: the United States; mark Los Angeles in red; add New York in yellow; recolour; remove", seconds: 40,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_map", { region: "United States" });
+      await ctx.wait(4); await ctx.shot("usa");
+      await ctx.tool("mark_map", { add: [{ place: "Los Angeles", color: "red" }] });
+      await ctx.film("los-angeles", 1.6);
+      await ctx.wait(0.5); await ctx.shot("los-angeles-red");
+      await ctx.tool("mark_map", { add: [{ place: "New York", color: "yellow" }] });
+      await ctx.wait(2); await ctx.shot("new-york-yellow");
+      await ctx.tool("mark_map", { add: [{ place: "San Francisco", highlight: true }] });
+      await ctx.wait(2.5); await ctx.shot("san-francisco");
+      await ctx.tool("mark_map", { change: [{ place: "Los Angeles", color: "blue" }] });
+      await ctx.wait(2); await ctx.shot("los-angeles-blue");
+      await ctx.tool("mark_map", { remove: ["New York"] });
+      await ctx.wait(2); await ctx.shot("new-york-removed");
+      const markers = await ctx.view<{ label: string; x: number; y: number }[]>("[...v.markerLayer.positions.values()]");
+      ctx.log(`markers on screen: ${JSON.stringify(markers)}`);
+      await ctx.tool("show_map", { region: "United States", markers: [{ place: "Los Angeles", color: "red" }] }, );
+      await ctx.wait(1.5);
+      await ctx.tool("show_map", { region: "United States", markers: [{ place: "Los Angeles", color: "red" }] , presentation: "hybrid" });
+      await ctx.wait(5); await ctx.shot("hybrid-card");
+    },
+  },
+  {
+    name: "terrain-scotland", title: "v0.4.1 Test D: Scotland's terrain, then mark Glasgow in red", seconds: 22,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_terrain", { region: "Scotland" });
+      await ctx.wait(5); await ctx.shot("scotland");
+      await ctx.tool("mark_map", { add: [{ place: "Glasgow", color: "red" }] });
+      await ctx.wait(2.5); await ctx.shot("glasgow");
+      await ctx.tool("mark_map", { add: [{ place: "Edinburgh", color: "yellow" }, { place: "Ben Nevis", color: "white" }] });
+      await ctx.wait(2.5); await ctx.shot("edinburgh-ben-nevis");
+    },
+  },
+  {
+    name: "geo-coverage", title: "v0.4.1 geography: continents, large and high-latitude countries, the date line, the poles", seconds: 120,
+    async run(ctx) {
+      for (const [tool, region] of [["show_map", "Africa"], ["show_map", "Europe"], ["show_map", "Japan"], ["show_map", "中国"], ["show_map", "Russia"],
+        ["show_map", "Fiji"], ["show_map", "Antarctica"], ["show_map", "World"], ["show_map", "Svalbard"], ["show_map", "California"],
+        ["show_terrain", "Africa"], ["show_terrain", "中国"], ["show_terrain", "Japan"], ["show_terrain", "Iceland"]] as const) {
+        await ctx.tool(tool, { region });
+        await ctx.wait(4.2); await ctx.shot(`${tool === "show_map" ? "map" : "terrain"}-${region.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-|-$/g, "") || "china"}`);
+        await ctx.wait(0.6);
+      }
+    },
+  },
+  {
+    name: "colors", title: "v0.4.1 Test E: blue, purple, back to Aion Silver — on the sphere, the eyes, the figure and a map", seconds: 40,
+    async run(ctx) {
+      await ctx.wait(1.5); await ctx.shot("silver-sphere");
+      await ctx.tool("set_colors", { base: "blue" });
+      await ctx.film("to-blue", 1.4);
+      await ctx.shot("blue-sphere");
+      await ctx.tool("set_body_form", { body: "eyes" });
+      await ctx.wait(3.5); await ctx.shot("blue-eyes");
+      await ctx.tool("set_colors", { base: "紫色" });
+      await ctx.wait(1.6); await ctx.shot("purple-eyes");
+      await ctx.tool("set_body_form", { body: "figure" });
+      await ctx.wait(3.5); await ctx.shot("purple-figure");
+      await ctx.tool("set_colors", { base: "warm gold", accent: "#00BFFF" });
+      await ctx.tool("show_map", { region: "Scotland", markers: [{ place: "Glasgow" }] });
+      await ctx.wait(4.5); await ctx.shot("gold-map-accent");
+      await ctx.tool("clear_presentation");
+      await ctx.tool("set_colors", { reset: "all" });
+      await ctx.film("to-silver", 1.4);
+      await ctx.shot("silver-figure");
+    },
+  },
+);
+
 /** Demos register here as they are built (later phases append to DEMOS). */
 export const demos = DEMOS;
 
@@ -309,6 +400,8 @@ async function runDemo(browser: Browser, demo: Demo) {
   await context.grantPermissions(["microphone"]);
   const page = await context.newPage();
   const started = Date.now();
+  // The real MCP server, connected to this showcase's hub through its runtime directory (as a second Codex session would).
+  const aion = await connectAion({ home, resolver });
   const log = (text: string) => console.log(`    ${((Date.now() - started) / 1000).toFixed(1).padStart(5)} s  ${text}`);
   await page.goto(`${hub.surfaceUrl}&debug=1${demo.speech ? "" : "&mic=0"}${canvas ? "&renderer=canvas" : ""}`);
   await page.addStyleTag({ content: "#debug { display: none !important; }" });
@@ -322,6 +415,12 @@ async function runDemo(browser: Browser, demo: Demo) {
       return { media: hub.addMedia(found.bytes, found.mime), alt: found.label, width: found.width, height: found.height };
     },
     view: expression => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`),
+    tool: async (name, args = {}) => {
+      const result = await aion.call(name, args) as { isError?: boolean; content: { text: string }[] };
+      const text = result.content.map(item => item.text).join(" ");
+      log(`${result.isError ? "✗" : "→"} ${name} ${JSON.stringify(args)}: ${text.slice(0, 150)}`);
+      return text;
+    },
     film: async (clip, seconds, area) => {
       const dir = join(OUT, "frames", `${demo.name}${canvas ? "-canvas" : ""}-${clip}`);
       rmSync(dir, { recursive: true, force: true });
@@ -339,6 +438,7 @@ async function runDemo(browser: Browser, demo: Demo) {
   };
   console.log(`  ${demo.name}: ${demo.title}`);
   try { await demo.run(ctx); } finally {
+    await aion.close();
     const video = page.video();
     await context.close();
     const path = await video?.path();

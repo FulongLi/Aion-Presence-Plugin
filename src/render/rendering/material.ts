@@ -1,7 +1,6 @@
 import type { Node } from "three/webgpu";
-import { Color } from "three";
 import { MeshBasicNodeMaterial } from "three/webgpu";
-import { float, mix, normalize, positionLocal, sin, smoothstep, uniform, uv, vec3 } from "three/tsl";
+import { float, mix, normalize, positionLocal, sin, smoothstep, uv, vec3 } from "three/tsl";
 import type { PhysicsUniforms } from "../physics/uniforms";
 import { bodyWeight, eyesWeight, formedTarget, morphWeight } from "../physics/morph";
 import { figureRest } from "../physics/figure";
@@ -30,9 +29,7 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const answerLight = sin(u.clock.mul(u.responseSpeed).sub(rest.y.mul(1.2))).mul(0.5).add(0.5).mul(u.responding).mul(u.responseGlow);
   const attentionLight = u.attention.mul(u.listeningGlow).add(u.focusPulse.mul(u.focusGlow)).add(u.listeningAudio.mul(u.listeningGlow)).add(answerLight);
   const light = key.mul(u.key).add(fill.mul(u.fill)).add(u.ambient).add(attentionLight);
-  const cool = uniform(new Color("#a8bed1"));
-  const warm = uniform(new Color("#d5c5bb"));
-  const color = mix(cool, warm, u.warmth.mul(0.28));
+  const color = mix(u.baseColor, u.warmColor, u.warmth.mul(0.28));
   const disturbance = offset.length().mul(0.28).clamp(0, 0.22);
   // Stable size variation keeps individual grains legible without frame-to-frame flicker.
   const grainSize = sin(rest.dot(vec3(127.1, 311.7, 74.7))).mul(0.3).add(1);
@@ -57,7 +54,7 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const restColor = eyed ? mix(figureColor, color.mul(eyed.tone).mul(figureLight).add(disturbance.mul(0.5)), e) : figureColor;
   // A 3D object is lit by depth: what is nearer is brighter, so its structure reads as it turns.
   const nearness = mix(float(1), smoothstep(-1.9, 1.9, formed.z).mul(0.62).add(0.5), u.formedDepth);
-  const bodyColor = mix(restColor, vec3(0.78, 0.9, 1).mul(tone).mul(formedLight).mul(nearness), m);
+  const bodyColor = mix(restColor, u.formedColor.mul(tone).mul(formedLight).mul(nearness), m);
   material.colorNode = bodyColor;
   material.opacityNode = float(1).sub(smoothstep(0.24, 0.5, uv().sub(0.5).length()));
   material.alphaTest = 0.12;

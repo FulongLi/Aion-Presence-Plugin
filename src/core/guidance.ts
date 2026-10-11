@@ -28,6 +28,7 @@ export interface OnboardingExample { say: string; ask: string; tool: string; arg
 export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   { say: "a person", ask: "Ask me what Nikola Tesla looked like.", tool: "show_portrait", args: { person: "Nikola Tesla" } },
   { say: "a place", ask: "Ask me to show you the terrain of Scotland.", tool: "show_terrain", args: { region: "Scotland" } },
+  { say: "where a city is", ask: "Ask me where Los Angeles is in the USA.", tool: "show_map", args: { region: "United States", markers: [{ place: "Los Angeles" }] } },
   { say: "Orion", ask: "Ask me to show Orion.", tool: "show_form", args: { form: "Orion" } },
   { say: "a yin-yang", ask: "Ask me to show the yin-yang.", tool: "show_form", args: { form: "yin yang" } },
   { say: "the time", ask: "Ask me what time it is.", tool: "show_clock", args: {} },

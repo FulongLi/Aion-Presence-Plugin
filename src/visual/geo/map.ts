@@ -26,7 +26,7 @@ export interface GeoMap {
 }
 
 /** How far normalized map coordinates reach on the stage (world units), as the image and form samplers do. */
-export const MAP_SCALE = 1.75;
+export const MAP_SCALE = 2.05;
 /** A map point on the stage: flat, the focus a hair in front of its neighbours. */
 export const mapWorldPoint = (nx: number, ny: number, z = 0): [number, number, number] => [nx * MAP_SCALE, ny * MAP_SCALE, z];
 
@@ -108,9 +108,33 @@ export function outlineLines(polygons: readonly GeoPolygon[], frame: Frame, opti
   return lines;
 }
 
-/** Polygon rings in normalized map coordinates, for fills (rings the projection cannot reach are left out). */
+/** Sutherland–Hodgman: the part of a ring ([x0, y0, x1, y1, …]) inside a rectangle; empty when nothing is. */
+export function clipRing(ring: readonly number[], xmin: number, xmax: number, ymin: number, ymax: number): number[] {
+  let points: [number, number][] = [];
+  for (let k = 0; k + 1 < ring.length; k += 2) points.push([ring[k], ring[k + 1]]);
+  const edges: [(p: [number, number]) => boolean, (a: [number, number], b: [number, number]) => [number, number]][] = [
+    [p => p[0] >= xmin, (a, b) => [xmin, a[1] + (b[1] - a[1]) * (xmin - a[0]) / (b[0] - a[0])]],
+    [p => p[0] <= xmax, (a, b) => [xmax, a[1] + (b[1] - a[1]) * (xmax - a[0]) / (b[0] - a[0])]],
+    [p => p[1] >= ymin, (a, b) => [a[0] + (b[0] - a[0]) * (ymin - a[1]) / (b[1] - a[1]), ymin]],
+    [p => p[1] <= ymax, (a, b) => [a[0] + (b[0] - a[0]) * (ymax - a[1]) / (b[1] - a[1]), ymax]],
+  ];
+  for (const [inside, cross] of edges) {
+    if (!points.length) break;
+    const out: [number, number][] = [];
+    for (let i = 0; i < points.length; i++) {
+      const a = points[(i + points.length - 1) % points.length], b = points[i];
+      if (inside(b)) { if (!inside(a)) out.push(cross(a, b)); out.push(b); }
+      else if (inside(a)) out.push(cross(a, b));
+    }
+    points = out;
+  }
+  return points.length >= 3 ? points.flat() : [];
+}
+
+/** Polygon rings in normalized map coordinates, for fills: clipped to the frame (with a margin); rings the projection cannot reach are left out. */
 export function fillRings(polygons: readonly GeoPolygon[], frame: Frame, minStep = 0.003): number[][] {
   const { half, cx, cy } = frameSize(frame);
+  const bounds = frameBounds(frame), margin = 0.05;
   const rings: number[][] = [];
   for (const polygon of polygons) for (const raw of polygon) {
     const ring = densify(raw);
@@ -123,7 +147,9 @@ export function fillRings(polygons: readonly GeoPolygon[], frame: Frame, minStep
       if (n >= 2 && Math.hypot(x - out[n - 2], y - out[n - 1]) < minStep) continue;
       out.push(x, y);
     }
-    if (ok && out.length >= 6) rings.push(out);
+    if (!ok || out.length < 6) continue;
+    const clipped = clipRing(out, -bounds.x - margin, bounds.x + margin, -bounds.y - margin, bounds.y + margin);
+    if (clipped.length >= 6) rings.push(clipped);
   }
   return rings;
 }

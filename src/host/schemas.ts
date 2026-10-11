@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { AION_BODIES } from "../core/body";
 import { AION_IDENTITY } from "../core/identity";
-import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, RESULT_STATUSES } from "../core/presentation";
+import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, MARKER_LIMITS, RESULT_STATUSES } from "../core/presentation";
 import { ACTIVITY_STATES } from "../core/state";
 import { PRESENTATION_PREFERENCES } from "../core/presentationRouter";
 import { EYE_EXPRESSIONS } from "../core/eyes/expression";
@@ -105,10 +105,46 @@ export const showPortraitInput = z.object({
   hold_seconds: hold.optional(),
 }).strict();
 
+/** A place to mark on a map or on terrain. Only its name leaves the machine (to a geocoder), and only if Aion's offline gazetteer does not know it. */
+const colorWords = z.string().min(1).max(40);
+export const markerInput = z.object({
+  place: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `place: a place name of at most ${VISUAL_LIMITS.region} characters`)
+    .describe("The place to mark, by name: a city, town, landmark or address, e.g. \"Los Angeles\", \"Glasgow\", \"Mount Everest\". Aion finds its real coordinates (never estimate them)."),
+  label: line(MARKER_LIMITS.label, "label").optional().describe("Optional label shown beside it (default: the place's name)."),
+  color: colorWords.optional().describe("Optional colour: a name (red, yellow, blue, green, purple, 红色…) or #RRGGBB. Default: Aion's accent colour."),
+  highlight: z.boolean().optional().describe("Make it the one to look at: larger, with a slow pulse (e.g. for \"where is …?\")."),
+}).strict();
+const markerList = z.array(markerInput).min(1).max(MARKER_LIMITS.markers);
+
+export const showMapInput = z.object({
+  region: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `region: a place name of at most ${VISUAL_LIMITS.region} characters`)
+    .describe(`What to show the map of: a continent, country, part of one, state, city or region, e.g. "United States", "Scotland", "Africa", "Japan", "California", "中国", "Europe", "world". At most ${VISUAL_LIMITS.region} characters.`),
+  markers: markerList.optional().describe(`Places to mark on it at once (at most ${MARKER_LIMITS.markers}).`),
+  presentation: presentation.optional().describe("auto (default): the body becomes the map. hybrid or card: also a crisp reference map card with the marked places."),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const markMapInput = z.object({
+  add: markerList.optional().describe("Places to add (or, if already marked, to change)."),
+  change: z.array(z.object({
+    place: z.string().min(1).max(VISUAL_LIMITS.region).describe("Which marker: its label or the place it marks, e.g. \"Los Angeles\"."),
+    color: colorWords.optional(), label: line(MARKER_LIMITS.label, "label").optional(), highlight: z.boolean().optional(),
+  }).strict()).min(1).max(MARKER_LIMITS.markers).optional().describe("Markers to recolour, relabel or highlight."),
+  remove: z.array(z.string().min(1).max(VISUAL_LIMITS.region)).min(1).max(MARKER_LIMITS.markers).optional().describe("Markers to remove, by label or place."),
+  clear: z.boolean().optional().describe("Remove every marker."),
+}).strict();
+
+export const setColorsInput = z.object({
+  base: colorWords.optional().describe("Aion's particle colour (sphere, eyes, figure, every particle visual): a name (blue, purple, warm gold, 紫色…), a preset or #RRGGBB."),
+  accent: colorWords.optional().describe("The accent colour of markers, highlighted places and emphasis."),
+  reset: z.enum(["base", "accent", "all"]).optional().describe("Back to Aion's own colours: base (Aion Silver), accent (Aion Coral) or all."),
+}).strict();
+
 export const showTerrainInput = z.object({
   region: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `region: a place name of at most ${VISUAL_LIMITS.region} characters`)
     .describe(`The place, e.g. "Wales", "United Kingdom", "Swiss Alps", "Grand Canyon". At most ${VISUAL_LIMITS.region} characters.`),
   style: z.enum(TERRAIN_STYLES).optional().describe("Shading: terrain (default), topography (contour bands), relief (strong shading), heightmap (height only)."),
+  markers: markerList.optional().describe(`Places to mark on the relief, e.g. [{ "place": "Glasgow", "color": "red" }] (at most ${MARKER_LIMITS.markers}).`),
   presentation: presentation.optional().describe("auto (default): the body becomes the relief. hybrid or card: also a relief map card with the elevation range, when exact geography matters."),
   hold_seconds: hold.optional(),
 }).strict();

@@ -5,6 +5,8 @@ import { particleDefaults } from "../particleDefaults";
 import { formedPoint } from "../physics/morph";
 import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
+import { PaletteEase } from "../palette";
+import { SILVER_PALETTE } from "../../core/colors";
 
 /**
  * The fallback body for browsers or embedded hosts without WebGPU: the same particles (the same sphere
@@ -45,6 +47,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
   const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count), sizes = new Float32Array(count).fill(1);
+  const palette = new PaletteEase();
   const resize = () => {
     const ratio = Math.min(devicePixelRatio || 1, fallbackDefaults.pixelRatio);
     width = Math.max(1, container.clientWidth); height = Math.max(1, container.clientHeight);
@@ -80,8 +83,10 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
     const warm = presence.warmth * 0.28;
-    const cool = [0xa8, 0xbe, 0xd1], warmColor = [0xd5, 0xc5, 0xbb];
-    const base = cool.map((value, k) => value + (warmColor[k] - value) * warm);
+    const colors = palette.sample(dt);
+    const base = colors.cool.map((value, k) => (value + (colors.warm[k] - value) * warm) * 255);
+    // Formed visuals take the palette's formed tint relative to its body colour (Aion Silver: unchanged from v0.4).
+    const formedTint = colors.formed.map((value, k) => value / Math.max(1e-3, colors.cool[k]) / (SILVER_PALETTE.formed[k] / SILVER_PALETTE.cool[k]));
     for (let i = 0; i < count; i++) {
       const rx = sphere.positions[i * 3], ry = sphere.positions[i * 3 + 1], rz = sphere.positions[i * 3 + 2];
       // The sphere's own field, reduced to its readable parts: travelling breath, gathering, a thinking swirl.
@@ -128,9 +133,10 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     context.globalCompositeOperation = "lighter";
     const size = fallbackDefaults.size;
     // Particles are batched by brightness so each level is one fill.
+    const tint = base.map((value, k) => value * (1 + (formedTint[k] - 1) * morph));
     for (let level = 1; level <= fallbackDefaults.levels; level++) {
       const lo = (level - 1) / fallbackDefaults.levels, hi = level / fallbackDefaults.levels;
-      const [r, g, bl] = base.map(value => Math.round(value * (0.35 + hi * 0.75)));
+      const [r, g, bl] = tint.map(value => Math.min(255, Math.round(value * (0.35 + hi * 0.75))));
       context.fillStyle = `rgba(${r}, ${g}, ${bl}, ${(0.25 + hi * 0.6).toFixed(3)})`;
       context.beginPath();
       for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
@@ -163,5 +169,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const bounds = canvas.getBoundingClientRect();
     return bounds.width > 0 ? [(clientX - bounds.left - centre.x) / centre.zoom, (centre.y - (clientY - bounds.top)) / centre.zoom] : null;
   };
-  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, dispose: cleanup };
+  const project = ([x, y, z]: [number, number, number]): [number, number] | null => {
+    const bounds = canvas.getBoundingClientRect();
+    if (!(bounds.width > 0) || z >= 7.4) return null;
+    const perspective = 7.4 / (7.4 - z);
+    return [bounds.left + centre.x + x * centre.zoom * perspective, bounds.top + centre.y - y * centre.zoom * perspective];
+  };
+  const setPalette = (next: Parameters<RuntimeHandle["setPalette"]>[0], immediate?: boolean) => { palette.set(next); if (immediate) palette.settle(); };
+  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, project, setPalette, dispose: cleanup };
 }

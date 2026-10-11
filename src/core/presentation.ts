@@ -53,10 +53,20 @@ export const LIMITS = {
  */
 export const HOLD_SECONDS = {
   form: 10, scene: 30, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  /** A map is something the user keeps working with ("add New York", "make it blue"); each change holds it again. */
+  map: 60, markedTerrain: 60,
 } as const;
 
-/** Media the host adapter has read and validated (an image, or a height field); surfaces fetch the bytes by id. */
+/** Media the host adapter has read and validated (an image, a height field, a map); surfaces fetch the bytes by id. */
 export interface MediaRef { id: string; mime: string; bytes: number }
+
+/**
+ * A place marked on a map or on terrain (v0.4.1): its geocoded coordinates (never estimated from the picture), the
+ * label shown beside it and its colour (the accent unless one was asked for). `highlight` makes it the one the
+ * user is looking for: larger, with a slow pulse.
+ */
+export interface GeoMarker { id: string; label: string; lat: number; lon: number; color: string; highlight?: boolean }
+export const MARKER_LIMITS = { markers: 12, label: 40 } as const;
 
 export interface FileChange { path: string; change: ChangeKind; additions?: number; deletions?: number }
 
@@ -74,8 +84,16 @@ export type PresentationContent =
    * classic, the head-and-shoulders band. The card shows the original photograph either way.
    */
   | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local"; style?: PortraitStyle }
-  /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
-  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string }
+  /**
+   * Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. `region`: what
+   * was asked for (any host process can resolve it again); `markers`: places marked on it.
+   */
+  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string; region?: string; markers?: GeoMarker[] }
+  /**
+   * A geographic map (media of type application/vnd.aion.map: outlines, borders, land, neighbours, already projected)
+   * with places marked on it. `region`: what was asked for.
+   */
+  | { kind: "map"; media: MediaRef; label: string; region: string; markers: GeoMarker[]; credit?: string }
   | { kind: "clock"; time: string }
   | { kind: "number"; value: string }
   | { kind: "symbol"; symbol: SymbolName }
@@ -138,6 +156,7 @@ function bodySeconds(content: PresentationContent): number {
   switch (content.kind) {
     case "text": return HOLD_SECONDS.text;
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
+    case "terrain": return content.markers?.length ? HOLD_SECONDS.markedTerrain : HOLD_SECONDS.terrain;
     case "result": case "artifact": return HOLD_SECONDS.image;
     default: return HOLD_SECONDS[content.kind];
   }
@@ -180,6 +199,7 @@ export type BodyVisual =
   | { type: "text"; text: string }
   | { type: "image"; media: MediaRef; fit: ImageFit; style?: PortraitStyle }
   | { type: "terrain"; media: MediaRef; style: TerrainStyle }
+  | { type: "map"; media: MediaRef }
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
   | { type: "none" };
@@ -198,6 +218,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
       return { type: "image", media: presentation.media, fit, ...(style ? { style } : {}) };
     }
     case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
+    case "map": return { type: "map", media: presentation.media };
     case "clock": return { type: "text", text: presentation.time };
     case "number": return { type: "text", text: presentation.value };
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
@@ -223,7 +244,8 @@ export function describePresentation(presentation: PresentationContent): string 
       const style = portraitStyleFor(presentation.fit, presentation.style);
       return `${style ? `${style} portrait` : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
     }
-    case "terrain": return `terrain: ${presentation.label}`;
+    case "terrain": return `terrain: ${presentation.label}${presentation.markers?.length ? ` (${markerWords(presentation.markers)})` : ""}`;
+    case "map": return `map: ${presentation.label}${presentation.markers.length ? ` (${markerWords(presentation.markers)})` : ""}`;
     case "clock": return `clock: ${presentation.time}`;
     case "number": return `number: ${presentation.value}`;
     case "symbol": return `symbol: ${presentation.symbol}`;
@@ -232,3 +254,6 @@ export function describePresentation(presentation: PresentationContent): string 
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
   }
 }
+
+/** "Los Angeles, New York" — the marked places in a few words. */
+export const markerWords = (markers: readonly GeoMarker[]) => markers.map(marker => marker.label).join(", ");

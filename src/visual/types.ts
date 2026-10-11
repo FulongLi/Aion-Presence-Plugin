@@ -1,4 +1,6 @@
 import type { Scene3D } from "./scene3d/types";
+import type { GeoMap } from "./geo/map";
+import type { Frame } from "./geo/projection";
 
 /**
  * The visual vocabulary the particle body understands (from SCF Presence's Visual Resolver). The body only
@@ -85,6 +87,11 @@ export interface HeightField {
   relief: number;
   /** Real elevation range in metres when the source had it, for diagnostics. */
   elevation?: { min: number; max: number };
+  /**
+   * Where the grid lies on Earth: its projection and the projected window its outer edges cover (row 0 is the north
+   * edge, y1), so a marker's latitude and longitude land on the right cell. Absent for terrain without geography.
+   */
+  geo?: Frame;
 }
 
 /** 2.5D: X/Y keep the source layout, Z rises with height. */
@@ -123,7 +130,13 @@ export interface Mesh3DTarget {
   scene: Scene3D;
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget;
+/** A geographic map (see geo/map.ts): outlines, borders, land and neighbours, already projected. */
+export interface MapTarget {
+  kind: "map";
+  map: GeoMap;
+}
+
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget;
 
 /** A particle arrangement ready for the runtime: a visual target plus how long to hold it. */
 export interface MorphTarget {

@@ -7,7 +7,8 @@ import type { MediaRef } from "../../core/presentation";
 import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
-import { DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { APPEARANCE_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
 
 export interface HubOptions {
@@ -82,6 +83,8 @@ export class PresenceHub {
     this.home = options.home ?? presenceHome();
     this.clock = options.clock ?? systemClock;
     this.store = new PresenceStore(this.clock);
+    // Aion's colours are the user's choice: they come back whenever Aion does.
+    this.store.setAppearance(loadAppearance(this.home));
     this.store.subscribe(() => this.changed());
   }
 
@@ -174,6 +177,17 @@ export class PresenceHub {
         break;
       case "express": this.store.express({ expression: command.expression, gesture: command.gesture, seconds: command.seconds }); break;
       case "view": { const { type: _type, ...view } = command; this.store.orient(view); break; }
+      case "markers": this.store.setMarkers(command.markers); break;
+      case "appearance": {
+        const current = this.store.snapshot().appearance;
+        const reset = command.reset;
+        const next: Appearance = {
+          base: reset === "base" || reset === "all" ? DEFAULT_APPEARANCE.base : command.base ?? current.base,
+          accent: reset === "accent" || reset === "all" ? DEFAULT_APPEARANCE.accent : command.accent ?? current.accent,
+        };
+        if (this.store.setAppearance(next)) saveAppearance(this.home, next);
+        break;
+      }
     }
     return this.snapshot();
   }
@@ -404,4 +418,24 @@ export function readOrCreateToken(home: string): string {
   writeFileSync(file, token, { mode: 0o600 });
   chmodSync(file, 0o600);
   return token;
+}
+
+/** The remembered colours (appearance.json in the runtime directory); the defaults when absent or unreadable. */
+export function loadAppearance(home: string): Appearance {
+  try {
+    const saved = JSON.parse(readFileSync(join(home, APPEARANCE_FILE), "utf8")) as Partial<Appearance>;
+    const color = (value: unknown, fallback: Appearance["base"]) => {
+      const c = value as { hex?: unknown; name?: unknown } | undefined;
+      // eslint-disable-next-line no-control-regex -- a stored name must hold no control characters
+      return c && isHexColor(c.hex) && typeof c.name === "string" && c.name.length > 0 && c.name.length <= 40 && !/[\u0000-\u001f]/.test(c.name) ? { hex: c.hex, name: c.name } : fallback;
+    };
+    return { base: color(saved.base, DEFAULT_APPEARANCE.base), accent: color(saved.accent, DEFAULT_APPEARANCE.accent) };
+  } catch { return DEFAULT_APPEARANCE; }
+}
+
+export function saveAppearance(home: string, appearance: Appearance) {
+  try {
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    writeFileSync(join(home, APPEARANCE_FILE), JSON.stringify({ base: appearance.base, accent: appearance.accent }, null, 2), { mode: 0o600 });
+  } catch { /* the choice still applies for this session */ }
 }
