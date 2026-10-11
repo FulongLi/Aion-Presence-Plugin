@@ -41,6 +41,11 @@ export interface DemoContext {
   portrait(person: string): Promise<{ media: ReturnType<PresenceHub["addMedia"]>; alt: string; width?: number; height?: number }>;
   /** Evaluates in the page's view (?debug=1 exposes it as window.aionPresence). */
   view<T>(expression: string): Promise<T>;
+  /**
+   * Films the stage for `seconds` as fast as the browser can take screenshots: frames/<demo>-<clip>/NNNN.jpg plus
+   * timing.json (milliseconds per frame), which scripts/media/gif.py turns into an animated GIF at the real pace.
+   */
+  film(clip: string, seconds: number, area?: { x: number; y: number; width: number; height: number }): Promise<void>;
   log(text: string): void;
 }
 
@@ -107,19 +112,45 @@ const DEMOS: Demo[] = [
     },
   },
   {
-    name: "eyes", title: "Aion Eyes: expressions (neutral, attentive, thinking, curious, happy, surprised, confused, sleepy)", seconds: 40,
+    name: "eyes", title: "Aion Eyes: expressions (neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned)", seconds: 43,
     async run(ctx) {
       ctx.apply({ type: "body", body: "eyes" });
       await ctx.wait(3.5);
       await ctx.shot("neutral");
       for (const expression of ["attentive", "thinking", "curious", "happy", "surprised", "confused", "sleepy", "concerned"] as const) {
         ctx.log(expression);
-        ctx.apply({ type: "express", expression, seconds: 3.4 });
-        await ctx.wait(1.6);
+        // Sleepy closes gradually: its picture is the soft closed curves, a few seconds in.
+        const at = expression === "sleepy" ? 4.2 : 1.6;
+        ctx.apply({ type: "express", expression, seconds: at + 1.8 });
+        await ctx.wait(at);
         await ctx.shot(expression);
         await ctx.wait(2.2);
       }
       await ctx.wait(2);
+    },
+  },
+  {
+    name: "eyes-motion", title: "Aion Eyes in motion: blink, happy hop, surprise pop, confused wobble, thinking glance, falling asleep", seconds: 34,
+    async run(ctx) {
+      const area = { x: 200, y: 170, width: 560, height: 340 };
+      ctx.apply({ type: "body", body: "eyes" });
+      await ctx.wait(4);
+      ctx.log("blink");
+      await ctx.view("v.aion.eyes.blink()");
+      await ctx.film("blink", 0.6, area);
+      await ctx.wait(1);
+      for (const [expression, seconds] of [["happy", 1.4], ["surprised", 1.2], ["confused", 1.4], ["thinking", 1.6], ["curious", 1.3]] as const) {
+        ctx.log(expression);
+        ctx.apply({ type: "express", expression, seconds: seconds + 0.6 });
+        await ctx.film(expression, seconds, area);
+        await ctx.wait(1.6);
+      }
+      ctx.log("sleepy");
+      ctx.apply({ type: "express", expression: "sleepy", seconds: 7 });
+      await ctx.film("sleepy", 5, area);
+      await ctx.wait(3);
+      ctx.log("wakes");
+      await ctx.film("wake", 1.4, area);
     },
   },
   {
@@ -291,6 +322,20 @@ async function runDemo(browser: Browser, demo: Demo) {
       return { media: hub.addMedia(found.bytes, found.mime), alt: found.label, width: found.width, height: found.height };
     },
     view: expression => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`),
+    film: async (clip, seconds, area) => {
+      const dir = join(OUT, "frames", `${demo.name}${canvas ? "-canvas" : ""}-${clip}`);
+      rmSync(dir, { recursive: true, force: true });
+      mkdirSync(dir, { recursive: true });
+      const times: number[] = [];
+      const start = Date.now();
+      while (Date.now() - start < seconds * 1000) {
+        times.push(Date.now() - start);
+        await page.screenshot({ path: join(dir, `${String(times.length).padStart(4, "0")}.jpg`), type: "jpeg", quality: 88, ...(area ? { clip: area } : {}) });
+      }
+      const durations = times.map((at, k) => (times[k + 1] ?? Date.now() - start) - at);
+      writeFileSync(join(dir, "timing.json"), JSON.stringify(durations));
+      log(`🎞  ${clip}: ${times.length} frames in ${seconds} s`);
+    },
   };
   console.log(`  ${demo.name}: ${demo.title}`);
   try { await demo.run(ctx); } finally {

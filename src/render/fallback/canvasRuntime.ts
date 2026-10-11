@@ -44,7 +44,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
-  const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count);
+  const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count), sizes = new Float32Array(count).fill(1);
   const resize = () => {
     const ratio = Math.min(devicePixelRatio || 1, fallbackDefaults.pixelRatio);
     width = Math.max(1, container.clientWidth); height = Math.max(1, container.clientHeight);
@@ -102,10 +102,13 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         tone += (Math.min(1, f.tone * 1.25) - tone) * bw;
       }
       const ew = body.eyes > 0 ? smooth(body.eyes * 1.35 - eyesStagger[i] * 0.35) : 0;
+      let grain = 1;
       if (ew > 0) {
         const e = eyesPoint(eyesLayout, i, body.eyeParams, clock);
         x += (e.position[0] - x) * ew; y += (e.position[1] - y) * ew; z += (e.position[2] - z) * ew;
         tone += (Math.min(1, e.tone * 1.25) - tone) * ew;
+        // The eyes' fill grains are larger (fewer particles here than on the GPU, so a little larger still).
+        grain += (e.grain * 1.6 - 1) * ew;
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {
@@ -119,6 +122,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       xs[i] = centreX + x * zoom * perspective;
       ys[i] = centreY - y * zoom * perspective;
       light[i] = Math.max(0, Math.min(1, tone));
+      sizes[i] = grain + (1 - grain) * mw;
     }
     context.clearRect(0, 0, width, height);
     context.globalCompositeOperation = "lighter";
@@ -129,7 +133,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       const [r, g, bl] = base.map(value => Math.round(value * (0.35 + hi * 0.75)));
       context.fillStyle = `rgba(${r}, ${g}, ${bl}, ${(0.25 + hi * 0.6).toFixed(3)})`;
       context.beginPath();
-      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) context.rect(xs[i] - size / 2, ys[i] - size / 2, size, size);
+      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
       context.fill();
     }
     context.globalCompositeOperation = "source-over";

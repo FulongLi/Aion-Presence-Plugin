@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Aion } from "../src/core/aion";
 import { AionBody, bodyTransition } from "../src/core/body";
-import { createEyesLayout, EYE_KINDS, EYE_PARAMS, eyesPoint, lidBand } from "../src/core/eyes/layout";
-import { BLINK, EXPRESSIONS, EYE_EXPRESSIONS, EyesAnimator, packEyes, STATE_EXPRESSION } from "../src/core/eyes/expression";
+import { EYE_GEOMETRY, EYE_PARAMS } from "../src/core/eyes/layout";
+import { EYE_EXPRESSIONS, EyesAnimator, STATE_EXPRESSION } from "../src/core/eyes/expression";
 import { createFigureLayout, FIGURE_KINDS, FIGURE_SHARES, figurePoint, figureStroke, unpackAnchors } from "../src/core/figure/layout";
 import { applyClip, clipWeight, EXPLAIN, FIGURE_GESTURES, gestureClip, sampleClip, stateTrack, WAVE, type Clip } from "../src/core/figure/motion";
 import { FigureAnimator, flattenPose, NEUTRAL_POSE, solvePose, twoBone, unflattenPose } from "../src/core/figure/pose";
@@ -240,68 +240,21 @@ test("explaining points at the term: the pointing hand reaches toward it, the he
 
 // ── Aion Eyes ─────────────────────────────────────────────────────────────────────────────────────────
 
-const params = (name: (typeof EYE_EXPRESSIONS)[number]) => packEyes(EXPRESSIONS[name]);
-
-test("Aion Eyes: every expression is distinct, bounded, and drawn by every particle", () => {
-  const layout = createEyesLayout(8_000);
-  const kinds = new Set<number>();
-  for (const name of EYE_EXPRESSIONS) {
-    const p = params(name);
-    assert.equal(p.length, EYE_PARAMS * 2);
-    assert.ok(finite(p));
-    for (let i = 0; i < layout.count; i += 3) {
-      const { position, tone, kind } = eyesPoint(layout, i, p, 1.3);
-      kinds.add(kind);
-      assert.ok(finite(position) && tone >= 0 && tone <= 1);
-      assert.ok(Math.abs(position[0]) < 1.6 && Math.abs(position[1]) < 1.6 && Math.abs(position[2]) < 0.4, `${name} bounded`);
-    }
-  }
-  assert.deepEqual([...kinds].sort(), Object.values(EYE_KINDS).sort());
-  for (let a = 0; a < EYE_EXPRESSIONS.length; a++) for (let b = a + 1; b < EYE_EXPRESSIONS.length; b++) {
-    const pa = params(EYE_EXPRESSIONS[a]), pb = params(EYE_EXPRESSIONS[b]);
-    assert.ok(pa.some((v, i) => Math.abs(v - pb[i]) > 0.03), `${EYE_EXPRESSIONS[a]} ≠ ${EYE_EXPRESSIONS[b]}`);
-  }
-  for (const state of AION_STATES) assert.ok(EYE_EXPRESSIONS.includes(STATE_EXPRESSION[state]), state);
-});
-
-test("Aion Eyes: a blink closes the lids to a line and opens them; happy curves the lower lid into a smile", () => {
-  const open = params("neutral");
-  const [vmax, top, bottom] = lidBand(0, open, 0);
-  assert.ok(top - bottom > 1.8 * vmax, "open");
-  const closed = Float32Array.from(open);
-  for (const o of [0, EYE_PARAMS]) { closed[o + 4] = 0.52; closed[o + 5] = 0.46; }
-  const [, t2, b2] = lidBand(0, closed, 0);
-  assert.ok(t2 - b2 <= 0.06, "closed to a line");
-  // A blink, asked for: within its closing time the lids meet, and they open again after it.
-  const eyes = new EyesAnimator();
-  for (let k = 0; k < 30; k++) eyes.sample(1 / 60, "idle", k / 60);
-  eyes.blink();
-  let narrowest = Infinity;
-  for (let t = 0; t < BLINK.close + BLINK.hold + 0.01; t += 1 / 240) { const p = eyes.sample(1 / 240, "idle", 1); const [, tt, bb] = lidBand(0, p, 0); narrowest = Math.min(narrowest, tt - bb); }
-  assert.ok(narrowest < 0.15, `the lids meet (${narrowest.toFixed(3)})`);
-  for (let k = 0; k < 30; k++) eyes.sample(1 / 60, "idle", 2);
-  const [, reopenTop, reopenBottom] = lidBand(0, eyes.params, 0);
-  assert.ok(reopenTop - reopenBottom > 1.5, "and open again");
-  const happy = params("happy");
-  const [, top3, bottomCentre] = lidBand(0, happy, 0), [, , bottomSide] = lidBand(0.8, happy, 0);
-  assert.ok(bottomCentre > bottomSide + 0.3 && top3 > bottomCentre, "a crescent");
-});
-
+// Aion Eyes (redesigned in v0.4.1: see v41.test.ts for the cartoon geometry and motion).
 test("Aion Eyes animate: they blink on their own, move in saccades, answer the user's voice and follow requests", () => {
   const eyes = new EyesAnimator();
-  let minGap = Infinity;
+  let minHeight = Infinity;
   const gazes = new Set<string>();
   for (let k = 0; k < 600; k++) {
     const p = eyes.sample(1 / 60, "idle", k / 60);
-    const [, top, bottom] = lidBand(0, p, 0);
-    minGap = Math.min(minGap, top - bottom);
-    gazes.add(p[8].toFixed(2));
+    minHeight = Math.min(minHeight, p[3]);
+    gazes.add(p[0].toFixed(3));
   }
-  assert.ok(minGap < 0.4, "a blink happened in ten seconds");
+  assert.ok(minHeight < 0.2 * EYE_GEOMETRY.halfHeight, "a blink happened in ten seconds");
   assert.ok(gazes.size > 5, "the gaze moved");
   const quiet = new EyesAnimator(), loud = new EyesAnimator();
   for (let k = 0; k < 120; k++) { quiet.sample(1 / 60, "listening", k / 60, { listen: 0 }); loud.sample(1 / 60, "listening", k / 60, { listen: 1 }); }
-  assert.ok(loud.params[10] > quiet.params[10], "the irises open with the user's voice");
+  assert.ok(loud.params[11] > quiet.params[11], "the eyes brighten with the user's voice");
   eyes.express("surprised", 3);
   for (let k = 0; k < 60; k++) eyes.sample(1 / 60, "idle", 10 + k / 60);
   assert.equal(eyes.expression, "surprised");
@@ -309,6 +262,8 @@ test("Aion Eyes animate: they blink on their own, move in saccades, answer the u
   assert.equal(eyes.expression, "neutral", "a requested expression ends by itself");
   eyes.express("nonsense" as never);
   assert.equal(eyes.expression, "neutral");
+  for (const state of AION_STATES) assert.ok(EYE_EXPRESSIONS.includes(STATE_EXPRESSION[state]), state);
+  assert.equal(EYE_PARAMS, 16);
 });
 
 test("three persistent bodies: sphere → eyes → figure → sphere, one particle transition each", () => {

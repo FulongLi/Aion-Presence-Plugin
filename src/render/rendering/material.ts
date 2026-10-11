@@ -40,8 +40,9 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const base = mix(bodyRest, formed, m);
   const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m).mul(float(1).sub(u.formedDepth));
   const relief = vec3(base.x.add(base.z.mul(depthSway)), base.y, base.z);
-  // Formed visuals and the figure use slightly finer grains than the sphere.
-  const grain = positionLocal.mul(u.size).mul(grainSize).mul(float(1).sub(m.mul(0.24).max(b.mul(0.34)).max(e.mul(0.3))));
+  // Formed visuals and the figure use slightly finer grains than the sphere; the eyes their own (a fine edge, a dense fill).
+  const restGrain = mix(float(1).sub(b.mul(0.34)), eyed ? eyed.grain : float(0.7), e);
+  const grain = positionLocal.mul(u.size).mul(grainSize).mul(mix(restGrain, float(0.76), m));
   material.positionNode = grain.add(relief).add(offset);
   const accentLight = smoothstep(0.25, 0.95, normal.dot(normalize(u.voiceDirection)))
     .mul(u.voiceAccent).mul(0.08).mul(u.speechGain);

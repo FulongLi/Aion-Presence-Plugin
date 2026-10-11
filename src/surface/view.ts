@@ -241,7 +241,7 @@ export class PresenceView {
       const at: [number, number, number] = [world[0] / FIGURE_SCALE, world[1] / FIGURE_SCALE, 0.25];
       this.aion.figure.cue(term ? EXPLAIN(at) : POINT(at, 1.2));
     } else if (this.aion.currentBody === "eyes") {
-      this.aion.glance([0.34, world ? Math.max(-0.3, Math.min(0.3, world[1] * 0.15)) : 0], term ? 4 : 2.2);
+      this.aion.glance([0.85, world ? Math.max(-0.75, Math.min(0.75, world[1] * 0.38)) : 0], term ? 4 : 2.2);
       if (term) this.aion.eyes.express("curious", 4.5);
     }
   }
