@@ -1,6 +1,6 @@
 {
   "name": "aion-presence-plugin",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "Aion Presence: a visual embodiment layer for Codex. Codex is the intelligence; Aion is the body.",
   "type": "module",
@@ -46,6 +46,8 @@
     "smoke": "tsx scripts/smoke.ts",
     "codex:verify": "tsx scripts/codex-verify.ts",
     "diagnose": "tsx scripts/diagnose.ts",
-    "showcase": "tsx scripts/showcase.ts"
+    "showcase": "tsx scripts/showcase.ts",
+    "geo:coverage": "tsx scripts/geo-coverage.ts",
+    "geo:build": "tsx scripts/geo/build-world.ts"
   }
 }

@@ -4,6 +4,7 @@ import { extname, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { MediaRef } from "../core/presentation";
 import { HEIGHTFIELD_MIME, isHeightField } from "../visual/heightfield";
+import { isMapMedia, MAP_MIME } from "../visual/geo/map";
 
 /**
  * Images the host hands to Aion. Only local content is accepted (an absolute file path, a file:// URL or a
@@ -73,11 +74,11 @@ function checked(data: Buffer, declared: string) {
 }
 
 /**
- * What a media buffer actually is, from its bytes: one of the image types, or a height field (terrain the
- * resolver built). Anything else is refused.
+ * What a media buffer actually is, from its bytes: one of the image types, a height field (terrain the resolver
+ * built) or a map (outlines the geography module projected). Anything else is refused.
  */
 export function sniffMedia(data: Buffer): string | null {
-  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : null);
+  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : isMapMedia(data) ? MAP_MIME : null);
 }
 
 /** A small in-memory store of recently presented images, bounded by count and size (oldest dropped first). */

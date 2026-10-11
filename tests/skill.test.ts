@@ -16,6 +16,7 @@ const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }
   show_image: schemas.showImageInput, show_portrait: schemas.showPortraitInput, show_terrain: schemas.showTerrainInput, show_form: schemas.showFormInput,
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
   show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_scene: schemas.showSceneInput, set_scene_view: schemas.setSceneViewInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
+  show_map: schemas.showMapInput, mark_map: schemas.markMapInput, set_colors: schemas.setColorsInput,
 };
 
 test("the Aion Presence skill is discoverable with a trigger-oriented description", () => {
@@ -70,7 +71,7 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear)_|^express$/.test(name)));
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark)_|^express$/.test(name)));
   for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name), `${name} is a real tool`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);
@@ -111,6 +112,11 @@ test("Visual Intent Policy: natural requests map to the right tool, with argumen
     ["What is the terrain of the UK like?", "show_terrain"], ["Show me Scotland's topography.", "show_terrain"],
     ["What does Orion look like?", "show_form"], ["Show me the yin-yang.", "show_form"],
     ["What time is it?", "show_clock"], ["Show me 42%.", "show_number"], ["Take a human form.", "set_body_form"],
+    // v0.4.1: the acceptance requests for maps, markers and colours.
+    ["Show me the United States.", "show_map"], ["Show me where Los Angeles is in the USA.", "show_map"], ["Mark Los Angeles in red.", "mark_map"],
+    ["Add New York in yellow.", "mark_map"], ["Change the Los Angeles marker to blue.", "mark_map"], ["Remove the New York marker.", "mark_map"],
+    ["Show me Scotland's terrain and mark Glasgow in red.", "show_terrain"], ["Change your colour to blue.", "set_colors"],
+    ["把粒子颜色改成紫色。", "set_colors"], ["Restore your original colour.", "set_colors"], ["展示一下牛顿的肖像。", "show_portrait"],
   ];
   for (const [say, tool] of expected) {
     const row = rows.find(item => item.say === say);

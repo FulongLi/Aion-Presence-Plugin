@@ -74,6 +74,16 @@ export class VisualActionController<Request = unknown> {
     if (this.phase === "forming" || this.phase === "holding") this.phase = "returning";
   }
 
+  /**
+   * Keeps the formed visual for `seconds` from now (Infinity: until released) without re-forming it: a map the
+   * user is still marking stays up.
+   */
+  holdFor(seconds: number) {
+    if (!this.target || !(seconds > 0)) return;
+    if (this.phase === "holding") this.holdLeft = seconds;
+    else if (this.phase === "forming") this.target.hold = seconds;
+  }
+
   cancel() {
     this.request++;
     this.resolving?.abort();

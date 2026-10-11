@@ -13,6 +13,8 @@ import type { Scene3D } from "../../visual/scene3d/types";
 import type { OrbitCommand } from "../../render/interaction/orbit";
 import { PRESENTATION_PREFERENCES, type PresentationPreference } from "../../core/presentationRouter";
 import type { PresenceSnapshot } from "../../core/store";
+import { isHexColor } from "../../core/colors";
+import { MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -66,12 +68,24 @@ export type HubCommand =
   /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
   | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number }
   /** Turn, tilt or zoom the 3D object on show. */
-  | ({ type: "view" } & OrbitCommand);
+  | ({ type: "view" } & OrbitCommand)
+  /** The places marked on the map or terrain on show (replaces them all; the map is not formed again). */
+  | { type: "markers"; markers: GeoMarker[] }
+  /** Aion's colours: a new base and/or accent (already validated colours), or back to the defaults. */
+  | { type: "appearance"; base?: { hex: string; name: string }; accent?: { hex: string; name: string }; reset?: "base" | "accent" | "all" };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
 const mediaRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.string().regex(/^image\/(?:png|jpeg|webp|gif|svg\+xml)$/), bytes: z.number().int().positive() }).strict();
 const heightFieldRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.literal("application/vnd.aion.heightfield"), bytes: z.number().int().positive() }).strict();
+const mapRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.literal("application/vnd.aion.map"), bytes: z.number().int().positive() }).strict();
+const hex = z.string().refine(isHexColor, "a #rrggbb colour");
+export const markerSchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]{1,40}$/), label: clean(cleanLine, MARKER_LIMITS.label),
+  lat: z.number().min(-90).max(90), lon: z.number().min(-180).max(180), color: hex, highlight: z.boolean().optional(),
+}).strict() satisfies z.ZodType<GeoMarker>;
+const markers = z.array(markerSchema).max(MARKER_LIMITS.markers);
+const namedColor = z.object({ hex, name: clean(cleanLine, 40) }).strict();
 
 const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("form"), form: z.string().regex(/^[a-z][a-z0-9]*\.[a-z0-9]+(?:-[a-z0-9]+)*$/), variant: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), label: clean(cleanLine, 120) }).strict(),
@@ -91,6 +105,11 @@ const presentationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("terrain"), media: heightFieldRef, style: z.enum(TERRAIN_STYLES), label: clean(cleanLine, LIMITS.title),
     elevation: z.object({ min: z.number().finite(), max: z.number().finite() }).strict().optional(), credit: clean(cleanLine, LIMITS.title).optional(),
+    region: clean(cleanLine, 80).optional(), markers: markers.optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal("map"), media: mapRef, label: clean(cleanLine, LIMITS.title), region: clean(cleanLine, 80), markers,
+    credit: clean(cleanLine, LIMITS.title).optional(),
   }).strict(),
   z.object({ kind: z.literal("clock"), time: z.string().regex(CLOCK_TIME) }).strict(),
   z.object({ kind: z.literal("number"), value: z.string().refine(validNumber) }).strict(),
@@ -130,6 +149,8 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("view"), rotate: z.enum(["left", "right", "up", "down"]).optional(), degrees: z.number().min(5).max(180).optional(),
     zoom: z.enum(["in", "out"]).optional(), spin: z.boolean().optional(), reset: z.boolean().optional(),
   }).strict(),
+  z.object({ type: z.literal("markers"), markers }).strict(),
+  z.object({ type: z.literal("appearance"), base: namedColor.optional(), accent: namedColor.optional(), reset: z.enum(["base", "accent", "all"]).optional() }).strict(),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */

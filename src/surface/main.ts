@@ -42,7 +42,7 @@ async function boot() {
   };
   const view = new PresenceView({
     root, card: element("card"), status: element("status"), fullscreen: element<HTMLButtonElement>("fullscreen"), debug: element("debug"),
-    entry: element("entry"), enter: element<HTMLButtonElement>("enter"),
+    entry: element("entry"), enter: element<HTMLButtonElement>("enter"), markers: element<HTMLCanvasElement>("markers"),
   }, transport ?? fallback, { debug });
   if (transport instanceof McpAppsTransport) sizeEmbedded(transport, root);
   // Diagnostics only (?debug=1): the view, for checking the live chain from a test or the console.

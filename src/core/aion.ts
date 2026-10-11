@@ -41,7 +41,7 @@ export class Aion implements BodySource {
   readonly state = new AionStateMachine();
   readonly figure = new FigureAnimator();
   readonly eyes = new EyesAnimator();
-  /** Where the eyes should look (gaze, shape units), e.g. toward a card that just appeared; null: their own gaze. */
+  /** Where the eyes should look (gaze, −1…1 each way), e.g. toward a card that just appeared; null: their own gaze. */
   look: { at: [number, number]; until: number } | null = null;
   private orbit = 0;
   private readonly frame: BodyFrame;
@@ -76,7 +76,7 @@ export class Aion implements BodySource {
     if (eyes) this.eyes.express(eyes, request.gesture && !expression ? 2.5 : seconds);
     if (request.gesture === "nod") this.eyes.nod();
     if (request.gesture === "wave") this.eyes.blink();
-    if (request.gesture === "point") this.look = { at: [0.34, 0.04], until: this.clock + 2.5 };
+    if (request.gesture === "point") this.look = { at: [0.85, 0.1], until: this.clock + 2.5 };
     const fromExpression: Partial<Record<EyeExpression, Clip>> = {
       happy: PLEASED, surprised: SURPRISE, curious: ATTENTIVE_TILT("left"), confused: SHRUG, thinking: THINK,
       sleepy: DROWSY, attentive: NOD, concerned: CONCERN,
@@ -86,7 +86,7 @@ export class Aion implements BodySource {
     if ((clip || eyes) && this.body.form === "sphere") this.state.trigger("acknowledging");
   }
 
-  /** The eyes glance at something for a few seconds (gaze in shape units: +x toward the viewer's right). */
+  /** The eyes glance at something for a few seconds (gaze −1…1 each way: +x toward the viewer's right). */
   glance(at: [number, number], seconds = 2.5) { this.look = { at, until: this.clock + seconds }; }
 
   sample(dt: number, now: number, calm = false): BodyFrame {

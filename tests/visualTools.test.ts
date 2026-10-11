@@ -52,7 +52,7 @@ test("show_portrait finds the person and presents a portrait-framed picture, wit
   try {
     const shown = output(await aion.call("show_portrait", { person: "  Nikola   Tesla " }));
     assert.deepEqual(queries, ["Nikola Tesla"], "only the tidied name is looked up");
-    assert.equal(shown.presentation?.description, "portrait: Nikola Tesla");
+    assert.equal(shown.presentation?.description, "heritage portrait: Nikola Tesla", "a heritage portrait by default, with no style asked for");
     assert.equal(shown.shown, "Nikola Tesla");
     assert.equal(shown.source?.provider, "wikipedia");
     const snapshot = await state(aion);
@@ -65,7 +65,8 @@ test("show_portrait finds the person and presents a portrait-framed picture, wit
     assert.equal(presentation.cardHold, 30, "the photograph stays a little longer");
     assert.deepEqual([presentation.width, presentation.height, presentation.origin], [900, 1200, "lookup"], "the card knows the original's size");
     assert.equal(presentation.credit, "Wikipedia · free (Wikimedia Commons)");
-    assert.deepEqual(planPresentation(presentation).body, { type: "image", media: presentation.media, fit: "portrait" });
+    assert.equal(presentation.style, "heritage", "the default is enforced by Aion, not left to the prompt");
+    assert.deepEqual(planPresentation(presentation).body, { type: "image", media: presentation.media, fit: "portrait", style: "heritage" });
     const missing = await aion.call("show_portrait", { person: "Nobody Atall" }) as Result;
     assert.equal(missing.isError, true);
     assert.match(text(missing), /portrait-not-found: no public portrait of Nobody Atall was found/);

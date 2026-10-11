@@ -2,7 +2,9 @@ import { subjectMap } from "./image";
 import { HERITAGE_OVAL, ovalMask } from "./oval";
 import { sceneParticles } from "./scene3d/sample";
 import { validScene } from "./scene3d/validate";
-import type { HeightFieldTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
+import type { HeightFieldTarget, MapTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
+import { frameBounds, mapWorldPoint } from "./geo/map";
+import { rasterizePolygon } from "./heightfield";
 
 /**
  * VisualTarget → particle rest positions and tones. This is the only place the body learns a shape,
@@ -18,6 +20,7 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
     case "heightfield": return heightFieldPoints(target, count);
     // A 3D scene is validated again here: the renderer never builds geometry it has not checked.
     case "mesh3d": return sceneParticles(validScene(target.scene), count);
+    case "map": return mapPoints(target, count);
     default: throw new Error("invalid-target");
   }
 }
@@ -386,6 +389,28 @@ function layoutPoints(target: PointLayoutTarget, count: number): TargetPoints {
 /** Terrain is laid on a ground plane tilted back from the viewer, so height reads as upward relief. */
 export const terrainLayout = { width: 3.6, depth: 4, tilt: 0.9, height: 0.8 };
 
+/** A point of the ground plane: `u` across (0 west … 1 east), `v` down the grid (0 north … 1 south), `h` its height (0…1). */
+function terrainPlace(u: number, v: number, h: number, groundW: number, groundD: number, lift: number): [number, number, number] {
+  const cos = Math.cos(terrainLayout.tilt), sin = Math.sin(terrainLayout.tilt);
+  const px = (u - 0.5) * groundW, pv = (0.5 - v) * groundD, pz = h * lift;
+  return [px, pv * cos + pz * sin - lift * sin * 0.3, -pv * sin + pz * cos];
+}
+
+/**
+ * Where a place on the grid stands on the stage — the same ground plane, tilt and height the sampler gives the
+ * particles there (heights bilinear between cells), raised by `above` (world units) for a marker standing on it.
+ */
+export function terrainWorldPoint(field: HeightFieldTarget["field"], u: number, v: number, above = 0): [number, number, number] {
+  const { width: W, height: H, values, aspect, relief } = field;
+  const ground = Math.min(terrainLayout.width, terrainLayout.depth * aspect);
+  const lift = terrainLayout.height * relief;
+  const gx = Math.max(0, Math.min(W - 1, u * W - 0.5)), gy = Math.max(0, Math.min(H - 1, v * H - 0.5));
+  const x0 = Math.floor(gx), y0 = Math.floor(gy), x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1), fx = gx - x0, fy = gy - y0;
+  const value = (x: number, y: number) => values[y * W + x] ?? 0;
+  const h = (value(x0, y0) * (1 - fx) + value(x1, y0) * fx) * (1 - fy) + (value(x0, y1) * (1 - fx) + value(x1, y1) * fx) * fy;
+  return terrainPlace(u, v, h + above / Math.max(1e-6, lift), ground, ground / aspect, lift);
+}
+
 function validateField(target: HeightFieldTarget) {
   const f = target.field;
   if (!f || !(f.width >= 2 && f.height >= 2) || f.width * f.height > 256 * 256 || !(f.values instanceof Float32Array)
@@ -426,7 +451,6 @@ function heightFieldPoints(target: HeightFieldTarget, count: number): TargetPoin
   if (total < 1) throw new Error("empty-heightfield");
   const positions = new Float32Array(count * 3), tones = new Float32Array(count);
   const next = random(0x3e1f);
-  const cos = Math.cos(terrainLayout.tilt), sin = Math.sin(terrainLayout.tilt);
   // Light from the north-west, above: the classic cartographic hillshade direction.
   const light = [-0.55, 0.55, 0.63];
   const style = target.style;
@@ -440,10 +464,7 @@ function heightFieldPoints(target: HeightFieldTarget, count: number): TargetPoin
     const tx = Math.abs(fx - 0.5), ty = Math.abs(fy - 0.5);
     const top = v + (at(nx, cy, v) - v) * tx, bottom = at(cx, ny, v) + (at(nx, ny, v) - at(cx, ny, v)) * tx;
     const h = top + (bottom - top) * ty;
-    const px = ((cx + fx) / W - 0.5) * groundW;
-    const pv = (0.5 - (cy + fy) / H) * groundD;
-    const pz = h * lift;
-    positions.set([px, pv * cos + pz * sin - lift * sin * 0.3, -pv * sin + pz * cos], i * 3);
+    positions.set(terrainPlace((cx + fx) / W, (cy + fy) / H, h, groundW, groundD, lift), i * 3);
     // Surface normal from the height gradient in ground units (x east, y north, z up).
     const gx = (at(cx + 1, cy, v) - at(cx - 1, cy, v)) * lift / (2 * groundW / W);
     const gy = -(at(cx, cy + 1, v) - at(cx, cy - 1, v)) * lift / (2 * groundD / H);
@@ -461,6 +482,77 @@ function heightFieldPoints(target: HeightFieldTarget, count: number): TargetPoin
       default: tone = 0.16 + shade * 0.5 + h * 0.3;
     }
     tones[i] = Math.max(0, Math.min(1, tone));
+  }
+  return { positions, tones };
+}
+
+/** A map's layers and their share of the particles, light and depth (redistributed when a layer is empty). */
+export const MAP_LAYERS = {
+  focus: { share: 0.32, tone: 0.9, width: 0.006, z: 0.03 },
+  fill: { share: 0.3, tone: 0.25, z: 0 },
+  borders: { share: 0.16, tone: 0.62, width: 0.004, z: 0.02 },
+  context: { share: 0.12, tone: 0.3, width: 0.004, z: -0.03 },
+  contextFill: { share: 0.1, tone: 0.07, z: -0.04 },
+} as const;
+
+/** A map drawn in particles: bright outlines, the borders between members, a veil of land, faint neighbours. */
+function mapPoints(target: MapTarget, count: number): TargetPoints {
+  const map = target.map;
+  if (!map || !Array.isArray(map.focus) || !Array.isArray(map.fill)) throw new Error("invalid-map");
+  const bounds = frameBounds(map.frame);
+  const next = random(0x6e0a9);
+  const gaussian = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
+  /** Strokes: segments weighted by length. */
+  const strokes = (lines: number[][]) => {
+    const segments: number[] = [], weights: number[] = [];
+    let total = 0;
+    for (const line of lines) for (let k = 2; k < line.length; k += 2) {
+      total += Math.hypot(line[k] - line[k - 2], line[k + 1] - line[k - 1]);
+      segments.push(line[k - 2], line[k - 1], line[k], line[k + 1]); weights.push(total);
+    }
+    const cumulative = Float64Array.from(weights);
+    return { total, pick: () => {
+      const i = pickCell(cumulative, next() * total);
+      const t = next();
+      return [segments[i * 4] + (segments[i * 4 + 2] - segments[i * 4]) * t, segments[i * 4 + 1] + (segments[i * 4 + 3] - segments[i * 4 + 1]) * t, segments[i * 4 + 2] - segments[i * 4], segments[i * 4 + 3] - segments[i * 4 + 1]];
+    } };
+  };
+  /** Areas: an even-odd raster of the rings over the frame, sampled cell by cell. */
+  const areas = (rings: number[][]) => {
+    const side = 220, w = Math.max(8, Math.round(side * Math.min(1, bounds.x / bounds.y))), h = Math.max(8, Math.round(side * Math.min(1, bounds.y / bounds.x)));
+    const toGrid = (x: number, y: number): [number, number] => [(x + bounds.x) / (2 * bounds.x) * w, (bounds.y - y) / (2 * bounds.y) * h];
+    const mask = rasterizePolygon(rings.map(ring => { const out: [number, number][] = []; for (let k = 0; k < ring.length; k += 2) out.push(toGrid(ring[k], ring[k + 1])); return out; }), w, h);
+    const cells: number[] = [];
+    for (let i = 0; i < mask.length; i++) if (mask[i]) cells.push(i);
+    return { total: cells.length, pick: () => {
+      const cell = cells[Math.floor(next() * cells.length)];
+      return [((cell % w + next()) / w) * 2 * bounds.x - bounds.x, bounds.y - ((Math.floor(cell / w) + next()) / h) * 2 * bounds.y];
+    } };
+  };
+  const layers = {
+    focus: strokes(map.focus), borders: strokes(map.borders), context: strokes(map.context),
+    fill: areas(map.fill), contextFill: areas(map.contextFill),
+  };
+  const names = Object.keys(MAP_LAYERS) as (keyof typeof MAP_LAYERS)[];
+  const shares: number[] = names.map(name => layers[name].total > 0 ? MAP_LAYERS[name].share : 0);
+  const sum = shares.reduce((a, b) => a + b, 0);
+  if (!(sum > 0)) throw new Error("empty-map");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    let r = next() * sum, layer = names[0];
+    for (let k = 0; k < names.length; k++) { r -= shares[k]; if (r <= 0 && shares[k] > 0) { layer = names[k]; break; } }
+    const spec = MAP_LAYERS[layer];
+    let x: number, y: number;
+    if ("width" in spec) {
+      const [px, py, dx, dy] = layers[layer as "focus" | "borders" | "context"].pick();
+      const length = Math.hypot(dx, dy) || 1, offset = gaussian() * spec.width;
+      x = px - dy / length * offset; y = py + dx / length * offset;
+    } else {
+      [x, y] = layers[layer as "fill" | "contextFill"].pick();
+    }
+    const [wx, wy, wz] = mapWorldPoint(x, y, spec.z + (next() - 0.5) * 0.02);
+    positions.set([wx, wy, wz], i * 3);
+    tones[i] = Math.max(0, Math.min(1, spec.tone * (0.85 + next() * 0.3)));
   }
   return { positions, tones };
 }

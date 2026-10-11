@@ -10,6 +10,10 @@ import { openverseProvider } from "./sources/openverse";
 import { elevationTilesProvider, type TerrainProvider } from "./sources/terrain";
 import { commonsProvider, wikipediaProvider } from "./sources/wikimedia";
 import type { ImageProvider, ResolveTrace } from "./types";
+import { locatePlace, regionFrame, resolveRegion, type FoundPlace, type GeoRegion } from "../geo/region";
+import { buildMap } from "../geo/map";
+import { encodeMap, MAP_MIME, type GeoMap } from "../../visual/geo/map";
+import type { Frame } from "../../visual/geo/projection";
 
 /**
  * The Visual Resolver, server side (SCF's visual-resolver/resolve.ts for images, portraits and terrain):
@@ -57,20 +61,29 @@ export interface ResolvedTerrain {
   source: { provider: string };
 }
 
-type Family = "image" | "portrait" | "terrain";
+export interface ResolvedMap {
+  map: GeoMap;
+  bytes: Uint8Array;
+  mime: typeof MAP_MIME;
+  region: GeoRegion;
+  source: { provider: string };
+}
+
+type Family = "image" | "portrait" | "terrain" | "region" | "place";
 
 export class VisualResolver {
   /** What happened for the most recent request (diagnostics). */
   lastTrace: ResolveTrace | null = null;
   private readonly images: readonly ImageProvider[];
   private readonly terrains: readonly TerrainProvider[];
-  private readonly cache = new Map<string, { at: number; value: ResolvedPicture | ResolvedTerrain }>();
+  private readonly cache = new Map<string, { at: number; value: ResolvedPicture | ResolvedTerrain | GeoRegion | FoundPlace }>();
 
   constructor(private readonly options: ResolverOptions = {}) {
     const request = options.request;
     const web = braveProvider(options.env ?? process.env, request);
     this.images = options.imageProviders ?? [wikipediaProvider(request), commonsProvider(request), openverseProvider(request), ...(web ? [web] : [])];
-    this.terrains = options.terrainProviders ?? [elevationTilesProvider(undefined, request)];
+    // Terrain finds its region through the same (cached) resolution as maps and markers.
+    this.terrains = options.terrainProviders ?? [elevationTilesProvider(undefined, request, (name, signal) => this.region(name, signal))];
   }
 
   /** The image providers in use (the optional keyed one only when the user configured it). */
@@ -99,13 +112,17 @@ export class VisualResolver {
     });
   }
 
-  /** The terrain of a real region from real elevation data, as a height field. */
-  terrain(region: string, style: TerrainStyle = "terrain", signal?: AbortSignal): Promise<ResolvedTerrain> {
-    return this.run("terrain", region, style, signal, async (bounded, trace) => {
+  /**
+   * The terrain of a real region from real elevation data, as a height field. `include`: points (markers) that must
+   * be in view.
+   */
+  terrain(region: string, style: TerrainStyle = "terrain", signal?: AbortSignal, include: [number, number][] = []): Promise<ResolvedTerrain> {
+    const key = include.length ? `${style}:${include.map(([lon, lat]) => `${lon.toFixed(3)},${lat.toFixed(3)}`).join(";")}` : style;
+    return this.run("terrain", region, key, signal, async (bounded, trace) => {
       for (const provider of this.terrains) {
         const started = Date.now();
         try {
-          const source = await provider.resolve(region, style, bounded);
+          const source = await provider.resolve(region, style, bounded, { include });
           const field = buildHeightField(source, style);
           trace.chain.push({ provider: provider.name, outcome: "selected", ms: Date.now() - started });
           trace.provider = source.provider;
@@ -121,7 +138,35 @@ export class VisualResolver {
     });
   }
 
-  private async run<T extends ResolvedPicture | ResolvedTerrain>(family: Family, query: string, variant: string, signal: AbortSignal | undefined,
+  /** A region by name (continent, country, part of one, or anything OpenStreetMap knows), with its outline. */
+  region(name: string, signal?: AbortSignal): Promise<GeoRegion> {
+    return this.run("region", name, "", signal, async (bounded, trace) => {
+      const started = Date.now();
+      const region = await resolveRegion(name, bounded, this.options.request);
+      trace.chain.push({ provider: region.provider, outcome: "selected", ms: Date.now() - started });
+      return region;
+    });
+  }
+
+  /** A place to mark, near the region on show (the gazetteer first, then the geocoders). */
+  place(name: string, near?: { region?: GeoRegion; frame?: Frame }, signal?: AbortSignal): Promise<FoundPlace> {
+    const scope = near?.region ? near.region.ids.join(",") || near.region.label : "";
+    return this.run("place", name, scope, signal, async (bounded, trace) => {
+      const started = Date.now();
+      const found = await locatePlace(name, near, bounded, this.options.request);
+      trace.chain.push({ provider: found.provider, outcome: "selected", ms: Date.now() - started });
+      return found;
+    });
+  }
+
+  /** A map of a region with these points (markers) in view: outlines, borders, land and neighbours, projected. */
+  async map(name: string, include: [number, number][] = [], signal?: AbortSignal): Promise<ResolvedMap> {
+    const region = await this.region(name, signal);
+    const map = buildMap(region, regionFrame(region, include));
+    return { map, bytes: encodeMap(map), mime: MAP_MIME, region, source: { provider: region.provider === "natural-earth" ? "Natural Earth" : region.provider === "nominatim" ? "OpenStreetMap" : "Photon (OpenStreetMap)" } };
+  }
+
+  private async run<T extends ResolvedPicture | ResolvedTerrain | GeoRegion | FoundPlace>(family: Family, query: string, variant: string, signal: AbortSignal | undefined,
     work: (signal: AbortSignal, trace: ResolveTrace) => Promise<T>): Promise<T> {
     const key = `${family}:${variant}:${query.toLowerCase()}`;
     const cached = this.cache.get(key);
@@ -145,7 +190,8 @@ export class VisualResolver {
       if (signal?.aborted) { trace.status = "cancelled"; throw error; }
       const code = errorCode(error);
       const failure = timeout.signal.aborted ? `${family}-unavailable`
-        : /^(portrait|image|terrain|region)-(not-found|unavailable)$/.test(code) ? code : `${family}-unavailable`;
+        : /^(portrait|image|terrain|region|place)-(not-found|unavailable)$/.test(code) ? code
+          : code === "geocoder-unavailable" ? (family === "place" ? "place-unavailable" : "region-unavailable") : `${family}-unavailable`;
       trace.status = "failed";
       trace.error = code !== failure ? `${failure} (${code})` : failure;
       throw new ResolveError(failure);

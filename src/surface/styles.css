@@ -8,6 +8,8 @@ body { overflow: hidden; background: #090e16; }
   background: radial-gradient(ellipse at 50% 46%, #17222e 0%, #101923 39%, #090e16 78%); }
 .stage { position: absolute; inset: 0; touch-action: none; }
 .stage canvas { display: block; width: 100%; height: 100%; }
+/* Places marked on a map or terrain, drawn over the particles (they never take a click from the body). */
+.markers { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* A card: information Aion presents beside its living body. The body steps aside (the renderer frames it);
    the card floats in the space it leaves — quiet type, generous space, no dashboard chrome. */
@@ -22,7 +24,7 @@ body { overflow: hidden; background: #090e16; }
 .card h2 { margin: 0 28px 8px 0; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #8597a9; }
 .card .summary { margin: 0; font-size: 21px; line-height: 1.38; font-weight: 300; color: #e8eff6; letter-spacing: .005em; }
 .card .statement { margin: 6px 0; font-size: 44px; line-height: 1.2; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
-.card mark.emphasis { background: none; color: #ffffff; text-shadow: 0 0 18px rgba(190, 214, 236, .55); border-bottom: 1px solid rgba(214, 228, 240, .6); padding: 0 .06em; }
+.card mark.emphasis { background: none; color: #ffffff; text-shadow: 0 0 18px rgba(190, 214, 236, .55); border-bottom: 1px solid var(--accent, rgba(214, 228, 240, .6)); padding: 0 .06em; }
 .card .prose { margin: 12px 0 0; white-space: pre-wrap; color: #c9d5e0; }
 .card .figure-value { margin: 4px 0; font-size: 56px; line-height: 1.1; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
 .card .mark { display: inline-block; width: 8px; height: 8px; margin-right: 12px; border-radius: 50%; vertical-align: 4px; background: #a8bed1; }
@@ -36,6 +38,12 @@ body { overflow: hidden; background: #090e16; }
 .card .lang { margin-top: 6px; font-size: 11px; color: #6f8296; }
 .card .picture { display: block; width: 100%; height: auto; max-height: 66vh; object-fit: contain; margin: 4px auto 0; border-radius: 12px; background: #0b121b; }
 .card .picture.relief { image-rendering: auto; background: transparent; margin-top: 10px; }
+.card svg.map { display: block; width: 100%; height: auto; margin-top: 10px; }
+.card svg.map .land { fill: #a8bed11f; stroke: none; } .card svg.map .land.context { fill: #a8bed10a; }
+.card svg.map .edge { fill: none; stroke: #dbe6f0; stroke-width: 1.1; stroke-linejoin: round; }
+.card svg.map .edge.border { stroke: #a8bed1aa; stroke-width: .8; } .card svg.map .edge.context { stroke: #a8bed140; stroke-width: .7; }
+.card svg.map .dot { stroke: #090e16; stroke-width: 1.5; }
+.card svg.map text { fill: #eef3f8; font-size: 13px; font-weight: 600; paint-order: stroke; stroke: #090e16; stroke-width: 3px; }
 .card .caption { margin: 12px 0 0; font-size: 12px; letter-spacing: .03em; color: #7f91a3; }
 .card table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 12.5px; }
 .card td { padding: 6px 0; border-top: 1px solid #ffffff0b; }

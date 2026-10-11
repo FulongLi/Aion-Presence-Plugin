@@ -12,6 +12,8 @@ import type { OrbitView } from "./interaction/orbit";
 import { syncUniforms } from "./physics/uniforms";
 import { createPostFX } from "./rendering/postfx";
 import { SpeechMotion } from "./speechMotion";
+import { PaletteEase } from "./palette";
+import type { ParticlePalette } from "../core/colors";
 
 /** What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. */
 export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
@@ -52,6 +54,13 @@ export interface RuntimeHandle {
   setTier(tier: number): void;
   /** Where a point on the screen (client pixels) lies on the body's plane (z = 0), in world units; null if nowhere. */
   toWorld(clientX: number, clientY: number): [number, number] | null;
+  /**
+   * Where a point of the formed visual (target space, world units) is on the screen right now (client pixels), as
+   * this renderer draws it — framing, perspective and the formed visual's own slow sway included. Null off screen.
+   */
+  project(point: [number, number, number]): [number, number] | null;
+  /** Aion's base colour: the palette is eased to over about a second; `immediate` jumps (a page's first frame). */
+  setPalette(palette: ParticlePalette, immediate?: boolean): void;
   dispose(): void;
 }
 
@@ -88,6 +97,7 @@ export async function createParticleRuntime(
   scene.add(system.mesh);
   const u = system.uniforms;
   const speechMotion = new SpeechMotion();
+  const palette = new PaletteEase();
   const fx = createPostFX(renderer, scene, camera, config);
   const pointer = options.interactive === false ? null : new PointerPusher(container, camera);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -189,6 +199,8 @@ export async function createParticleRuntime(
     u.responding.value = presence.responding;
     u.warmth.value = presence.warmth;
     u.motion.value = calm() ? 0.15 : 1;
+    const colors = palette.sample(dt);
+    u.baseColor.value.setRGB(...colors.cool); u.warmColor.value.setRGB(...colors.warm); u.formedColor.value.setRGB(...colors.formed);
     try {
       while (accumulator >= STEP) {
         if (pointer) {
@@ -225,6 +237,16 @@ export async function createParticleRuntime(
       const t = -camera.position.z / direction.z;
       return [camera.position.x + direction.x * t, camera.position.y + direction.y * t];
     },
+    project([x, y, z]) {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      if (!(bounds.width > 0 && bounds.height > 0)) return null;
+      // The formed visual's sway (material.ts): x shifts with depth, slowly, while it is formed and flat.
+      const sway = Math.sin(u.clock.value * 0.5) * 0.07 * u.morph.value * (1 - u.formedDepth.value);
+      const v = new Vector3(x + z * sway, y, z).project(camera);
+      if (!(v.z < 1)) return null;
+      return [bounds.left + (v.x + 1) / 2 * bounds.width, bounds.top + (1 - v.y) / 2 * bounds.height];
+    },
+    setPalette(next, immediate) { palette.set(next); if (immediate) palette.settle(); },
     dispose: cleanup,
   };
   const animate = (now: number) => {
