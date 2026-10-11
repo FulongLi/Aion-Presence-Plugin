@@ -30,6 +30,8 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *   embedded      the same page in a minimal MCP Apps host wired to the real Aion MCP server
  *   v0.4          Aion Eyes and express, the figure explaining an emphasised term, a heritage portrait, a 3D pyramid
  *                 that turns, is dragged and re-oriented, then returns — in both renderers
+ *   v0.4.1        through the real MCP tools: a heritage portrait by default; a map whose markers appear in their colours
+ *                 at their places and change in place; a pin on terrain; the body turning blue, purple and back
  *
  * Screenshots land in .e2e/smoke/. Needs a local Chrome (CHROME_PATH overrides); skips with a message when there
  * is none. `-- --offline` skips the public portrait and terrain lookups.
@@ -110,6 +112,7 @@ try {
   await renderers();
   await visuals();
   for (const renderer of ["auto", "canvas"] as const) await v4(renderer);
+  for (const renderer of ["auto", "canvas"] as const) await v41(renderer);
   await listening();
   await responding();
   await immersive();
@@ -226,6 +229,101 @@ async function v4(renderer: "auto" | "canvas") {
   check(!(await view<boolean>("v.orbit.active")), "the 3D view ends with it");
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   await page.close();
+}
+
+/**
+ * v0.4.1 on the real surface, driven through the real MCP tools (as Codex calls them): a portrait is heritage by
+ * default; a map forms and its markers appear in their colours at their places, change in place (the map is not
+ * formed again), and stand on terrain; the particles change colour and come back to Aion Silver.
+ */
+async function v41(renderer: "auto" | "canvas") {
+  console.log(`v0.4.1: heritage default, maps and markers, terrain markers, colours (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const name = (moment: string) => join(OUT, `v41-${renderer}-${moment}.png`);
+  const aion = await connectAion({ home, resolver: new VisualResolver({ env: {} }) });
+  const tool = async (tool: string, args: Record<string, unknown>) => {
+    const result = await aion.call(tool, args) as { isError?: boolean; content: { text: string }[] };
+    if (result.isError) console.log(`    ${tool}: ${result.content[0]?.text}`);
+    return !result.isError;
+  };
+  /** The mean colour of a small square of the screen. */
+  const colorAt = async (x: number, y: number, r = 6) => {
+    const shot = (await page.screenshot({ type: "png", clip: { x: Math.max(0, x - r), y: Math.max(0, y - r), width: r * 2, height: r * 2 } })).toString("base64");
+    return page.evaluate(`(async () => { const img = new Image(); img.src = "data:image/png;base64,${shot}"; await img.decode();
+      const c = new OffscreenCanvas(img.width, img.height); const g = c.getContext("2d"); g.drawImage(img, 0, 0); const d = g.getImageData(0, 0, img.width, img.height).data;
+      // The lit pixels only (the particles, the marker), so a sparse body is not drowned by the background.
+      const s = [0, 0, 0]; let n = 0; for (let i = 0; i < d.length; i += 4) { if (d[i] + d[i + 1] + d[i + 2] < 150) continue; s[0] += d[i]; s[1] += d[i + 1]; s[2] += d[i + 2]; n++; }
+      return n ? s.map(v => v / n) : [0, 0, 0]; })()`) as Promise<[number, number, number]>;
+  };
+  try {
+    if (!offline) {
+      check(await tool("show_portrait", { person: "Nikola Tesla" }), "show_portrait with no style");
+      check((await until(page, s => s.phase === "holding", 15_000)).phase === "holding", "the portrait forms");
+      check(await view<string>("v.visual.target.visual.frame") === "oval", "it is a heritage oval by default");
+      await page.screenshot({ path: name("heritage-default") });
+      await tool("clear_presentation", {});
+      await until(page, s => s.phase === "sphere", 6_000);
+    }
+    check(await tool("show_map", { region: "United States" }), "show_map: the United States");
+    check((await until(page, s => s.phase === "holding", 8_000)).phase === "holding", "the map forms");
+    check(await view<string>("v.visual.target.visual.kind") === "map", "as a map");
+    const revision = await view<number>("v.visual.revision"), id = await view<string>("v.snapshot.presentation.id");
+    check(await tool("mark_map", { add: [{ place: "Los Angeles", color: "red" }] }), "mark_map: Los Angeles in red");
+    check(await tool("mark_map", { add: [{ place: "New York", color: "yellow" }] }), "mark_map: New York in yellow");
+    await pause(1_500);
+    check(await view<number>("v.visual.revision") === revision && await view<string>("v.snapshot.presentation.id") === id && (await live(page)).phase === "holding",
+      "the markers changed in place: the map was not formed again");
+    const markers = await view<Record<string, { x: number; y: number; visible: number; color: string }>>("Object.fromEntries(v.markerLayer.positions)");
+    const la = markers["los-angeles"], ny = markers["new-york"];
+    check(!!la && !!ny && la.visible > 0.9 && ny.visible > 0.9, "both markers are drawn");
+    if (la && ny) {
+      check(la.x < ny.x - 250 && la.y > ny.y, `Los Angeles is far to the west and south of New York on screen (${la.x.toFixed(0)},${la.y.toFixed(0)} vs ${ny.x.toFixed(0)},${ny.y.toFixed(0)})`);
+      const [r, g, b] = await colorAt(la.x, la.y), [yr, yg, yb] = await colorAt(ny.x, ny.y);
+      check(r > g + 40 && r > b + 40, `a red marker at Los Angeles (${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})`);
+      check(yr > yb + 40 && yg > yb + 40, `a yellow marker at New York (${yr.toFixed(0)},${yg.toFixed(0)},${yb.toFixed(0)})`);
+    }
+    await page.screenshot({ path: name("usa-la-ny") });
+    check(await tool("mark_map", { change: [{ place: "Los Angeles", color: "blue" }] }), "mark_map: Los Angeles in blue");
+    await pause(1_200);
+    const blue = await view<{ x: number; y: number } | undefined>("v.markerLayer.positions.get('los-angeles')");
+    if (blue) { const [r, , b] = await colorAt(blue.x, blue.y); check(b > r + 40, "the marker turned blue"); }
+    check(await tool("mark_map", { remove: ["New York"] }), "mark_map: remove New York");
+    await pause(800);
+    check(!(await view<boolean>("v.markerLayer.positions.has('new-york')")), "New York is gone");
+    if (!offline) {
+      check(await tool("show_terrain", { region: "Scotland" }), "show_terrain: Scotland");
+      let formed = false;
+      for (let waited = 0; waited < 25_000 && !formed; waited += 250) { await pause(250); formed = await view<boolean>("v.visual.phase === 'holding' && v.visual.target.visual.kind === 'heightfield'"); }
+      check(formed, "the terrain forms");
+      check(await tool("mark_map", { add: [{ place: "Glasgow", color: "red" }] }), "mark_map: Glasgow in red on the terrain");
+      await pause(1_500);
+      const glasgow = await view<{ visible: number } | undefined>("v.markerLayer.positions.get('glasgow')");
+      check((glasgow?.visible ?? 0) > 0.9, "the Glasgow pin stands on the relief");
+      await page.screenshot({ path: name("scotland-glasgow") });
+    }
+    await tool("clear_presentation", {});
+    await until(page, s => s.phase === "sphere", 6_000);
+    const centre = { x: 550, y: 380 };
+    const silver = await colorAt(centre.x, centre.y, 60);
+    check(await tool("set_colors", { base: "blue" }), "set_colors: blue");
+    await pause(2_200);
+    const blueBody = await colorAt(centre.x, centre.y, 60);
+    check(blueBody[2] - blueBody[0] > (silver[2] - silver[0]) + 10, `the body turns blue (b−r ${(silver[2] - silver[0]).toFixed(0)} → ${(blueBody[2] - blueBody[0]).toFixed(0)})`);
+    await page.screenshot({ path: name("blue") });
+    check(await tool("set_colors", { base: "紫色" }), "set_colors: 紫色");
+    await pause(2_200);
+    const purple = await colorAt(centre.x, centre.y, 60);
+    check(purple[0] > blueBody[0] + 8, "then purple");
+    check(await tool("set_colors", { reset: "base" }), "set_colors: reset");
+    await pause(2_500);
+    const back = await colorAt(centre.x, centre.y, 60);
+    check(Math.abs((back[2] - back[0]) - (silver[2] - silver[0])) < 12, "and back to Aion Silver");
+    check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally {
+    await aion.close();
+    await page.close();
+  }
 }
 
 /**

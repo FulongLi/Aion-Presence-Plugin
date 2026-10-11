@@ -1,6 +1,6 @@
 import { angle, describePolygons, frameWindow, unit, type GeoPolygon } from "../../visual/geo/extent";
 import { fillRings, outlineLines, type GeoMap } from "../../visual/geo/map";
-import { project, type Frame } from "../../visual/geo/projection";
+import { project, unproject, wrapLon, type Frame } from "../../visual/geo/projection";
 import type { GeoRegion } from "./region";
 import { worldRegions } from "./world";
 
@@ -17,10 +17,12 @@ export function buildMap(region: GeoRegion, frame: Frame): GeoMap {
     [window.west, mid[1]], [window.east, mid[1]], [mid[0], window.south], [mid[0], window.north]];
   const reach = Math.max(...edges.map(([lon, lat]) => angle(centre, unit(lon, lat)))) + 5;
   const { x0, y0, x1, y1 } = frame, mx = (x1 - x0) * 0.15, my = (y1 - y0) * 0.15;
+  const centreGeo = unproject((x0 + x1) / 2, (y0 + y1) / 2, frame.projection);
+  // A polygon is in view when a vertex is, or when it contains the whole view (the Grand Canyon lies inside the United States).
   const inView = (polygon: GeoPolygon) => (polygon[0] ?? []).some(([lon, lat]) => {
     const xy = project(lon, lat, frame.projection);
     return xy !== null && xy[0] > x0 - mx && xy[0] < x1 + mx && xy[1] > y0 - my && xy[1] < y1 + my;
-  });
+  }) || (centreGeo !== null && containsPoint(polygon[0] ?? [], centreGeo));
   // Neighbours: regions with a part in view (a unit's siblings — England beside Scotland — instead of their whole country).
   const parents = new Set(region.ids.map(id => id.includes(".") ? id.split(".")[0] : ""));
   const neighbours: GeoPolygon[] = [];
@@ -42,4 +44,15 @@ export function buildMap(region: GeoRegion, frame: Frame): GeoMap {
     fill: fillRings(region.focus, frame, minStep),
     contextFill: fillRings(neighbours, frame, minStep * 1.5),
   };
+}
+
+/** Even-odd point in polygon on longitude and latitude (longitudes taken relative to the point, so the date line is no seam). */
+export function containsPoint(ring: readonly [number, number][], [lon, lat]: [number, number]): boolean {
+  let within = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = wrapLon(ring[i][0] - lon), yi = ring[i][1], xj = wrapLon(ring[j][0] - lon), yj = ring[j][1];
+    if (Math.abs(xi - xj) > 180) continue;
+    if ((yi > lat) !== (yj > lat) && 0 < (xj - xi) * (lat - yi) / (yj - yi) + xi) within = !within;
+  }
+  return within;
 }

@@ -521,7 +521,8 @@ export function createAionServer(options: AionServerOptions): McpServer {
     }
     const ref = await hand(found.bytes, found.mime);
     lastGeo = { kind: "map", region, style: "terrain", markers };
-    const name = label(found.region.label) ?? region;
+    // Natural Earth names are clean English; a place found on OpenStreetMap is called what the user called it.
+    const name = (found.region.provider === "natural-earth" ? label(found.region.label) : label(region)) ?? region;
     return present(ctx, { kind: "map", media: ref, label: name, region, markers, credit: found.source.provider }, hold,
       { shown: `${name}${markers.length ? ` — ${markerShown(markers)}` : ""}`, source: found.source, markers: markerOutput(markers) }, { presentation: preference });
   };
@@ -533,7 +534,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const by = credit(found.source);
     lastGeo = { kind: "terrain", region, style, markers };
     return present(ctx, {
-      kind: "terrain", media: ref, style, label: label(found.label) ?? region, region,
+      kind: "terrain", media: ref, style, label: (found.source.provider.includes("natural-earth") ? label(found.label) : label(region)) ?? region, region,
       ...(markers.length ? { markers } : {}), ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
     }, hold, {
       shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}${markers.length ? ` — ${markerShown(markers)}` : ""}`,

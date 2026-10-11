@@ -19,11 +19,13 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `guidance.ts` | The greeting (from the identity), onboarding examples backed by real tools, SCF's greeting gate (waits for the body and a quiet moment). |
 | `body.ts` | Persistent body: sphere, figure or eyes, each layer with its own eased weight, so any change is one particle transition. |
 | `figure/` | Figure 2.0: skeleton, the clean particle layout (strokes, head ring, joint beads), poses with two-bone IK (`pose.ts`), and the Expressive Motion System (`motion.ts`: eased keyframe clips, per-state tracks, gestures, the explanation cue). See [FIGURE.md](FIGURE.md). |
-| `eyes/` | Aion Eyes: the procedural lens layout and its CPU reference (`layout.ts`), expressions, blinks, saccades and state mapping (`expression.ts`). See [EYES.md](EYES.md). |
+| `eyes/` | Aion Eyes (v0.4.1 cartoon design): one luminous shape per eye, bound by direction and share of the outline's reach (`layout.ts`, with its CPU reference), expressions as shapes, spring-driven motion with entries, tempo, blinks and saccades (`expression.ts`). See [EYES.md](EYES.md). |
+| `colors.ts` | Aion's colours (v0.4.1): parsing (English and Chinese names, presets, hex), the particle palette (Aion Silver exact; others scaled, saturated and lifted to read on black), the accent. See [COLORS.md](COLORS.md). |
 | `audio.ts` | `HostAudioSource`, the seam for a host that someday exposes assistant audio. Today: `NO_HOST_AUDIO`. |
 | `presentationRouter.ts` | The Presentation Router: BODY, CARD or HYBRID for each presentation, from its kind, size, origin and fidelity needs, an optional preference (`auto` by default) and the surface's capabilities. Pure policy; deterministic overrides of clearly bad requests. |
 | `presentation.ts`, `store.ts` | What can be presented (form, text, result, image with fit, size and origin, terrain with its elevation, clock, number, symbol, emoji, artifact), routed; separate body and card lifetimes (SCF's hold times for the body, counted as time formed); a new topic retires temporary cards; the revisioned store. |
 | `visual/` | Visual forms (Tao, celestial, symbols), target sampling incl. SCF's 2.5D height-field sampler, intent-driven `normalizeImage` (portrait band, map, object, logo; the heritage oval, `oval.ts`), height-field codec, SVG checks, validators, the Visual Action controller. |
+| `visual/geo/` | Geography (v0.4.1), pure and shared: equal-area projections and frames (`projection.ts`), spherical extents — the primary part of a scattered region, windows (`extent.ts`), map geometry projected, densified and clipped, with its `AMP1` codec (`map.ts`), and `markerWorldPoint`, a place's position on a formed map or terrain through the samplers' own geometry (`markers.ts`). See [MAPS.md](MAPS.md). |
 | `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
 
 ### Precedence
@@ -88,11 +90,15 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   Aion" knows whether to bring a new window forward (the old one retires). Every command is re-validated.
 - **MCP server** (`mcp/server.ts`): SCF's visual vocabulary plus the host tools; SCF's tuned descriptions;
   `greeting.due` once per newly opened Presence; app-only tools only for MCP Apps hosts.
+- **Geography** (`geo/`, v0.4.1): the bundled offline world (Natural Earth: countries, named parts, Chinese names,
+  groups, a gazetteer), region and place resolution (offline first, then Nominatim/Photon, markers bounded to the view),
+  the map builder (focus, borders, neighbours). The resolver caches regions and places; terrain uses the same regions.
 - **Visual Resolver** (`resolver/`): SCF's resolver moved from the browser into Node. `net.ts` is the only path to
   the network: HTTPS to a fixed allowlist, no redirects, timeouts, byte limits, type and magic-byte checks, an
   identifying User-Agent. Images: curated local assets (the Spirit Connect logo), then Wikipedia → Commons →
-  Openverse by intent, ranked as in SCF, dimensions checked from the header. Terrain: Nominatim/Photon → AWS
-  terrarium tiles (decoded exactly by a small PNG decoder) → SCF's height field → compact bytes. Results become
+  Openverse by intent, ranked as in SCF, dimensions checked from the header. Terrain: the region (see Geography) → its
+  equal-area frame → AWS terrarium tiles (decoded exactly by a small PNG decoder) resampled into that frame → SCF's height
+  field, carrying its frame → compact bytes. Results become
   local media; the surface never contacts a remote host.
 - **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
 - **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
@@ -116,6 +122,11 @@ Aion Core (state, engine, body, Presentation Router)  ·  Aion Renderer (WebGPU,
      ├── Browser companion  transports/companion.ts + immersive.ts — app window, Enter Presence, fullscreen
      └── Desktop (future)   a native shell: one more transport with its own window controls
 ```
+
+Places marked on a map or terrain are drawn by `markers.ts` on an overlay above the particles (glowing grains, a pulse,
+a crisp label; pins on terrain) at the screen position the renderer's `project()` gives their coordinates, every frame;
+marker changes never re-form the visual. Aion's colours arrive in the snapshot: the renderer eases its palette
+(`render/palette.ts`, WebGPU uniforms and the canvas fallback alike) and the accent becomes a CSS variable.
 
 Browser fullscreen, window sizing and gestures live only in the surface adapter (`immersive.ts`), never in Aion
 Core or the renderer.

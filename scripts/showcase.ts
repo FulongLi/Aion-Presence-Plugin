@@ -301,6 +301,16 @@ const DEMOS: Demo[] = [
 
 DEMOS.push(
   {
+    name: "bodies-motion", title: "v0.4.1: sphere → eyes → figure → sphere, filmed (one particle body re-forming)", seconds: 16,
+    async run(ctx) {
+      const area = { x: 180, y: 90, width: 600, height: 540 };
+      await ctx.wait(1.5);
+      ctx.apply({ type: "body", body: "eyes" }); await ctx.film("1-sphere-to-eyes", 3, area);
+      ctx.apply({ type: "body", body: "figure" }); await ctx.film("2-eyes-to-figure", 3, area);
+      ctx.apply({ type: "body", body: "sphere" }); await ctx.film("3-figure-to-sphere", 3, area);
+    },
+  },
+  {
     name: "portrait-default", title: "v0.4.1 Test A: \"Show me Nikola Tesla\" — a heritage portrait by default; then the classic one on request", seconds: 30,
     async run(ctx) {
       await ctx.wait(1.5);

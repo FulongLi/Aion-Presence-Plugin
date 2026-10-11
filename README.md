@@ -4,7 +4,8 @@
 builds and talks with you. While Aion is open you meet it *as Aion*: one embodied presence, in the foreground, a
 living particle body — a sphere, a pair of expressive eyes, or a stick figure that gestures and explains — that
 listens, reflects what is really happening, visibly answers, and shows you things: as its own body (including
-genuine 3D objects you can turn), as a high-fidelity card, or both.
+genuine 3D objects you can turn and maps with places marked on them), as a high-fidelity card, or both — in Aion
+Silver or the colours you choose.
 
 ```text
 inside:   Codex = intelligence (reasoning, coding, tools, conversation, voice)
@@ -45,13 +46,17 @@ fallback).
 you speak                    →  Aion visibly listens (locally); you stop → it turns to thinking
 Codex works                  →  reading · editing · testing · building (from Codex's lifecycle hooks)
 Codex answers                →  Aion visibly answers, for as long as the answer is being said
-"What did Nikola Tesla look like?"   →  his particle portrait forms while the original photograph stands beside it
+"What did Nikola Tesla look like?"   →  his heritage portrait (an antique oval of particles) forms beside the original photograph
 "What is the terrain of Scotland like?" → Aion becomes Scotland's real relief
 "What does Orion look like?" →  Aion becomes Orion — no card needed
 "Show me the change."        →  the exact code, in a quiet card beside a body that keeps living
-"Show your eyes." · "Look happy." →  Aion becomes two expressive eyes, and smiles with them
+"Show your eyes." · "Look happy." →  Aion becomes two simple cartoon eyes, and smiles with them: ^ ^
+"Show me where Los Angeles is in the USA." →  the United States forms; a marker lights up at Los Angeles, labelled
+"Mark New York in yellow." · "Make LA blue." →  markers change in place; the map stays
+"展示一下中国的地形。"                →  China's real relief, from elevation data
+"Change your colour to blue."        →  every particle turns blue (remembered); "Restore your original colour" → silver
 "Explain a² + b² = c²."      →  the figure looks at the equation, points at c² and explains with its hands
-"Show me Tesla as an old oval portrait." →  a heritage portrait: an antique oval of particles, silver-edged
+"Show me the classic portrait instead." →  the head-and-shoulders particle portrait
 "Show me an Egyptian pyramid in 3D." · "Rotate it." →  a real 3D pyramid that turns; drag it, zoom, reset
 ```
 
@@ -61,8 +66,13 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   transition. See [docs/EYES.md](docs/EYES.md) and [docs/FIGURE.md](docs/FIGURE.md).
 - **SCF Presence's visual language**: portraits and images of almost anything (looked up on open sources), real
   terrain from elevation data, Tao forms (yin-yang, lines, trigrams, bagua), constellations, zodiac and planetary
-  signs, clocks, key numbers, short words, symbols and emoji — plus, in v0.4, **heritage** oval portraits and
-  **genuine 3D objects** built from validated primitive scenes ([docs/SCENES.md](docs/SCENES.md)).
+  signs, clocks, key numbers, short words, symbols and emoji — plus, in v0.4, **genuine 3D objects** built from
+  validated primitive scenes ([docs/SCENES.md](docs/SCENES.md)).
+- **v0.4.1**: every portrait is a **heritage** oval portrait by default (classic on request); **Aion Eyes** redesigned
+  as minimal cartoon eyes that squash, stretch and bend ([docs/EYES.md](docs/EYES.md)); **maps and markers** for any
+  country, continent or region, and **global terrain** in true equal-area shape, with markers on both
+  ([docs/MAPS.md](docs/MAPS.md), measured coverage in [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md)); **your colours**
+  for the particles and the markers, remembered ([docs/COLORS.md](docs/COLORS.md)).
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -124,9 +134,12 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | `set_presence_state` | `idle listening thinking working reading editing testing building responding presenting complete error`. |
 | `set_body_form` | `sphere`, `eyes` or `figure`: the persistent body. |
 | `express` | An expression (neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned) or a gesture (wave, nod, point, shrug, surprise, jump, step, turn, look-around, think): the eyes wear it, the figure acts it out. |
-| `show_portrait` | A real person's face, from public photos (Wikipedia first): a particle portrait and the original photograph (hybrid). `style: "heritage"`: an antique oval portrait. |
+| `show_portrait` | A real person's face, from public photos (Wikipedia first): a heritage oval particle portrait and the original photograph (hybrid). `style: "classic"`: the head-and-shoulders portrait. |
 | `show_image` | A picture of almost anything: `query` (+ `intent`) looks it up on open sources; `source` shows a local file; `detail: true` keeps it exact. |
-| `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap); `presentation: "hybrid"` adds a relief map card. |
+| `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap), any size from a mountain to a continent; `markers` pins places on it; `presentation: "hybrid"` adds a relief map card. |
+| `show_map` | A map of a continent, country, part of one, state or city, with its neighbours, and `markers` at real coordinates (colour, label, highlight). |
+| `mark_map` | Add, recolour, relabel, highlight or remove markers on the map or terrain on show, without forming it again. |
+| `set_colors` | Aion's base particle colour and accent colour (names in any language, presets, `#RRGGBB`), or `reset`; remembered. |
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
 | `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
 | `set_scene_view` | Turn, tilt or zoom the 3D object on show, stop its turn, or reset the view. |
@@ -134,7 +147,7 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
 | `clear_presentation` | Return to the persistent body now. |
 
-`show_image`, `show_portrait`, `show_terrain`, `show_text`, `show_result` and `show_artifact` accept `presentation`
+`show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
 (`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
 
 ## Lifecycle hooks
@@ -158,8 +171,9 @@ hooks Aion still works; the Skill then sets the main states itself.
 - **Microphone**: analysed in the Presence window only, as loudness and voice activity, so Aion can look
   attentive. Never recorded, stored, uploaded or transcribed; refusing it is fine. Real-device check:
   [docs/MICROPHONE.md](docs/MICROPHONE.md).
-- **Network**: the hub listens on `127.0.0.1` only (per-user token, loopback `Host` check). When Codex asks for a
-  portrait, picture or terrain, the MCP process sends only the name, search phrase or region to public data
+- **Network**: the hub listens on `127.0.0.1` only (per-user token, loopback `Host` check). Countries, continents, their
+  named parts and about 1,250 cities are known offline (Natural Earth, bundled). When Codex asks for a portrait,
+  picture, terrain or a place the offline world does not know, the MCP process sends only the name, search phrase or region to public data
   providers on a fixed allowlist (Wikipedia, Wikimedia Commons, Openverse, OpenStreetMap Nominatim, Photon, the
   public AWS elevation tiles), identifying itself by User-Agent. Downloads are size-limited and checked by their
   bytes before the surface sees them; the surface itself never contacts a remote host. Repository and
@@ -187,8 +201,10 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, and v0.4's eyes, explanation, heritage and 3D in both renderers (`-- --offline` skips lookups) |
-| `npm run showcase` | The visual review: records each v0.4 demo in the real renderer (`.e2e/showcase/*.webm` and screenshots); `-- --list`, `-- pyramid eyes`, `-- --headed`, `-- --canvas` |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, and v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours — in both renderers (`-- --offline` skips lookups) |
+| `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`.e2e/showcase/*.webm`, screenshots, filmed frames for `scripts/media/gif.py`); `-- --list`, `-- map-usa eyes-motion`, `-- --headed`, `-- --canvas` |
+| `npm run geo:coverage` | Geography against the live services (continents, the largest and smallest countries, high latitudes, the date line, OSM regions, markers, terrain); writes [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md) |
+| `npm run geo:build -- <dir>` | Rebuilds the bundled world from the Natural Earth GeoJSON files (see [docs/MAPS.md](docs/MAPS.md)) |
 | `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes |
 | `npm run release` | The reproducible installable archive in `dist/` |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |
@@ -207,3 +223,9 @@ renderer and adaptive quality, visual forms, the Visual Resolver (portraits, ima
 the microphone/VAD/emphasis pipeline, greeting and onboarding, and the tuned tool descriptions. It replaces only
 SCF's AI transport — Realtime/GPT-Live sessions, keys and WebRTC — with the Codex host. See
 [docs/PARITY.md](docs/PARITY.md).
+
+## Credits
+
+Country outlines, continents and the city gazetteer: [Natural Earth](https://www.naturalearthdata.com) (public domain).
+Places beyond it: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via Nominatim and Photon.
+Elevation: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/) (Mapzen terrarium; SRTM, GMTED, ETOPO1 and others).
