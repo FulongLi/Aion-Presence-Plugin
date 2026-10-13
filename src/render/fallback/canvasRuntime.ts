@@ -5,6 +5,9 @@ import { particleDefaults } from "../particleDefaults";
 import { formedPoint } from "../physics/morph";
 import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
+import { PaletteEase } from "../palette";
+import { SILVER_PALETTE } from "../../core/colors";
+import { RING_STAGGER, ringHash, ringParams, ringPoint, sphereAudioOffset, type RingPoint } from "../ring";
 
 /**
  * The fallback body for browsers or embedded hosts without WebGPU: the same particles (the same sphere
@@ -32,19 +35,21 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const sphere = createSphere(count, radius);
   const layout = createFigureLayout(count), eyesLayout = createEyesLayout(count);
   // Per-particle stagger, as in the GPU morph and body weights (physics/morph.ts).
-  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count);
+  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count), ringStagger = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = [sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2]];
     morphStagger[i] = hash(x, y, z, 12.9898, 78.233, 37.719, 43758.5453);
     bodyStagger[i] = hash(x, y, z, 41.3, 17.9, 63.1, 24634.6345);
     eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
+    ringStagger[i] = ringHash(x, y, z, ...RING_STAGGER);
   }
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
-  const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count);
+  const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count), sizes = new Float32Array(count).fill(1);
+  const palette = new PaletteEase();
   const resize = () => {
     const ratio = Math.min(devicePixelRatio || 1, fallbackDefaults.pixelRatio);
     width = Math.max(1, container.clientWidth); height = Math.max(1, container.clientHeight);
@@ -80,8 +85,16 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
     const warm = presence.warmth * 0.28;
-    const cool = [0xa8, 0xbe, 0xd1], warmColor = [0xd5, 0xc5, 0xbb];
-    const base = cool.map((value, k) => value + (warmColor[k] - value) * warm);
+    // Sound (v0.4.2): the sphere's audio field and the circular spectrum, from the CPU reference (render/ring.ts).
+    const sound = inputs.audio?.sample(dt);
+    const audio = sound ? { bands: sound.bands, bass: sound.bass, mid: sound.mid, treble: sound.treble, beat: sound.beat, gain: sound.gain * (calm() ? 0.3 : 1), level: sound.level, weight: sound.sphere } : null;
+    const ring = sound ? ringParams(sound.layout) : null;
+    if (ring && calm()) ring.flow *= 0.2;
+    const point: RingPoint = { position: [0, 0, 0], energy: 0, core: false };
+    const colors = palette.sample(dt);
+    const base = colors.cool.map((value, k) => (value + (colors.warm[k] - value) * warm) * 255);
+    // Formed visuals take the palette's formed tint relative to its body colour (Aion Silver: unchanged from v0.4).
+    const formedTint = colors.formed.map((value, k) => value / Math.max(1e-3, colors.cool[k]) / (SILVER_PALETTE.formed[k] / SILVER_PALETTE.cool[k]));
     for (let i = 0; i < count; i++) {
       const rx = sphere.positions[i * 3], ry = sphere.positions[i * 3 + 1], rz = sphere.positions[i * 3 + 2];
       // The sphere's own field, reduced to its readable parts: travelling breath, gathering, a thinking swirl.
@@ -95,6 +108,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       const s = (Math.sin(clock * 0.9 + ry * 1.4) * swirl + Math.sin(clock * 0.7 + ry * 1.6) * presence.responding * responding.flow) * motion;
       let x = rx * (1 + b) + rz * s, y = ry * (1 + b), z = rz * (1 + b) - rx * s;
       let tone = 0.62 + 0.3 * (rz / radius) + (presence.focus + presence.userAmplitude) * listening.glow + rise * presence.responding * responding.glow;
+      const rw = sound && sound.ring > 0 ? smooth(sound.ring * 1.35 - ringStagger[i] * 0.35) : 0;
+      if (audio && audio.weight > 0 && rw < 1) {
+        const [ox, oy, oz] = sphereAudioOffset([rx, ry, rz], audio, clock);
+        x += ox * (1 - rw); y += oy * (1 - rw); z += oz * (1 - rw);
+        tone += (audio.level * 0.12 + audio.beat * 0.1) * audio.weight * Math.min(1.3, audio.gain);
+      }
       const bw = body.level > 0 ? smooth(body.level * 1.35 - bodyStagger[i] * 0.35) : 0;
       if (bw > 0) {
         const f = figurePoint(layout, i, body.anchors, { clock, orbit: body.orbit, thinking: presence.thinking });
@@ -102,10 +121,19 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         tone += (Math.min(1, f.tone * 1.25) - tone) * bw;
       }
       const ew = body.eyes > 0 ? smooth(body.eyes * 1.35 - eyesStagger[i] * 0.35) : 0;
+      let grain = 1;
       if (ew > 0) {
         const e = eyesPoint(eyesLayout, i, body.eyeParams, clock);
         x += (e.position[0] - x) * ew; y += (e.position[1] - y) * ew; z += (e.position[2] - z) * ew;
         tone += (Math.min(1, e.tone * 1.25) - tone) * ew;
+        // The eyes' fill grains are larger (fewer particles here than on the GPU, so a little larger still).
+        grain += (e.grain * 1.6 - 1) * ew;
+      }
+      if (rw > 0 && audio && ring) {
+        ringPoint([rx, ry, rz], ring, audio, clock, point);
+        x += (point.position[0] - x) * rw; y += (point.position[1] - y) * rw; z += (point.position[2] - z) * rw;
+        tone += ((0.62 + point.energy * 0.95 + audio.beat * 0.12) * (point.core ? 0.85 : 1) - tone) * rw;
+        grain += (0.86 - grain) * rw;
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {
@@ -119,17 +147,19 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       xs[i] = centreX + x * zoom * perspective;
       ys[i] = centreY - y * zoom * perspective;
       light[i] = Math.max(0, Math.min(1, tone));
+      sizes[i] = grain + (1 - grain) * mw;
     }
     context.clearRect(0, 0, width, height);
     context.globalCompositeOperation = "lighter";
     const size = fallbackDefaults.size;
     // Particles are batched by brightness so each level is one fill.
+    const tint = base.map((value, k) => value * (1 + (formedTint[k] - 1) * morph));
     for (let level = 1; level <= fallbackDefaults.levels; level++) {
       const lo = (level - 1) / fallbackDefaults.levels, hi = level / fallbackDefaults.levels;
-      const [r, g, bl] = base.map(value => Math.round(value * (0.35 + hi * 0.75)));
+      const [r, g, bl] = tint.map(value => Math.min(255, Math.round(value * (0.35 + hi * 0.75))));
       context.fillStyle = `rgba(${r}, ${g}, ${bl}, ${(0.25 + hi * 0.6).toFixed(3)})`;
       context.beginPath();
-      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) context.rect(xs[i] - size / 2, ys[i] - size / 2, size, size);
+      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
       context.fill();
     }
     context.globalCompositeOperation = "source-over";
@@ -159,5 +189,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const bounds = canvas.getBoundingClientRect();
     return bounds.width > 0 ? [(clientX - bounds.left - centre.x) / centre.zoom, (centre.y - (clientY - bounds.top)) / centre.zoom] : null;
   };
-  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, dispose: cleanup };
+  const project = ([x, y, z]: [number, number, number]): [number, number] | null => {
+    const bounds = canvas.getBoundingClientRect();
+    if (!(bounds.width > 0) || z >= 7.4) return null;
+    const perspective = 7.4 / (7.4 - z);
+    return [bounds.left + centre.x + x * centre.zoom * perspective, bounds.top + centre.y - y * centre.zoom * perspective];
+  };
+  const setPalette = (next: Parameters<RuntimeHandle["setPalette"]>[0], immediate?: boolean) => { palette.set(next); if (immediate) palette.settle(); };
+  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, project, setPalette, dispose: cleanup };
 }

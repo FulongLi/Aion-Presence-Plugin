@@ -14,6 +14,10 @@ export function presenceHome(env: NodeJS.ProcessEnv = process.env): string {
 export const HUB_FILE = "hub.json";
 export const TOKEN_FILE = "token";
 export const HOOK_HEARTBEAT_FILE = "hooks-seen";
+/** Aion's colours, as the user chose them (base and accent). */
+export const APPEARANCE_FILE = "appearance.json";
+/** How Aion responds to sound (mode, intensity, sensitivity); never which sources it may capture. */
+export const AUDIO_FILE = "audio.json";
 /** Hook events seen this recently mean the plugin's hooks are trusted and running. */
 export const HOOKS_ACTIVE_MS = 30 * 60_000;
 /** The companion surface's preferred local port (any free port is used when it is taken). */

@@ -16,6 +16,8 @@ import { pusherForce } from "./physics/pusherPhysics";
 import { presenceForce } from "./physics/presenceField";
 import { integrateSpring } from "./physics/springPhysics";
 import { createMaterial } from "./rendering/material";
+import { ringRest, ringWeight } from "./physics/ring";
+import { sphereAudioField } from "./physics/audioField";
 
 export function createParticleSystem(capacity: number, config: ParticleConfig) {
   const sphere = createSphere(capacity, config.geometry.radius);
@@ -52,11 +54,15 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
     // The persistent body is the rest a temporary visual forms from and returns to: sphere, figure or eyes.
     const inputs = bodyInputs();
     const b = bodyWeight(r, u), e = eyesWeight(r, u);
-    const bodyRest = mix(mix(r, figureRest(inputs.bind, inputs.local, u).position, b), eyesRest(inputs.eyesBind, inputs.eyesLocal, u).position, e);
+    const persistent = mix(mix(r, figureRest(inputs.bind, inputs.local, u).position, b), eyesRest(inputs.eyesBind, inputs.eyesLocal, u).position, e);
+    // The circular audio spectrum (v0.4.2) is a layer over the persistent body: the same grains re-form as the ring.
+    const w = ringWeight(r, u);
+    const bodyRest = mix(persistent, ringRest(r, u).position, w);
     const base = mix(bodyRest, formedTarget(target.element(instanceIndex), u), m);
     // The sphere's own field (breathing, listening, thinking, speech tufts) is shaped for a sphere. The figure
     // takes none of it (its strokes stay precise) and gets its body language from the pose instead.
-    const sphereForce = presenceForce(r, s, u).mul(float(1).sub(m)).mul(float(1).sub(b)).mul(float(1).sub(e));
+    const sphereForce = presenceForce(r, s, u).add(sphereAudioField(r, u).mul(u.stiffness).mul(u.motion))
+      .mul(float(1).sub(m)).mul(float(1).sub(b)).mul(float(1).sub(e)).mul(float(1).sub(w));
     // A formed visual action still breathes and answers speech, in a restrained way: a slow travelling
     // ripple plus a speech shimmer along the view axis (depth keeps the image legible), where each
     // column of the image follows one spectrum band and grains twinkle with articulation.

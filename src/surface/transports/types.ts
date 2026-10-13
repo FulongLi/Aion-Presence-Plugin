@@ -1,4 +1,4 @@
-import type { HubSnapshot } from "../../host/hub/protocol";
+import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 
 export type ConnectionState = "connecting" | "live" | "resting";
 
@@ -23,5 +23,11 @@ export interface PresenceTransport {
   diagnostics?(lines: Record<string, string>): void;
   /** A newer window was brought to the foreground in this one's place: this one should retire. */
   onSuperseded?: () => void;
+  /** This window's own id (the companion), so it knows whether it is the one that plays music (v0.4.2). */
+  readonly windowId?: string;
+  /** Audio features the hub analysed (Codex's voice, another app's sound), as they arrive (v0.4.2). */
+  onAudio?: (message: unknown) => void;
+  /** Tells the hub where this window's own audio stands (states only, never audio). */
+  audioStatus?(status: SurfaceAudio): void;
   close(): void;
 }

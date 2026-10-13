@@ -73,7 +73,7 @@ test("network: the loopback hub, plus public data through one guarded module wit
     "nominatim.openstreetmap.org", "photon.komoot.io", "s3.amazonaws.com", "api.search.brave.com", "imgs.search.brave.com",
   ]);
   // The surface (embedded or companion) never reaches a remote host: it only talks to its own hub or host.
-  for (const file of source.filter(path => rel(path).startsWith("src/surface/"))) assert.doesNotMatch(read(file), /https?:\/\/(?!127\.0\.0\.1)/, rel(file));
+  for (const file of source.filter(path => rel(path).startsWith("src/surface/"))) assert.doesNotMatch(read(file), /https?:\/\/(?!127\.0\.0\.1|www\.w3\.org\/2000\/svg")/, rel(file)); // (the SVG namespace is a name, not a request)
 });
 
 test("no dependency is a model SDK", () => {

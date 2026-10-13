@@ -7,9 +7,17 @@ import {
   cleanCode, cleanText, describePresentation, LIMITS, type Presentation, type PresentationContent,
 } from "../../core/presentation";
 import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
+import type { TerrainStyle } from "../../visual/types";
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
+import { portraitStyleFor } from "../../visual/types";
+import { accentColor, contrastOnBlack, COLOR_PRESETS, hexToRgb, parseColor, type NamedColor } from "../../core/colors";
+import { markerWords, MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
+import { decodeMap } from "../../visual/geo/map";
+import { decodeHeightField } from "../../visual/heightfield";
+import type { Frame } from "../../visual/geo/projection";
+import { inside, regionFrame, type GeoRegion } from "../geo/region";
 import { visualForms, type VisualFormRegistry } from "../../visual/forms";
 import { clockText } from "../../visual/validate";
 import { SCENE_PRESETS, SCENE_PRESET_NAMES, type ScenePreset } from "../../visual/scene3d/presets";
@@ -22,10 +30,17 @@ import { imageSize } from "../resolver/imageInfo";
 import { VisualResolver } from "../resolver";
 import {
   expressInput, mediaInput, setSceneViewInput, showSceneInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
-  showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput,
+  showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput, showMapInput, markMapInput, setColorsInput,
+  showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput,
+  type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
+import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
+import { checkScore, type CheckedScore, type MusicHighlight } from "../../music/notation/score";
+import { lessonById, LESSONS, type Language } from "../../music/lessons/lessons";
+import type { MusicLessonRef } from "../../core/presentation";
+import type { AudioSettings } from "../../audio/settings";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -51,7 +66,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "clock", "number", "symbol", "emoji", "scene", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -77,6 +92,25 @@ export const presenceOutput = z.object({
     line: z.string().optional().describe("The canonical introduction in English. Word it naturally; keep the names and facts."),
     line_zh: z.string().optional().describe("The same introduction in Chinese, for a user writing in Chinese."),
   }).optional(),
+  markers: z.array(z.object({ label: z.string(), lat: z.number(), lon: z.number(), color: z.string() })).optional()
+    .describe("The places marked on the map or terrain on show, with their real coordinates (say them if useful)."),
+  colors: z.object({ base: z.object({ hex: z.string(), name: z.string() }), accent: z.object({ hex: z.string(), name: z.string() }) }).optional()
+    .describe("Aion's colours now: the particles' base colour and the accent of markers and highlights. Remembered across sessions."),
+  music: z.object({
+    title: z.string(), clef: z.string(), time: z.string().optional(),
+    notes: z.array(z.record(z.string(), z.unknown())).describe("Each note: its pitch and name, solfège, frequency (Hz), duration, and where it sits on the staff."),
+    playback: z.enum(["playing", "blocked", "requested", "no-window", "stopped"]).optional()
+      .describe("playing: sounding in Aion's window now. blocked: the browser needs one click in Aion's window first (say so). requested: sent (the embedded view does not report). no-window: Aion is not open."),
+    lesson: z.object({ id: z.number(), title: z.string(), step: z.number(), steps: z.number(), language: z.string(), text: z.string(), question: z.boolean().optional() }).optional()
+      .describe("The lesson step on show. text is the teaching point: say it in your own words, in the user's language."),
+    answer: z.object({ correct: z.boolean(), expected: z.string(), heard: z.string().nullable() }).optional(),
+  }).optional(),
+  audio: z.object({
+    enabled: z.boolean(), source: z.string(), mode: z.string(), intensity: z.string(), sensitivity: z.number(),
+    codex: z.string().describe("Codex voice capture: streaming (real audio drives the body), starting, off, unavailable (why) or failed (why)."),
+    system: z.string().describe("Other apps' sound: as codex."),
+    microphone: z.string().optional(), tab: z.string().optional(),
+  }).optional().describe("How Aion responds to sound, and which sources are really connected. Never claim a source is connected unless it says so."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -121,12 +155,27 @@ export const TOOL_DESCRIPTIONS = {
     + "materially helps, e.g. the user asks what something looks like or wants to see it. For a real person's face prefer show_portrait; "
     + "for Taoist symbols, constellations and zodiac signs always use show_form.",
   show_portrait: "Form a portrait of a real, recognizable person with Aion's particle body, from public photos (Wikipedia, then other open "
-    + "image sources), framed head and shoulders. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look "
-    + "like?\", \"Show me Albert Einstein\"), or when a portrait materially helps the answer. Do not call just because a name appears in "
-    + "conversation.",
+    + "image sources): by default a heritage portrait, an antique oval of particles with a silver outline, while the original photograph "
+    + "stands beside it. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look like?\", \"Show me Albert "
+    + "Einstein\", \"展示一下牛顿的肖像\"), or when a portrait materially helps the answer. Leave style out unless the user asks for the "
+    + "classic head-and-shoulders portrait (style \"classic\"). Do not call just because a name appears in conversation.",
   show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
     + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
     + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
+  show_map: "Show a geographic map with Aion's particle body — the outline of a continent, country, part of one, state or city, its "
+    + "borders, and its neighbours faintly around it — and mark places on it with coloured markers and labels at their real coordinates. "
+    + "Use when the user asks where something is, or to see a country, region or continent as a map (\"Show me where Los Angeles is in "
+    + "the USA\" → region United States, markers [Los Angeles]; \"Show me Scotland and mark Glasgow in red\"; \"Show me the United States\"; "
+    + "\"Show me Africa\"). For mountains, relief and topography use show_terrain instead (it takes markers too). A map is not a picture: never "
+    + "use show_image for one.",
+  mark_map: "Change the places marked on the map or terrain on show, without forming it again: add places (\"Mark Los Angeles in red\", "
+    + "\"Add New York in yellow\", \"Add it to the map\"), change one (\"Change the Los Angeles marker to blue\"), remove one (\"Remove the "
+    + "New York marker\") or clear them. Places are found by name near the region on show (Glasgow on Scotland is Glasgow, Scotland). If the "
+    + "map has already gone, it comes back with the change. A place outside the view widens it.",
+  set_colors: "Change Aion's colours, remembered across sessions: base is the colour of every particle (the sphere, the eyes, the figure, "
+    + "every particle visual and 3D object); accent is the colour of markers and highlights. Names in any language (\"blue\", \"warm gold\", "
+    + `"紫色"), presets (${COLOR_PRESETS.join(", ")}) or #RRGGBB. "Restore your original colour" → reset base (Aion Silver). Photographs and `
+    + "cards are never tinted. Use only when the user asks for a colour.",
   show_form: () => "Form a symbol or figure from Aion's own visual language directly with its particle body. It is drawn procedurally on the "
     + "device, with no image search: Taoist symbols (the yin-yang/taiji, the yin and yang lines, the eight trigrams 乾 兑 离 震 巽 坎 艮 坤 "
     + "and the bagua), constellations as star maps, the twelve zodiac signs and the planetary symbols. Always prefer it to show_image for "
@@ -162,6 +211,26 @@ export const TOOL_DESCRIPTIONS = {
   set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
     + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
     + "show_scene object is on show; to leave it, use clear_presentation.",
+  show_music: "Show music notation exactly, on a staff beside Aion (the notation engine places every note where theory says): single notes, a scale, "
+    + "a short melody or rhythm, or an empty staff (staff: true) to explain lines and spaces. Use it whenever the user is learning or asking about "
+    + "notes, clefs, rhythms or scales (\"What does middle C look like?\", \"Show me the C major scale\", \"How do I read music?\"). Pitches are scientific "
+    + "(C4 is middle C); highlight lights up notes, a line, a space, the clef or the time signature while you explain; symbol makes the body form "
+    + "that symbol beside it (a clef, a note value); play: true also plays it with each note lighting up. The result lists every note's name, "
+    + "solfège, frequency and staff position, for your explanation. Never draw notation with show_image or show_artifact.",
+  play_music: "Play music on this device (A4 = 440 Hz, a soft piano-like tone, nothing generated by a model): the music on show (optionally only some "
+    + "notes, by index), or notes or a scale you give (they are shown as they play). Each note lights up the moment it sounds, and Aion's body moves "
+    + "with the sound. Use when the user asks to hear something (\"Can you play it?\", \"Play the C major scale\", \"Play it slower\" → tempo). "
+    + "stop: true stops. If the result says blocked, the user must click once in Aion's window (a browser rule) — say so.",
+  music_lesson: `Teach music theory step by step with Aion's notation, playback and body. Lessons: ${LESSONS.map(lesson => `${lesson.id} ${lesson.title.en}`).join("; ")}. `
+    + "Start one (\"I want to learn to read music\" → lesson 1), go on (step next, previous, repeat), switch language (language zh or en: the lesson and "
+    + "step stay), or check the user's answer to a practice question (answer: \"E\"). Each result has the step's teaching point (music.lesson.text): "
+    + "say it in your own words, in the user's language, then wait for them; never read the whole lesson at once.",
+  set_audio_visualizer: "How Aion moves with sound: which source (the user's microphone, your own spoken voice captured on this Mac, another app's "
+    + "music, a shared browser tab, Aion's own music), which form (auto, sphere, spectrum — a circular particle spectrum — or hybrid), how strongly "
+    + "(subtle, balanced, expressive) and how sensitive. Use only when the user asks (\"React to your own voice\" → source codex; \"Visualize the music\" "
+    + "→ mode spectrum (and source system with the app, or tab); \"Make the particles more responsive\" → intensity expressive or sensitivity up; "
+    + "\"Go back to your normal appearance\" → mode sphere; \"Stop listening to system audio\" → stop [system]). Capturing your voice or another app "
+    + "needs macOS and the user's permission; the result says what is really connected — never claim more. Colours stay set_colors.",
   express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
     + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
     + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
@@ -186,6 +255,9 @@ function resolveFailure(code: string, what: string): string {
     case "image-not-found": return `image-not-found: no suitable open image of "${what}" was found. Describe it in words, or try a more specific query.`;
     case "region-not-found": return `region-not-found: no place called "${what}" was found. Check the name, or describe the terrain in words.`;
     case "terrain-unavailable": return `terrain-unavailable: elevation data for ${what} could not be loaded right now. Describe the terrain in words.`;
+    case "region-unavailable": return `region-unavailable: the place finder (OpenStreetMap) could not be reached for "${what}". Countries, continents and their named parts work offline; try one of those, or answer in words.`;
+    case "place-not-found": return `place-not-found: no place called "${what}" was found to mark. Check the name, or add the country (e.g. "Springfield, Illinois").`;
+    case "place-unavailable": return `place-unavailable: the place finder could not be reached to find "${what}". Major cities work offline; otherwise answer in words.`;
     default: return `${code}: the public image sources could not be reached right now. Answer in words; Aion stays as it is.`;
   }
 }
@@ -414,9 +486,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const alt = args.alt ?? label(found.label);
       const by = credit(found.source);
+      // A person's picture is a heritage portrait unless classic was asked for; nothing else is ever framed as one.
+      const style = portraitStyleFor(found.fit, args.style);
       return present(ctx, {
-        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup",
-        ...(found.fit === "portrait" && args.style ? { style: args.style } : {}),
+        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: found.fit, origin: "lookup", ...(style ? { style } : {}),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(alt ? { alt } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation, detail: args.detail });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.query!)); }
@@ -434,11 +507,81 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const ref = await hand(found.bytes, found.mime);
       const by = credit(found.source);
       return present(ctx, {
-        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, ...(args.style ? { style: args.style } : {}),
+        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, style: portraitStyleFor("portrait", args.style),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation });
     } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }
   });
+
+  // ── Geography: maps, terrain and the places marked on them ─────────────────────────────────────────────────
+
+  /** The last geographic presentation this server showed: "Add New York" brings it back if it has gone. */
+  let lastGeo: { kind: "map" | "terrain"; region: string; style: TerrainStyle; markers: GeoMarker[] } | null = null;
+  type MarkerArg = z.infer<typeof markerInput>;
+  const appearance = async () => (await link.run(backend => backend.state())).appearance;
+  const colorFailure = (words: string) => failure(`color-unknown: "${words}" is not a colour Aion knows. Use a name (red, orange, yellow, gold, `
+    + `green, teal, cyan, blue, sky blue, navy, purple, violet, pink, rose, white, grey — or in Chinese, e.g. 红色, 紫色), a preset (${COLOR_PRESETS.join(", ")}) or #RRGGBB.`);
+  const slug = (text: string) => text.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || `p${Math.random().toString(36).slice(2, 8)}`;
+  const sameMarker = (marker: GeoMarker, name: string) => {
+    const key = name.trim().toLowerCase();
+    return marker.label.toLowerCase() === key || marker.id === slug(name);
+  };
+  /** Finds each place near the region and gives it its colour (the accent unless asked). Throws a failure result. */
+  const placeMarkers = async (list: readonly MarkerArg[], near: { region?: GeoRegion; frame?: Frame }): Promise<GeoMarker[] | CallToolResult> => {
+    const accent = (await appearance()).accent.hex;
+    const out: GeoMarker[] = [];
+    for (const item of list) {
+      let color = accentColor(accent);
+      if (item.color) { const parsed = parseColor(item.color); if (!parsed) return colorFailure(item.color); color = accentColor(parsed.hex); }
+      try {
+        const found = await resolver.place(item.place, near);
+        const label = (item.label ?? item.place).slice(0, MARKER_LIMITS.label);
+        out.push({ id: slug(label), label, lat: Math.round(found.lat * 1e5) / 1e5, lon: Math.round(found.lon * 1e5) / 1e5, color, ...(item.highlight ? { highlight: true } : {}) });
+      } catch (error) { return failure(resolveFailure(errorCode(error), item.place)); }
+    }
+    return out;
+  };
+  const coordinate = (marker: GeoMarker) => `${Math.abs(marker.lat).toFixed(2)}° ${marker.lat >= 0 ? "N" : "S"}, ${Math.abs(marker.lon).toFixed(2)}° ${marker.lon >= 0 ? "E" : "W"}`;
+  const markerOutput = (markers: readonly GeoMarker[]) => markers.map(({ label, lat, lon, color }) => ({ label, lat, lon, color }));
+  const markerShown = (markers: readonly GeoMarker[]) => markers.map(marker => `${marker.label} (${coordinate(marker)})`).join("; ");
+  const merge = (existing: GeoMarker[], added: GeoMarker[]) => {
+    const out = [...existing];
+    for (const marker of added) {
+      const at = out.findIndex(other => other.id === marker.id);
+      if (at >= 0) out[at] = marker; else out.push(marker);
+    }
+    return out.slice(-MARKER_LIMITS.markers);
+  };
+
+  const presentMap = async (ctx: ServerContext, region: string, markers: GeoMarker[], hold?: number, preference?: PresentationPreference) => {
+    const found = await resolver.map(region, markers.map(marker => [marker.lon, marker.lat]));
+    // A place that is a point (a city, a mountain) marks itself when nothing else is marked.
+    if (!markers.length && found.region.point) {
+      const [lon, lat] = found.region.point;
+      markers = [{ id: slug(found.region.label), label: found.region.label.slice(0, MARKER_LIMITS.label), lat, lon, color: accentColor((await appearance()).accent.hex), highlight: true }];
+    }
+    const ref = await hand(found.bytes, found.mime);
+    lastGeo = { kind: "map", region, style: "terrain", markers };
+    // Natural Earth names are clean English; a place found on OpenStreetMap is called what the user called it.
+    const name = (found.region.provider === "natural-earth" ? label(found.region.label) : label(region)) ?? region;
+    return present(ctx, { kind: "map", media: ref, label: name, region, markers, credit: found.source.provider }, hold,
+      { shown: `${name}${markers.length ? ` — ${markerShown(markers)}` : ""}`, source: found.source, markers: markerOutput(markers) }, { presentation: preference });
+  };
+
+  const presentTerrain = async (ctx: ServerContext, region: string, style: TerrainStyle, markers: GeoMarker[], hold?: number, preference?: PresentationPreference) => {
+    const found = await resolver.terrain(region, style, undefined, markers.map(marker => [marker.lon, marker.lat]));
+    const ref = await hand(found.bytes, found.mime);
+    const { elevation } = found.field;
+    const by = credit(found.source);
+    lastGeo = { kind: "terrain", region, style, markers };
+    return present(ctx, {
+      kind: "terrain", media: ref, style, label: (found.source.provider.includes("natural-earth") ? label(found.label) : label(region)) ?? region, region,
+      ...(markers.length ? { markers } : {}), ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
+    }, hold, {
+      shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}${markers.length ? ` — ${markerShown(markers)}` : ""}`,
+      source: found.source, ...(markers.length ? { markers: markerOutput(markers) } : {}),
+    }, { presentation: preference });
+  };
 
   server.registerTool("show_terrain", {
     title: "Show terrain",
@@ -448,16 +591,302 @@ export function createAionServer(options: AionServerOptions): McpServer {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
     try {
-      const found = await resolver.terrain(args.region, args.style ?? "terrain");
-      const ref = await hand(found.bytes, found.mime);
-      const { elevation } = found.field;
-      const by = credit(found.source);
-      return present(ctx, {
-        kind: "terrain", media: ref, style: args.style ?? "terrain", label: label(found.label) ?? args.region,
-        ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), ...(by ? { credit: by } : {}),
-      }, args.hold_seconds, { shown: `${found.label}${elevation ? ` (elevation ${elevation.min}–${elevation.max} m)` : ""}`, source: found.source },
-      { presentation: args.presentation });
+      let markers: GeoMarker[] = [];
+      if (args.markers?.length) {
+        const region = await resolver.region(args.region);
+        const placed = await placeMarkers(args.markers, { region, frame: regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = placed;
+      }
+      return await presentTerrain(ctx, args.region, args.style ?? "terrain", markers, args.hold_seconds, args.presentation);
     } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+  });
+
+  server.registerTool("show_map", {
+    title: "Show a map",
+    description: TOOL_DESCRIPTIONS.show_map,
+    inputSchema: showMapInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  }, async (args, ctx) => {
+    try {
+      let markers: GeoMarker[] = [];
+      if (args.markers?.length) {
+        const region = await resolver.region(args.region);
+        const placed = await placeMarkers(args.markers, { region, frame: regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = placed;
+      }
+      return await presentMap(ctx, args.region, markers, args.hold_seconds, args.presentation);
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+  });
+
+  /** The map or terrain on show, with its frame (read back from its own media, whichever process showed it). */
+  const currentGeo = async () => {
+    const snapshot = await link.run(backend => backend.state());
+    const presentation = snapshot.presentation;
+    if (presentation?.kind !== "map" && presentation?.kind !== "terrain") return null;
+    const item = await link.run(backend => backend.media(presentation.media.id));
+    if (!item) return null;
+    try {
+      const bytes = new Uint8Array(item.data);
+      const frame = presentation.kind === "map" ? decodeMap(bytes).frame : decodeHeightField(bytes).geo;
+      const region = presentation.kind === "map" ? presentation.region : presentation.region ?? presentation.label;
+      return { presentation, frame, region, markers: presentation.markers ?? [], style: presentation.kind === "terrain" ? presentation.style : "terrain" as TerrainStyle };
+    } catch { return null; }
+  };
+
+  server.registerTool("mark_map", {
+    title: "Mark places on the map",
+    description: TOOL_DESCRIPTIONS.mark_map,
+    inputSchema: markMapInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (args, ctx) => {
+    if (!args.add && !args.change && !args.remove && !args.clear) return failure("invalid-arguments: give add, change, remove or clear.");
+    const current = await currentGeo();
+    const base = current ?? (lastGeo ? { presentation: null, frame: undefined, region: lastGeo.region, markers: lastGeo.markers, style: lastGeo.style } : null);
+    if (!base) return failure("no-map: no map or terrain is on show. Use show_map (or show_terrain) with the region, and markers.");
+    const kind = current?.presentation.kind ?? lastGeo!.kind;
+    try {
+      const region = await resolver.region(base.region);
+      let markers = args.clear ? [] : [...base.markers];
+      const missing: string[] = [];
+      for (const name of args.remove ?? []) {
+        const before = markers.length;
+        markers = markers.filter(marker => !sameMarker(marker, name));
+        if (markers.length === before) missing.push(name);
+      }
+      for (const change of args.change ?? []) {
+        const at = markers.findIndex(marker => sameMarker(marker, change.place));
+        if (at < 0) { missing.push(change.place); continue; }
+        let color = markers[at].color;
+        if (change.color) { const parsed = parseColor(change.color); if (!parsed) return colorFailure(change.color); color = accentColor(parsed.hex); }
+        markers[at] = { ...markers[at], color, ...(change.label ? { label: change.label } : {}), ...(change.highlight !== undefined ? { highlight: change.highlight } : {}) };
+      }
+      if (args.add?.length) {
+        const placed = await placeMarkers(args.add, { region, frame: base.frame ?? regionFrame(region) });
+        if (!Array.isArray(placed)) return placed;
+        markers = merge(markers, placed);
+      }
+      const note = missing.length ? ` No marker called ${missing.map(name => `"${name}"`).join(", ")} was on the map.` : "";
+      // Everything fits the view on show: only the markers change. Otherwise the map comes (back) with them in view.
+      if (current?.frame && markers.every(marker => inside(current.frame!, [marker.lon, marker.lat]))) {
+        lastGeo = { kind, region: base.region, style: base.style, markers };
+        return run(ctx, backend => backend.apply({ type: "markers", markers }),
+          () => `Markers: ${markers.length ? markerShown(markers) : "none"}.${note} Answer in your own voice; do not narrate this tool call.`,
+          { markers: markerOutput(markers), ...(markers.length ? { shown: markerWords(markers) } : {}) });
+      }
+      const shown = kind === "map" ? await presentMap(ctx, base.region, markers) : await presentTerrain(ctx, base.region, base.style, markers);
+      if (note && !shown.isError) (shown.content[0] as { text: string }).text += note;
+      return shown;
+    } catch (error) { return failure(resolveFailure(errorCode(error), base.region)); }
+  });
+
+  server.registerTool("set_colors", {
+    title: "Set Aion's colours",
+    description: TOOL_DESCRIPTIONS.set_colors,
+    inputSchema: setColorsInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args, ctx) => {
+    if (!args.base && !args.accent && !args.reset) return failure("invalid-arguments: give base, accent or reset.");
+    let base: NamedColor | undefined, accent: NamedColor | undefined;
+    if (args.base) { base = parseColor(args.base) ?? undefined; if (!base) return colorFailure(args.base); }
+    if (args.accent) { accent = parseColor(args.accent) ?? undefined; if (!accent) return colorFailure(args.accent); }
+    const lifted = [base, accent].filter((c): c is NamedColor => !!c && contrastOnBlack(hexToRgb(c.hex)) < 4.5).map(c => c.name);
+    const snapshot = await link.run(backend => backend.apply({ type: "appearance", ...(base ? { base } : {}), ...(accent ? { accent } : {}), ...(args.reset ? { reset: args.reset } : {}) }));
+    const message = `Colours: particles ${snapshot.appearance.base.name}, accent ${snapshot.appearance.accent.name} (remembered).`
+      + `${lifted.length ? ` ${lifted.join(" and ")} is brightened a little so it stays visible on black.` : ""} Say it in the first person if at all.`;
+    return result({ ...summarize(snapshot, modeFor(ctx), message), colors: { base: snapshot.appearance.base, accent: snapshot.appearance.accent } });
+  });
+
+  // ── Music and sound (v0.4.2) ───────────────────────────────────────────────────────────────────────────────────
+
+  /** The lesson this server last showed: "next", "in Chinese" and answers continue it. */
+  let lessonAt: LessonPosition | null = null;
+  const musicFailure = (problem: string) => failure(`music-invalid: ${problem}. Fix it and try again, or explain in words.`);
+  const musicOutput = (title: string, built: CheckedScore, language: Language = "en", extra: Partial<NonNullable<PresenceOutput["music"]>> = {}): NonNullable<PresenceOutput["music"]> => ({
+    title, clef: built.clef, ...(built.score.time ? { time: built.score.time } : {}), notes: noteFacts(built, language), ...extra,
+  });
+  /** Waits (briefly) for Aion's window to say whether playback `id` is sounding. */
+  const playbackState = async (id: number, mode: SurfaceMode): Promise<NonNullable<PresenceOutput["music"]>["playback"]> => {
+    if (mode === "embedded") return "requested";
+    let snapshot = await link.run(backend => backend.state());
+    if (!snapshot.hub.viewers) return "no-window";
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      const report = snapshot.hub.surface.audio?.playback;
+      if (report && report.id >= id) return report.state === "blocked" ? "blocked" : report.state === "playing" || report.state === "finished" ? "playing" : "stopped";
+      snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.max(50, deadline - Date.now())));
+    }
+    return "requested";
+  };
+  const playbackWords = (state: NonNullable<PresenceOutput["music"]>["playback"]) => state === "blocked"
+    ? " The browser is holding the sound until the user clicks once in Aion's window: ask them to."
+    : state === "no-window" ? " Aion is not open, so nothing sounds: call open_presence first." : "";
+  /** Shows a score as a music card (routed: card, or hybrid with a symbol) and, if asked, plays it. */
+  const showScore = async (ctx: ServerContext, built: CheckedScore, title: string, options: {
+    highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; hold?: number; preference?: PresentationPreference;
+    play?: boolean | readonly number[]; tempo?: number; volume?: number; language?: Language; lessonText?: string; answer?: NonNullable<PresenceOutput["music"]>["answer"];
+  }) => {
+    const content: PresentationContent = {
+      kind: "music", title, score: built.score, ...(options.highlight?.length ? { highlight: options.highlight } : {}),
+      ...(options.caption ? { caption: options.caption } : {}), ...(options.symbol ? { symbol: options.symbol } : {}), ...(options.lesson ? { lesson: options.lesson } : {}),
+      ...(options.tempo ? { tempo: options.tempo } : {}),
+    };
+    let snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: options.hold ?? 0, presentation: options.preference }));
+    const mode = modeFor(ctx);
+    let playback: NonNullable<PresenceOutput["music"]>["playback"];
+    if (options.play) {
+      const chosen = events(built, Array.isArray(options.play) ? options.play : undefined);
+      if (chosen.ok) {
+        snapshot = await link.run(backend => backend.apply({ type: "play", events: chosen.value, tempo: defaultTempo(options.tempo), volume: options.volume ?? 0.8, presentation: snapshot.presentation?.id }));
+        playback = await playbackState(snapshot.playback!.id, mode);
+      }
+    }
+    const lesson = options.lesson ? { id: options.lesson.id, title: options.lesson.title, step: options.lesson.step, steps: options.lesson.steps, language: options.lesson.language, text: options.lessonText ?? "", ...(options.lesson.question ? { question: true } : {}) } : undefined;
+    const message = `Shown: ${describePresentation(content)}${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}.${playback ? ` Playback: ${playback}.` : ""}${playbackWords(playback)} `
+      + (lesson ? "Teach this step in your own words, in the user's language (music.lesson.text); then wait for them." : "Explain it in your own voice; music.notes has every note's name and place.");
+    return result({
+      ...summarize(snapshot, mode, message),
+      music: musicOutput(title, built, options.language, { ...(playback ? { playback } : {}), ...(lesson ? { lesson } : {}), ...(options.answer ? { answer: options.answer } : {}) }),
+    });
+  };
+
+  server.registerTool("show_music", {
+    title: "Show music notation",
+    description: TOOL_DESCRIPTIONS.show_music,
+    inputSchema: showMusicInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const built = buildScore(args, args.title);
+    if (!built.ok) return musicFailure(built.problem);
+    const lit = highlights(args.highlight, built.score);
+    if (!lit.ok) return musicFailure(lit.problem);
+    return showScore(ctx, built.score, built.title, {
+      highlight: lit.value, caption: args.caption, symbol: args.symbol, hold: args.hold_seconds, preference: args.presentation, play: args.play, tempo: args.tempo,
+    });
+  });
+
+  server.registerTool("play_music", {
+    title: "Play music",
+    description: TOOL_DESCRIPTIONS.play_music,
+    inputSchema: playMusicInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    if (args.stop) return run(ctx, backend => backend.apply({ type: "stop-music" }), () => "Music stopped.");
+    if (args.notes?.length || args.scale) {
+      const built = buildScore(args);
+      if (!built.ok) return musicFailure(built.problem);
+      return showScore(ctx, built.score, built.title, { play: args.only?.length ? args.only : true, tempo: args.tempo, volume: args.volume });
+    }
+    // The music on show.
+    const snapshot = await link.run(backend => backend.state());
+    const shown = snapshot.presentation?.kind === "music" ? snapshot.presentation : null;
+    if (!shown) return failure("no-music: no music is on show. Give notes or a scale (they are shown as they play), or use show_music first.");
+    const check = checkScore(shown.score);
+    if (!check.ok) return failure("no-music: the music on show cannot be played.");
+    const chosen = events(check.value, args.only);
+    if (!chosen.ok) return musicFailure(chosen.problem);
+    const played = await link.run(backend => backend.apply({ type: "play", events: chosen.value, tempo: defaultTempo(args.tempo), volume: args.volume ?? 0.8, presentation: shown.id }));
+    const mode = modeFor(ctx);
+    const playback = await playbackState(played.playback!.id, mode);
+    return result({
+      ...summarize(played, mode, `Playing ${args.only?.length ? `note${args.only.length > 1 ? "s" : ""} ${args.only.join(", ")} of ` : ""}${shown.title} (${playback}).${playbackWords(playback)} Do not narrate this tool call.`),
+      music: musicOutput(shown.title, check.value, shown.lesson?.language, { playback }),
+    });
+  });
+
+  server.registerTool("music_lesson", {
+    title: "Music lesson",
+    description: TOOL_DESCRIPTIONS.music_lesson,
+    inputSchema: musicLessonInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    // The lesson on show (any Aion process may have shown it), else the one this server remembers.
+    const shown = (await link.run(backend => backend.state())).presentation;
+    const current = shown?.kind === "music" && shown.lesson ? { id: shown.lesson.id, step: shown.lesson.step, language: shown.lesson.language } : lessonAt;
+    if (args.answer !== undefined) {
+      if (!current) return failure("no-question: no practice question is on show. Start one with lesson 8.");
+      const step = lessonById(current.id)!.steps[current.step - 1];
+      const answer = answerStep(step, args.answer);
+      if (!answer) return failure("no-question: this step asks no question; carry on with step \"next\".");
+      const lesson = lessonById(current.id)!;
+      const built = checkScore(step.score(current.language));
+      if (!built.ok) return failure("lesson-invalid");
+      lessonAt = current;
+      return showScore(ctx, built.value, lesson.title[current.language], {
+        highlight: step.highlight, lesson: { id: lesson.id, step: current.step, steps: lesson.steps.length, language: current.language, title: lesson.title[current.language], question: true },
+        caption: answer.correct ? (current.language === "zh" ? `✓ 正确：${answer.expected}` : `✓ Correct: ${answer.expected}`) : (current.language === "zh" ? `再想想（是 ${answer.expected}）` : `Not quite: it is ${answer.expected}`),
+        play: [0], tempo: step.tempo, language: current.language, lessonText: step.text[current.language], answer: { correct: answer.correct, expected: answer.expected, heard: answer.heard },
+      });
+    }
+    const move = moveLesson(current, args);
+    if (!move.ok) return failure(`lesson: ${move.problem}`);
+    const { lesson, step, position } = move;
+    const built = checkScore(step.score(position.language));
+    if (!built.ok) return failure("lesson-invalid");
+    lessonAt = position;
+    const play = args.play === false || !step.play ? false : step.play === "all" ? true : step.play;
+    return showScore(ctx, built.value, lesson.title[position.language], {
+      highlight: step.highlight, symbol: step.symbol, play, tempo: step.tempo, language: position.language, lessonText: step.text[position.language],
+      lesson: { id: lesson.id, step: position.step, steps: lesson.steps.length, language: position.language, title: lesson.title[position.language], ...(step.question ? { question: true } : {}) },
+    });
+  });
+
+  /** Where every source stands, for the tool result (from the hub's own knowledge and the window's report). */
+  const audioOutput = (snapshot: HubSnapshot): NonNullable<PresenceOutput["audio"]> => {
+    const { settings, bridge } = snapshot.audio;
+    const describe = (source: "codex" | "system") => bridge.source !== source ? "off"
+      : bridge.state === "streaming" ? (bridge.silentCapture ? "streaming, but every sample is silent: macOS has not granted System Audio Recording to Aion Audio Bridge" : `streaming${bridge.app ? ` (${bridge.app})` : ""}`)
+        : `${bridge.state}${bridge.reason ? ` (${bridge.reason})` : ""}`;
+    const audio = snapshot.hub.surface.audio;
+    return { ...settings, codex: describe("codex"), system: describe("system"), ...(audio ? { microphone: audio.microphone, tab: audio.tab } : {}) };
+  };
+  const bridgeWords = (reason?: string) => ({
+    "not-macos": "it needs macOS (Core Audio process taps)",
+    "macos-too-old": "it needs macOS 14.2 or later",
+    "not-installed": "the Aion Audio Bridge is not installed on this Mac (from the Aion Presence repository: npm run audio-bridge:install)",
+    "no-connection": "the capture did not start in time — macOS is probably asking to allow System Audio Recording for \"Aion Audio Bridge\": the user can allow it (or in System Settings → Privacy & Security), then ask again",
+    "launch": "the bridge could not be launched", "ended": "the bridge stopped", "handshake": "the bridge did not identify itself",
+  } as Record<string, string>)[reason ?? ""] ?? reason ?? "unknown";
+
+  server.registerTool("set_audio_visualizer", {
+    title: "Set Aion's response to sound",
+    description: TOOL_DESCRIPTIONS.set_audio_visualizer,
+    inputSchema: setAudioVisualizerInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args, ctx) => {
+    const settings = Object.fromEntries(Object.entries({ enabled: args.enabled, source: args.source, mode: args.mode, intensity: args.intensity, sensitivity: args.sensitivity })
+      .filter(([, value]) => value !== undefined)) as Partial<AudioSettings>;
+    const capture = args.source === "codex" ? { source: "codex" as const } : args.source === "system" ? { source: "system" as const, ...(args.app ? { app: args.app } : {}) } : undefined;
+    const stop = (args.stop ?? []).filter((source): source is "codex" | "system" => source !== "tab");
+    // Choosing another source ends a capture that is no longer wanted.
+    if (args.source && args.source !== "auto" && !capture) stop.push("codex", "system");
+    let snapshot = await link.run(backend => backend.apply({ type: "audio", ...(Object.keys(settings).length ? { settings } : {}), ...(capture ? { capture } : {}), ...(stop.length ? { stop: [...new Set(stop)] } : {}) }));
+    if (args.stop?.includes("tab") || (args.source && args.source !== "tab" && args.source !== "auto")) snapshot = await link.run(backend => backend.apply({ type: "audio", settings: { source: args.source ?? "auto" } }));
+    // A capture: wait for the bridge to stream (or say why not); the first start waits for the user's answer to macOS's prompt.
+    const deadline = Date.now() + 22_000;
+    while (capture && (snapshot.audio.bridge.state === "starting" || snapshot.audio.bridge.state === "off") && Date.now() < deadline) {
+      snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.max(50, deadline - Date.now())));
+    }
+    const audio = audioOutput(snapshot);
+    const bridge = snapshot.audio.bridge;
+    const notes: string[] = [];
+    if (capture) {
+      notes.push(bridge.state === "streaming" && !bridge.silentCapture ? `${capture.source === "codex" ? "Your own voice" : "The sound"} is now captured on this Mac and analysed locally; Aion moves with it.`
+        : bridge.state === "streaming" ? "The bridge runs, but macOS gives it only silence: System Audio Recording is not allowed for Aion Audio Bridge (System Settings → Privacy & Security → Screen & System Audio Recording)."
+          : `Not connected: ${bridgeWords(bridge.reason)}. Aion keeps its semantic response; do not claim it follows the real audio.`);
+    }
+    if (args.source === "tab") notes.push(snapshot.hub.viewers ? "Ask the user to click \"Share tab audio\" in Aion's window and choose the tab (with \"Share tab audio\" on)." : "Aion's window is not open: open_presence first, then the user shares a tab there.");
+    if (args.source === "microphone" && audio.microphone && audio.microphone !== "connected") notes.push(`The microphone is ${audio.microphone}.`);
+    const message = `Sound: ${audio.enabled ? `${audio.source} · ${audio.mode} · ${audio.intensity}` : "off"}. ${notes.join(" ")} Say it in the first person if at all.`;
+    return result({ ...summarize(snapshot, modeFor(ctx), message), audio });
   });
 
   server.registerTool("show_form", {

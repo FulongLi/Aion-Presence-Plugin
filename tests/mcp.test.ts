@@ -21,8 +21,8 @@ test("a host without MCP Apps sees exactly the Aion tools, each with schemas and
       assert.equal(tool.inputSchema.type, "object");
       assert.equal((tool.inputSchema as { additionalProperties?: boolean }).additionalProperties, false, `${tool.name} rejects unknown fields`);
       assert.ok(tool.outputSchema, `${tool.name} declares its structured output`);
-      // Only the lookups (a public picture, portrait or terrain) reach outside this machine, and they say so.
-      assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain"].includes(tool.name), `${tool.name} openWorldHint`);
+      // Only the lookups (a public picture, portrait, terrain, map or place to mark) reach outside this machine, and they say so.
+      assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain", "show_map", "mark_map"].includes(tool.name), `${tool.name} openWorldHint`);
       assert.equal(tool.annotations?.destructiveHint, false);
     }
     const open = tools.find(tool => tool.name === "open_presence")!;

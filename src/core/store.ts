@@ -2,9 +2,12 @@ import { DEFAULT_BODY, isBodyId, type AionBodyId } from "./body";
 import type { EyeExpression } from "./eyes/expression";
 import type { FigureGesture } from "./figure/motion";
 import type { OrbitCommand } from "../render/interaction/orbit";
-import { holdsFor, legacyPreference, type Presentation, type PresentationContent, type PresentationRequest } from "./presentation";
+import { holdsFor, HOLD_SECONDS, legacyPreference, type GeoMarker, type Presentation, type PresentationContent, type PresentationRequest } from "./presentation";
+import { DEFAULT_APPEARANCE, type Appearance } from "./colors";
 import { routePresentation } from "./presentationRouter";
 import { isActivityState, type ActivityState } from "./state";
+import { DEFAULT_AUDIO_PRESENCE, type AudioPresence, type AudioSettings, type BridgeStatus } from "../audio/settings";
+import type { PlaybackEvent } from "../music/notation/score";
 
 /**
  * The presence state shared by every surface: the host's activity, the persistent body, the one temporary
@@ -27,7 +30,19 @@ export interface PresenceSnapshot {
   expression: ExpressionRequest | null;
   /** The most recent change of view asked for a 3D object ("rotate it", "from above"); id changes per request. */
   sceneView: (OrbitCommand & { id: number }) | null;
+  /** Aion's colours (v0.4.1): the particles' base colour and the accent of markers and highlights. */
+  appearance: Appearance;
+  /** How Aion responds to sound, and where the native capture bridge stands (v0.4.2). */
+  audio: AudioPresence;
+  /** The latest music playback request (v0.4.2); a new id starts it, `stop` silences any. */
+  playback: PlaybackRequest | null;
 }
+
+/**
+ * Music for the surfaces to play, already validated: events in quarter notes, a tempo, a volume. `presentation`: the
+ * music card whose notes light up as they sound. One surface plays it (see the view); nothing is streamed.
+ */
+export interface PlaybackRequest { id: number; events: PlaybackEvent[]; tempo: number; volume: number; presentation?: string; stop?: boolean }
 
 export interface ExpressionRequest { expression?: EyeExpression; gesture?: FigureGesture; seconds?: number; id: number }
 
@@ -70,7 +85,7 @@ export class PresenceStore {
   private cancelActivity: (() => void) | null = null;
 
   constructor(private readonly clock: StoreClock = systemClock) {
-    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null };
+    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null };
   }
 
   snapshot(): PresenceSnapshot { return this.state; }
@@ -146,6 +161,51 @@ export class PresenceStore {
     if (!this.state.presentation) return false;
     this.commit({ presentation: null });
     return true;
+  }
+
+  /**
+   * Replaces the places marked on the map or terrain on show, in place: the same presentation (the map is not formed
+   * again), held for a while longer since the user is working with it. False when no map or terrain is on show.
+   */
+  setMarkers(markers: GeoMarker[]): boolean {
+    const presentation = this.state.presentation;
+    if (presentation?.kind !== "map" && presentation?.kind !== "terrain") return false;
+    const hold = presentation.hold === 0 ? 0 : Math.max(HOLD_SECONDS.map, presentation.hold);
+    const elapsed = (this.clock.now() - presentation.at) / 1000;
+    // Its lifetime runs from now: the hold is stretched by the time already spent.
+    const next = { ...presentation, markers, ...(hold ? { hold: elapsed + hold, bodyHold: presentation.bodyHold ? elapsed + hold : 0, cardHold: presentation.cardHold ? elapsed + hold : 0 } : {}) } as Presentation;
+    this.commit({ presentation: next });
+    if (hold) this.expire(next.id, hold + 0.5);
+    return true;
+  }
+
+  /** Aion's colours (validated by the caller). */
+  setAppearance(appearance: Appearance) {
+    if (appearance.base.hex === this.state.appearance.base.hex && appearance.accent.hex === this.state.appearance.accent.hex
+      && appearance.base.name === this.state.appearance.base.name && appearance.accent.name === this.state.appearance.accent.name) return false;
+    this.commit({ appearance });
+    return true;
+  }
+
+  /** How Aion responds to sound (validated by the caller). */
+  setAudioSettings(settings: AudioSettings) {
+    if (JSON.stringify(settings) === JSON.stringify(this.state.audio.settings)) return false;
+    this.commit({ audio: { ...this.state.audio, settings } });
+    return true;
+  }
+
+  /** Where the native capture bridge stands. */
+  setBridge(bridge: BridgeStatus) {
+    if (JSON.stringify(bridge) === JSON.stringify(this.state.audio.bridge)) return false;
+    this.commit({ audio: { ...this.state.audio, bridge } });
+    return true;
+  }
+
+  /** Asks the surfaces to play music (or, with no events, to stop). Returns the request's id. */
+  play(request: Omit<PlaybackRequest, "id">): number {
+    const id = (this.state.playback?.id ?? 0) + 1;
+    this.commit({ playback: { ...request, id } });
+    return id;
   }
 
   /** Asks every surface for an expression or a gesture by name (each body shows it its own way). */

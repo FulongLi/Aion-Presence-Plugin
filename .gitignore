@@ -16,5 +16,5 @@ npm-debug.log*
 # release archives (npm run release)
 /dist/
 
-# experimental audio bridge builds
-/experiments/audio-bridge/build/
+# local builds of the macOS audio bridge (npm run audio-bridge:build)
+/native/audio-bridge/build/

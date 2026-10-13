@@ -1,4 +1,4 @@
-import type { HubSnapshot } from "../../host/hub/protocol";
+import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 import type { ConnectionState, PresenceTransport } from "./types";
 
 /**
@@ -10,9 +10,18 @@ export class CompanionTransport implements PresenceTransport {
   readonly kind = "companion";
   onDisplayChange?: () => void;
   onSuperseded?: () => void;
+  onAudio?: (message: unknown) => void;
   private source: EventSource | null = null;
+  private audio: SurfaceAudio | null = null;
   /** This window's own id, so the hub can tell windows apart (and retire an old one when a new one comes forward). */
   private readonly window = Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => (byte % 36).toString(36)).join("");
+  get windowId() { return this.window; }
+
+  audioStatus(status: SurfaceAudio) {
+    if (JSON.stringify(status) === JSON.stringify(this.audio)) return;
+    this.audio = status;
+    this.report();
+  }
 
   constructor(private readonly token: string, private readonly base = new URL("/", location.href)) {
     document.addEventListener("fullscreenchange", () => { this.onDisplayChange?.(); this.report(); });
@@ -23,7 +32,10 @@ export class CompanionTransport implements PresenceTransport {
   }
 
   private report() {
-    const body = { window: this.window, focused: document.hasFocus(), fullscreen: document.fullscreenElement !== null, visible: document.visibilityState === "visible" };
+    const body = {
+      window: this.window, focused: document.hasFocus(), fullscreen: document.fullscreenElement !== null, visible: document.visibilityState === "visible",
+      ...(this.audio ? { audio: this.audio } : {}),
+    };
     void fetch(new URL("api/surface", this.base), {
       method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify(body), keepalive: true,
     }).catch(() => {});
@@ -40,6 +52,8 @@ export class CompanionTransport implements PresenceTransport {
     this.source = new EventSource(new URL(`events?token=${encodeURIComponent(this.token)}&window=${this.window}`, this.base));
     this.source.addEventListener("open", () => this.report());
     this.source.addEventListener("superseded", () => this.onSuperseded?.());
+    // Features of Codex's voice or another app's sound, analysed in the hub (never audio).
+    this.source.addEventListener("audio", event => { try { this.onAudio?.(JSON.parse((event as MessageEvent<string>).data)); } catch { /* ignore a malformed frame */ } });
     this.source.addEventListener("snapshot", event => {
       onConnection("live");
       try { onSnapshot(JSON.parse((event as MessageEvent<string>).data) as HubSnapshot); } catch { /* ignore a malformed frame */ }

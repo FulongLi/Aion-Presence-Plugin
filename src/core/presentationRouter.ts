@@ -4,7 +4,7 @@ import type { PresentationContent } from "./presentation";
  * The Presentation Router: how a piece of information reaches the user while Aion is open.
  *
  *   BODY     Aion's particle body itself becomes the information, holds it, and returns to its persistent body.
- *            For what particles carry well: forms, constellations, zodiac and Tao symbols, terrain relief, a clock,
+ *            For what particles carry well: forms, constellations, zodiac and Tao symbols, terrain relief, a map, a clock,
  *            one key number, a short word, a symbol, an emoji.
  *   CARD     A quiet, high-fidelity card beside the body, for what must stay exact or recognizable: longer text,
  *            code, tables, file changes, results, screenshots, detailed photographs. The body keeps living.
@@ -32,6 +32,8 @@ export type RouteReason =
   | "fidelity"
   /** auto: a recognizable portrait — the particle portrait and the original photograph together. */
   | "portrait-hybrid"
+  /** auto: notation on a card while the body forms the symbol being explained (a clef, a note value). */
+  | "notation-hybrid"
   /** auto: a looked-up, high-resolution picture — a particle impression and the picture itself. */
   | "picture-hybrid"
   /** auto: the picture is too small to be worth a card of its own. */
@@ -71,9 +73,10 @@ export const PICTURE_QUALITY = { portraitMinSide: 240, pictureMinLongSide: 640 }
 /** Whether the particle body can carry this content legibly. */
 export function bodyCapable(content: PresentationContent): boolean {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": return true;
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": case "map": return true;
     case "text": return !content.title && isGlyphText(content.text);
     case "result": return content.status !== "info";
+    case "music": return content.symbol !== undefined;
     case "artifact": return (content.type === "svg" || content.type === "image") && content.media !== undefined;
   }
 }
@@ -85,12 +88,15 @@ export function cardCapable(content: PresentationContent): boolean {
 
 function automatic(content: PresentationContent, detail: boolean): { route: PresentationRoute; reason: RouteReason } {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene":
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene": case "map":
       return { route: "body", reason: "body-native" };
     case "text":
       return bodyCapable(content) ? { route: "body", reason: "body-native" } : { route: "card", reason: "fidelity" };
     case "result": case "artifact":
       return { route: "card", reason: "fidelity" };
+    // Notation must stay exact: always a card; the body forms the symbol being explained beside it when there is one.
+    case "music":
+      return content.symbol ? { route: "hybrid", reason: "notation-hybrid" } : { route: "card", reason: "fidelity" };
     case "image": {
       if (detail) return { route: "card", reason: "detail-requested" };
       if (content.fit === "logo") return { route: "body", reason: "body-native" };
@@ -136,12 +142,12 @@ export function routePresentation(request: RouteRequest): RouteDecision {
  * How long each part lasts, in seconds (0: until cleared). A body visual is a moment (SCF's hold times); a card
  * stays while it is likely still relevant, then goes, so cards never accumulate.
  */
-export const CARD_SECONDS = { text: 20, result: 24, artifact: 60, image: 30, terrain: 30, clock: 12, number: 12 } as const;
+export const CARD_SECONDS = { text: 20, result: 24, artifact: 60, image: 30, terrain: 30, clock: 12, number: 12, map: 60, music: 180 } as const;
 
 export function cardSeconds(content: PresentationContent): number {
   switch (content.kind) {
     case "text": return Math.min(60, Math.max(CARD_SECONDS.text, 8 + Array.from(content.text).length / 12));
-    case "result": case "artifact": case "image": case "terrain": case "clock": case "number": return CARD_SECONDS[content.kind];
+    case "result": case "artifact": case "image": case "terrain": case "clock": case "number": case "map": case "music": return CARD_SECONDS[content.kind];
     default: return 0;
   }
 }

@@ -8,6 +8,8 @@ body { overflow: hidden; background: #090e16; }
   background: radial-gradient(ellipse at 50% 46%, #17222e 0%, #101923 39%, #090e16 78%); }
 .stage { position: absolute; inset: 0; touch-action: none; }
 .stage canvas { display: block; width: 100%; height: 100%; }
+/* Places marked on a map or terrain, drawn over the particles (they never take a click from the body). */
+.markers { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 
 /* A card: information Aion presents beside its living body. The body steps aside (the renderer frames it);
    the card floats in the space it leaves — quiet type, generous space, no dashboard chrome. */
@@ -22,7 +24,7 @@ body { overflow: hidden; background: #090e16; }
 .card h2 { margin: 0 28px 8px 0; font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: #8597a9; }
 .card .summary { margin: 0; font-size: 21px; line-height: 1.38; font-weight: 300; color: #e8eff6; letter-spacing: .005em; }
 .card .statement { margin: 6px 0; font-size: 44px; line-height: 1.2; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
-.card mark.emphasis { background: none; color: #ffffff; text-shadow: 0 0 18px rgba(190, 214, 236, .55); border-bottom: 1px solid rgba(214, 228, 240, .6); padding: 0 .06em; }
+.card mark.emphasis { background: none; color: #ffffff; text-shadow: 0 0 18px rgba(190, 214, 236, .55); border-bottom: 1px solid var(--accent, rgba(214, 228, 240, .6)); padding: 0 .06em; }
 .card .prose { margin: 12px 0 0; white-space: pre-wrap; color: #c9d5e0; }
 .card .figure-value { margin: 4px 0; font-size: 56px; line-height: 1.1; font-weight: 200; letter-spacing: .02em; color: #eef4f9; text-align: center; }
 .card .mark { display: inline-block; width: 8px; height: 8px; margin-right: 12px; border-radius: 50%; vertical-align: 4px; background: #a8bed1; }
@@ -36,6 +38,12 @@ body { overflow: hidden; background: #090e16; }
 .card .lang { margin-top: 6px; font-size: 11px; color: #6f8296; }
 .card .picture { display: block; width: 100%; height: auto; max-height: 66vh; object-fit: contain; margin: 4px auto 0; border-radius: 12px; background: #0b121b; }
 .card .picture.relief { image-rendering: auto; background: transparent; margin-top: 10px; }
+.card svg.map { display: block; width: 100%; height: auto; margin-top: 10px; }
+.card svg.map .land { fill: #a8bed11f; stroke: none; } .card svg.map .land.context { fill: #a8bed10a; }
+.card svg.map .edge { fill: none; stroke: #dbe6f0; stroke-width: 1.1; stroke-linejoin: round; }
+.card svg.map .edge.border { stroke: #a8bed1aa; stroke-width: .8; } .card svg.map .edge.context { stroke: #a8bed140; stroke-width: .7; }
+.card svg.map .dot { stroke: #090e16; stroke-width: 1.5; }
+.card svg.map text { fill: #eef3f8; font-size: 13px; font-weight: 600; paint-order: stroke; stroke: #090e16; stroke-width: 3px; }
 .card .caption { margin: 12px 0 0; font-size: 12px; letter-spacing: .03em; color: #7f91a3; }
 .card table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 12.5px; }
 .card td { padding: 6px 0; border-top: 1px solid #ffffff0b; }
@@ -45,6 +53,26 @@ body { overflow: hidden; background: #090e16; }
 .card .add { color: #a9d1b8; } .card .del { color: #d9a7a2; }
 /* A picture or code is the information itself: more room, the body further aside. */
 .card.wide { width: min(560px, 46vw); }
+/* Music (v0.4.2): engraved notation in the body's silver; what is explained is lit in the accent, what sounds glows. */
+.card .music-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-right: 28px; }
+.card .music-head h2 { margin-right: 0; }
+.card .music-step { font-size: 11px; letter-spacing: .08em; color: #6f8296; white-space: nowrap; }
+.card .music-score { margin: 10px -6px 0; color: #dbe6f0; }
+.card .music-score svg { display: block; width: 100%; height: auto; overflow: visible; }
+.card .music-score .vf-stave path { opacity: .62; }
+.card .music-score .lit { color: var(--accent, #e8eff6); filter: drop-shadow(0 0 6px rgba(190, 214, 236, .45)); }
+.card .music-score .sounding { color: #ffffff; filter: drop-shadow(0 0 9px rgba(214, 230, 244, .85)); }
+.card .music-score .lit.sounding { color: var(--accent, #ffffff); }
+.card .music-score .staff-mark { fill: var(--accent, #a8bed1); opacity: .32; }
+.card .music-score text { fill: currentColor; }
+/* All ink is the score's colour (VexFlow writes some strokes and fills as attributes; CSS takes precedence). */
+.card .music-score svg [stroke]:not([stroke="none"]) { stroke: currentColor; }
+.card .music-score svg [fill]:not([fill="none"]):not(.staff-mark) { fill: currentColor; }
+.card .music-foot { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.card .music-foot .caption { margin: 0; }
+.card .music-play { flex: none; width: 30px; height: 30px; border: 1px solid #ffffff1c; border-radius: 50%; background: #ffffff08; color: #cfdbe6;
+  font-size: 11px; line-height: 28px; padding: 0 0 0 2px; cursor: pointer; }
+.card .music-play:hover { background: #ffffff14; color: #ffffff; }
 /* A photograph: the card is the picture's own shape, never letterboxed. */
 .card[data-kind="image"] { width: auto; max-width: min(560px, 46vw); padding: 14px 14px 16px; }
 .card[data-kind="image"] .picture { width: auto; max-width: 100%; background: none; }
@@ -71,6 +99,16 @@ body { overflow: hidden; background: #090e16; }
   margin: 0; max-width: calc(100vw - 32px); font-size: 12px; letter-spacing: .04em; color: #8b9cad; text-align: center;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0; transition: opacity 1.2s ease; pointer-events: none; }
 .status.visible { opacity: .85; transition: opacity .5s ease; }
+
+/* Sound (v0.4.2): which captured source is really connected, only while one is; and the one click a tab share needs. */
+.sound { position: absolute; left: max(16px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex;
+  align-items: center; gap: 8px; font-size: 11.5px; letter-spacing: .04em; color: #8b9cad; opacity: .8; }
+.sound[hidden] { display: none; }
+.sound-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent, #a8bed1); box-shadow: 0 0 8px var(--accent, #a8bed1); }
+.sound.waiting .sound-dot { background: transparent; border: 1px solid #8b9cad; box-shadow: none; }
+.sound-action { padding: 5px 12px; border: 1px solid #ffffff22; border-radius: 999px; background: #ffffff07; color: #dbe5ee;
+  font: inherit; font-size: 11.5px; letter-spacing: .06em; cursor: pointer; }
+.sound-action:hover { background: #ffffff12; }
 
 .corner { position: absolute; top: 14px; right: 14px; width: 30px; height: 30px; padding: 7px; border: 0; border-radius: 9px;
   background: transparent; color: #8b9cad; cursor: pointer; opacity: 0; transition: opacity .4s ease, background .2s; }

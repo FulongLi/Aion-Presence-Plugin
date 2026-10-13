@@ -1,21 +1,21 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "aion-presence",
-  "version": "0.4.0",
-  "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a living particle body (a sphere, expressive eyes or a stick figure) that listens, reflects real activity, answers, gestures, and shows things as particles, 3D objects or high-fidelity cards. No API key, no second model.",
+  "version": "0.4.2",
+  "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a living particle body (a sphere, expressive eyes or a stick figure) that listens, reflects real activity, answers, gestures, and shows things as particles, maps with marked places, 3D objects or high-fidelity cards, in the colours you choose; teaches music with exact notation and playback, and moves with real sound — your voice, its own voice, the music you play. No API key, no second model.",
   "author": {
     "name": "Spirit Connect",
     "url": "https://github.com/FulongLi"
   },
   "homepage": "https://github.com/FulongLi/Aion-Presence-Plugin",
   "repository": "https://github.com/FulongLi/Aion-Presence-Plugin",
-  "keywords": ["aion", "presence", "embodiment", "visualization", "particles", "codex", "mcp", "mcp-app"],
+  "keywords": ["aion", "presence", "embodiment", "visualization", "particles", "maps", "music", "audio-visualizer", "codex", "mcp", "mcp-app"],
   "extensions": {
     "com.openai": {
       "interface": {
         "displayName": "Aion Presence",
         "shortDescription": "A visual body for Codex",
-        "longDescription": "Aion is the embodied interface of the Codex agent you are already using. Codex remains the intelligence; while Aion is open you talk to it as Aion: an immersive particle presence — the original sphere, expressive Aion Eyes, or an articulated stick figure that gestures and explains — that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), visibly answers, and presents information the best way for it: as its own body (portraits, heritage oval portraits, real terrain, constellations, Tao symbols, clocks, genuine 3D objects you can turn), as quiet high-fidelity cards (photographs, code, results), or both. Aion makes no model API calls and needs no API key.",
+        "longDescription": "Aion is the embodied interface of the Codex agent you are already using. Codex remains the intelligence; while Aion is open you talk to it as Aion: an immersive particle presence — the original sphere, expressive Aion Eyes, or an articulated stick figure that gestures and explains — that listens (locally), reflects meaningful work (thinking, reading, editing, testing, building), visibly answers, and presents information the best way for it: as its own body (heritage oval portraits, maps of any country or continent with marked places, real terrain, constellations, Tao symbols, clocks, genuine 3D objects you can turn), as quiet high-fidelity cards (photographs, code, results, reference maps), or both — in Aion Silver or any colour you choose. It teaches music theory with engraved notation, local playback (each note lights up as it sounds) and lessons in English and Chinese, and moves with real sound: your voice, music you share — as a circular particle spectrum — and, on macOS with your permission, Codex's own spoken voice. Aion makes no model API calls and needs no API key; sound is analysed locally and never recorded.",
         "developerName": "Spirit Connect",
         "category": "Developer Tools",
         "capabilities": ["Interactive"],
@@ -23,8 +23,8 @@
         "defaultPrompt": [
           "Open Aion",
           "What did Nikola Tesla look like?",
-          "Show me the terrain of Scotland",
-          "Show me Saturn in 3D"
+          "Show me where Los Angeles is in the USA",
+          "Teach me how to read music"
         ],
         "brandColor": "#A8BED1",
         "composerIcon": "./assets/icon.svg",

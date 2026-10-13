@@ -22,7 +22,7 @@ export interface ImageProvider {
 
 /** What the resolver did for the last request: every provider consulted, in order. Never contains credentials. */
 export interface ResolveTrace {
-  action: "image" | "portrait" | "terrain";
+  action: "image" | "portrait" | "terrain" | "region" | "place";
   query: string;
   status: "resolving" | "resolved" | "failed" | "cancelled";
   error?: string;

@@ -12,6 +12,9 @@ import type { OrbitView } from "./interaction/orbit";
 import { syncUniforms } from "./physics/uniforms";
 import { createPostFX } from "./rendering/postfx";
 import { SpeechMotion } from "./speechMotion";
+import { PaletteEase } from "./palette";
+import type { ParticlePalette } from "../core/colors";
+import { ringParams } from "./ring";
 
 /** What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. */
 export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
@@ -19,7 +22,20 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource }
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource; audio?: AudioVisualSource }
+
+/**
+ * Sound for the body (v0.4.2), already chosen and eased by the surface (see surface/audioVisual.ts): the active
+ * source's features, the ring layer's weight and layout (0 spectrum … 1 hybrid), the sphere audio field's weight, and
+ * the intensity's gain. Every weight 0: the body exactly as without sound.
+ */
+export interface AudioVisualFrame {
+  ring: number; layout: number; sphere: number; gain: number;
+  level: number; bass: number; mid: number; treble: number; beat: number;
+  /** RING_BANDS values, 0…1. */
+  bands: Float32Array;
+}
+export interface AudioVisualSource { sample(dt: number): AudioVisualFrame }
 
 /** How a formed 3D object is viewed (see interaction/orbit.ts). */
 export interface OrbitSource { sample(dt: number): OrbitView }
@@ -52,6 +68,13 @@ export interface RuntimeHandle {
   setTier(tier: number): void;
   /** Where a point on the screen (client pixels) lies on the body's plane (z = 0), in world units; null if nowhere. */
   toWorld(clientX: number, clientY: number): [number, number] | null;
+  /**
+   * Where a point of the formed visual (target space, world units) is on the screen right now (client pixels), as
+   * this renderer draws it — framing, perspective and the formed visual's own slow sway included. Null off screen.
+   */
+  project(point: [number, number, number]): [number, number] | null;
+  /** Aion's base colour: the palette is eased to over about a second; `immediate` jumps (a page's first frame). */
+  setPalette(palette: ParticlePalette, immediate?: boolean): void;
   dispose(): void;
 }
 
@@ -88,6 +111,7 @@ export async function createParticleRuntime(
   scene.add(system.mesh);
   const u = system.uniforms;
   const speechMotion = new SpeechMotion();
+  const palette = new PaletteEase();
   const fx = createPostFX(renderer, scene, camera, config);
   const pointer = options.interactive === false ? null : new PointerPusher(container, camera);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -189,6 +213,17 @@ export async function createParticleRuntime(
     u.responding.value = presence.responding;
     u.warmth.value = presence.warmth;
     u.motion.value = calm() ? 0.15 : 1;
+    const sound = inputs.audio?.sample(dt);
+    if (sound) {
+      for (let i = 0; i < sound.bands.length && i < u.audioBands.array.length; i++) u.audioBands.array[i] = sound.bands[i];
+      u.audioLevel.value = sound.level; u.audioBass.value = sound.bass; u.audioMid.value = sound.mid; u.audioTreble.value = sound.treble;
+      u.audioBeat.value = sound.beat; u.audioGain.value = sound.gain * (calm() ? 0.3 : 1);
+      u.sphereAudio.value = sound.sphere; u.ringMorph.value = sound.ring;
+      const ring = ringParams(sound.layout);
+      u.ringRadius.value = ring.radius; u.ringHeight.value = ring.height; u.ringCore.value = ring.core; u.ringCoreScale.value = ring.coreScale; u.ringFlow.value = ring.flow * (calm() ? 0.2 : 1);
+    }
+    const colors = palette.sample(dt);
+    u.baseColor.value.setRGB(...colors.cool); u.warmColor.value.setRGB(...colors.warm); u.formedColor.value.setRGB(...colors.formed);
     try {
       while (accumulator >= STEP) {
         if (pointer) {
@@ -225,6 +260,16 @@ export async function createParticleRuntime(
       const t = -camera.position.z / direction.z;
       return [camera.position.x + direction.x * t, camera.position.y + direction.y * t];
     },
+    project([x, y, z]) {
+      const bounds = renderer.domElement.getBoundingClientRect();
+      if (!(bounds.width > 0 && bounds.height > 0)) return null;
+      // The formed visual's sway (material.ts): x shifts with depth, slowly, while it is formed and flat.
+      const sway = Math.sin(u.clock.value * 0.5) * 0.07 * u.morph.value * (1 - u.formedDepth.value);
+      const v = new Vector3(x + z * sway, y, z).project(camera);
+      if (!(v.z < 1)) return null;
+      return [bounds.left + (v.x + 1) / 2 * bounds.width, bounds.top + (1 - v.y) / 2 * bounds.height];
+    },
+    setPalette(next, immediate) { palette.set(next); if (immediate) palette.settle(); },
     dispose: cleanup,
   };
   const animate = (now: number) => {

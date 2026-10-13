@@ -1,5 +1,5 @@
 import { HERITAGE_OVAL } from "./oval";
-import type { ImageFit, PortraitStyle, Raster, Raster2DTarget } from "./types";
+import { portraitStyleFor, type ImageFit, type PortraitStyle, type Raster, type Raster2DTarget } from "./types";
 
 /** Pure raster geometry: crops, background trimming and resizing. No canvas, so it runs anywhere. */
 
@@ -132,14 +132,15 @@ export const HERITAGE_ANCHOR_Y = 0.1;
 
 /**
  * Normalizes a decoded picture for the particle body by its fit (SCF's `normalizeImage` by intent):
- * - portrait: head-and-shoulders crop (a 4:5 band from near the top), portrait sampling; with the heritage
- *   style, exactly 3:4 (cropped, never stretched) and framed by the oval (see oval.ts);
+ * - portrait: in the heritage style (the default), exactly 3:4 (cropped, never stretched) and framed by the oval
+ *   (see oval.ts); classic: a head-and-shoulders crop (a 4:5 band from near the top); both with portrait sampling;
  * - map: kept whole (a map's edges are information), object sampling;
  * - logo: a crisp mark on nothing (see normalizeLogoRaster);
  * - object: trim a plain background, keep most of the subject, object sampling.
  */
 export function normalizeImage(image: Raster, fit: ImageFit = "object", options: { portraitStyle?: PortraitStyle } = {}): Raster2DTarget {
-  if (fit === "portrait" && options.portraitStyle === "heritage") {
+  const style = portraitStyleFor(fit, options.portraitStyle);
+  if (style === "heritage") {
     const raster = resizeRaster(cropToAspect(image, HERITAGE_OVAL.aspect, HERITAGE_OVAL.aspect, HERITAGE_ANCHOR_Y), TARGET_SIDE);
     return { kind: "raster2d", style: "portrait", frame: "oval", raster };
   }

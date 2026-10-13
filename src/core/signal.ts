@@ -125,8 +125,10 @@ export interface EngineInputs {
   state: () => AionState;
   /** The host's activity, as the hub reports it. */
   host?: () => ActivityState;
-  /** Real host assistant audio; NO_HOST_AUDIO today. */
+  /** Real host assistant audio: NO_HOST_AUDIO, or Codex's voice through the native bridge (v0.4.2). */
   audio?: HostAudioSource;
+  /** Aion's own music is audible (v0.4.2): the microphone hears the speakers, so it is not taken for the user. */
+  playback?: () => boolean;
 }
 
 /**
@@ -152,7 +154,7 @@ export class PresenceEngine implements PresenceSignalSource {
   userVoiced = false;
   /** Diagnostics: the latest microphone frame (null without a microphone) and why it is being ignored, if it is. */
   lastFrame: MicFrame | null = null;
-  echo: "none" | "host-audio" | "responding" | "answer-tail" = "none";
+  echo: "none" | "host-audio" | "playback" | "responding" | "answer-tail" = "none";
   private readonly host: () => ActivityState;
   private readonly audio: HostAudioSource;
   private last: AionState = "idle";
@@ -214,7 +216,8 @@ export class PresenceEngine implements PresenceSignalSource {
     if (answering) this.tailVoiceAt = now;
     else if (heard && now - this.tailVoiceAt < c.echoGap + 0.05 && now - this.respondingSeen < c.echoTailMax) this.tailVoiceAt = now;
     this.echo = this.sounding || now - this.speakingEnded < c.echoGuard ? "host-audio"
-      : answering ? "responding"
+      : this.inputs.playback?.() ? "playback"
+        : answering ? "responding"
         : now - this.respondingSeen < c.echoHold || now - this.tailVoiceAt < c.echoGap ? "answer-tail" : "none";
     const voiced = heard && this.echo === "none";
 

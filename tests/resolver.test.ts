@@ -200,11 +200,13 @@ test("polygon rasterization fills the inside of rings (even-odd), including hole
   assert.equal(rasterizePolygon([square, hole], 10, 10).reduce((a, b) => a + b, 0), 32);
 });
 
-test("region boxes: points grow, continents are capped, zoom and tiles stay bounded", () => {
+test("region boxes: points grow, large regions are kept whole (v0.4.1), zoom and tiles stay bounded", () => {
   const point = normalizeBox({ west: 86.925, east: 86.925, south: 27.988, north: 27.988 });
   assert.ok(Math.abs(point.east - point.west - terrainLimits.pointSpan) < 1e-9);
   const huge = normalizeBox({ west: -170, east: 170, south: -80, north: 89 });
-  assert.ok(huge.east - huge.west <= terrainLimits.maxSpan + 1e-9 && huge.north <= 84);
+  assert.ok(huge.east - huge.west === 340 && huge.north === 89, "no longer cropped to 70°");
+  const plan = planTiles(huge);
+  assert.ok((plan.tx1 - plan.tx0 + 1) * (plan.ty1 - plan.ty0 + 1) <= terrainLimits.maxTiles, "a continent still costs a bounded number of tiles");
   const wales = planTiles(normalizeBox({ west: -5.81, east: -2.65, south: 51.23, north: 53.64 }));
   const uk = planTiles(normalizeBox({ west: -14.02, east: 2.09, south: 49.67, north: 61.06 }));
   for (const plan of [wales, uk]) assert.ok((plan.tx1 - plan.tx0 + 1) * (plan.ty1 - plan.ty0 + 1) <= terrainLimits.maxTiles);

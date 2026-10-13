@@ -2,6 +2,7 @@ import { celestialPack } from "./celestial";
 import { VisualFormRegistry } from "./registry";
 import { symbolPack } from "./symbols";
 import { taoPack } from "./tao";
+import { musicPack } from "../../music/visual/glyphForms";
 import type { VisualFormPack } from "./types";
 
 export { FORM_ID, FORM_NAME_MAX, normalizeFormName, VisualFormRegistry, type FormMatch, type RenderedForm } from "./registry";
@@ -13,7 +14,7 @@ export type * from "./types";
  * renderers. Nothing else changes: show_visual_form, validation, the surface and the body all read the
  * registry.
  */
-export const VISUAL_FORM_PACKS: readonly VisualFormPack[] = [taoPack, celestialPack, symbolPack];
+export const VISUAL_FORM_PACKS: readonly VisualFormPack[] = [taoPack, celestialPack, symbolPack, musicPack];
 
 /** The registry Aion uses. Pure and side-effect free: forms are only drawn when first shown. */
 export const visualForms = new VisualFormRegistry(VISUAL_FORM_PACKS);

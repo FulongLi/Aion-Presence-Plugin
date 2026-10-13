@@ -1,6 +1,6 @@
 import type { RuntimeHandle, RuntimeInputs, RuntimeOptions } from "./ParticleRuntime";
 
-export type { Framing, FramingSource, OrbitSource, RuntimeHandle, RuntimeInputs, RuntimeOptions, QualityReport } from "./ParticleRuntime";
+export type { AudioVisualFrame, AudioVisualSource, Framing, FramingSource, OrbitSource, RuntimeHandle, RuntimeInputs, RuntimeOptions, QualityReport } from "./ParticleRuntime";
 export type RendererBackend = RuntimeHandle["backend"];
 
 /** Where each renderer comes from; injectable so the selection is testable without a GPU or a DOM. */

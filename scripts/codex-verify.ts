@@ -138,7 +138,7 @@ try {
         if (!offline) {
           const portrait = await call("show_portrait", { person: "Nikola Tesla" });
           const shown = (portrait.structuredContent as { presentation: { description: string; route: string } } | undefined)?.presentation;
-          check(!portrait.isError && shown?.description === "portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source");
+          check(!portrait.isError && shown?.description === "heritage portrait: Nikola Tesla", "show_portrait: Nikola Tesla, from a public source, a heritage portrait by default");
           check(shown?.route === "hybrid", "the Presentation Router: a particle portrait and the original photograph (hybrid)");
           check(await until(/visual holding/), "the portrait forms");
           await page.screenshot({ path: join(E2E, "verify-portrait.png") });
@@ -149,6 +149,13 @@ try {
         const form = await call("show_form", { form: "Orion" });
         check(!form.isError && form.structuredContent?.shown === "Orion (constellation)", "show_form: Orion");
         await new Promise(r => setTimeout(r, 3_500));
+        // v0.4.2: the Music Library from the installed runtime — engraved notation (bundled VexFlow and Bravura).
+        const lesson = await call("music_lesson", { lesson: 7 });
+        check(!lesson.isError && (lesson.structuredContent as { music?: { notes: unknown[] } } | undefined)?.music?.notes.length === 8, "music_lesson: the C major scale lesson");
+        let engraved = 0;
+        for (let t = 0; t < 8_000 && engraved < 8; t += 250) { engraved = await page.locator("#card .music-note").count(); await new Promise(r => setTimeout(r, 250)); }
+        check(engraved === 8, `the installed runtime engraves its eight notes (${engraved})`);
+        await page.screenshot({ path: join(E2E, "verify-music.png") });
         await call("clear_presentation");
         await call("set_presence_state", { state: "responding" });
         check(await until(/state responding/), "responding: the body answers with Codex");

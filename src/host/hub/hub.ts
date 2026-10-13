@@ -7,8 +7,12 @@ import type { MediaRef } from "../../core/presentation";
 import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
-import { DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
+import { NativeAudioBridge, type BridgeOptions } from "../audio/bridge";
+import { encodeFeatures } from "../../audio/wire";
+import { AUDIO_INTENSITIES, AUDIO_MODES, DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "../../audio/settings";
 
 export interface HubOptions {
   /** Runtime directory (hub.json, token, hook heartbeat). Default: presenceHome(). */
@@ -18,6 +22,8 @@ export interface HubOptions {
   /** The presence surface page (the same single file the MCP Apps resource serves). */
   page: () => string;
   clock?: StoreClock;
+  /** The native audio bridge (injectable for tests); default: the macOS bridge, if installed. */
+  bridge?: Partial<Pick<BridgeOptions, "locate" | "launch" | "isMac" | "macosVersion" | "connectTimeout">>;
 }
 
 export interface HubDiscovery { version: 1; pid: number; port: number; hub: string; url: string; startedAt: number }
@@ -48,6 +54,9 @@ export const NEW_TOPIC_SECONDS = 15;
  *   POST /api/hook      Codex lifecycle hook events
  *   GET  /health        identity check for discovery
  *
+ * The event stream also carries `audio` events (v0.4.2): features of Codex's voice or another app's sound, analysed here
+ * from the native bridge, about 60 a second while something sounds. Only features, never samples; never stored.
+ *
  * Every route needs the per-user token (from the runtime directory, mode 0600) and a loopback Host header,
  * so other local users, web pages (DNS rebinding) and other sites cannot read or drive it.
  */
@@ -77,12 +86,23 @@ export class PresenceHub {
   private introduction = false;
   private lastHookAt = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
+  /** The macOS capture bridge for Codex's voice and other apps' sound (started only when the user asks). */
+  readonly bridge: NativeAudioBridge;
 
   constructor(private readonly options: HubOptions) {
     this.home = options.home ?? presenceHome();
     this.clock = options.clock ?? systemClock;
     this.store = new PresenceStore(this.clock);
+    // Aion's colours are the user's choice: they come back whenever Aion does.
+    this.store.setAppearance(loadAppearance(this.home));
+    // How Aion responds to sound is remembered too; which sources it may capture is not (asked for each session).
+    this.store.setAudioSettings(loadAudioSettings(this.home));
     this.store.subscribe(() => this.changed());
+    this.bridge = new NativeAudioBridge({
+      ...options.bridge,
+      onFeatures: (source, features) => this.broadcast("audio", encodeFeatures(source, features)),
+      onStatus: status => this.store.setBridge(status),
+    });
   }
 
   get url() { return `http://127.0.0.1:${this.port}/`; }
@@ -116,6 +136,7 @@ export class PresenceHub {
 
   async stop(): Promise<void> {
     clearInterval(this.heartbeat);
+    this.bridge.stop(false);
     this.cancelSettle?.();
     for (const viewer of this.viewers.keys()) viewer.end();
     this.viewers.clear();
@@ -137,7 +158,7 @@ export class PresenceHub {
       ...state, revision: this.revision,
       hub: {
         id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction,
-        surface: this.surfaceState(),
+        surface: this.surfaceState(), audioWindow: this.audioWindow,
       },
     };
   }
@@ -174,6 +195,30 @@ export class PresenceHub {
         break;
       case "express": this.store.express({ expression: command.expression, gesture: command.gesture, seconds: command.seconds }); break;
       case "view": { const { type: _type, ...view } = command; this.store.orient(view); break; }
+      case "markers": this.store.setMarkers(command.markers); break;
+      case "appearance": {
+        const current = this.store.snapshot().appearance;
+        const reset = command.reset;
+        const next: Appearance = {
+          base: reset === "base" || reset === "all" ? DEFAULT_APPEARANCE.base : command.base ?? current.base,
+          accent: reset === "accent" || reset === "all" ? DEFAULT_APPEARANCE.accent : command.accent ?? current.accent,
+        };
+        if (this.store.setAppearance(next)) saveAppearance(this.home, next);
+        break;
+      }
+      case "audio": {
+        if (command.settings) {
+          const next: AudioSettings = { ...this.store.snapshot().audio.settings, ...command.settings };
+          if (this.store.setAudioSettings(next)) saveAudioSettings(this.home, next);
+        }
+        const running = this.bridge.status.source;
+        if (command.stop?.length && running && command.stop.includes(running)) this.bridge.stop();
+        // Capture starts in the background; the caller reads its outcome from the snapshot (starting → streaming, or why not).
+        if (command.capture) void this.bridge.start(command.capture);
+        break;
+      }
+      case "play": this.store.play({ events: command.events, tempo: command.tempo, volume: command.volume, ...(command.presentation ? { presentation: command.presentation } : {}) }); break;
+      case "stop-music": if (this.store.snapshot().playback && !this.store.snapshot().playback!.stop) this.store.play({ events: [], tempo: 60, volume: 0, stop: true }); break;
     }
     return this.snapshot();
   }
@@ -182,12 +227,18 @@ export class PresenceHub {
   private surfaceState() {
     const windows = [...new Set(this.viewers.values())];
     const live = windows.map(window => this.reports.get(window)).filter(Boolean) as SurfaceReport[];
+    // Audio: the window that plays (the newest one reporting), as it says itself.
+    const audio = [...live].reverse().find(report => report.audio)?.audio;
     return {
       focused: live.some(report => report.focused && report.visible),
       visible: live.some(report => report.visible) || live.length < windows.length,
       fullscreen: live.some(report => report.fullscreen),
+      ...(audio ? { audio } : {}),
     };
   }
+
+  /** The window that plays music and opens captures: the newest connected companion window. */
+  private get audioWindow() { return [...this.viewers.values()].at(-1) ?? null; }
 
   /** A companion window describes itself. */
   report(report: SurfaceReport) {
@@ -264,6 +315,13 @@ export class PresenceHub {
       }
     }
     this.changed();
+  }
+
+  /** One event to every companion window (audio features: not a state change, no revision). */
+  private broadcast(event: string, data: unknown) {
+    if (!this.viewers.size) return;
+    const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const viewer of this.viewers.keys()) viewer.write(frame);
   }
 
   private changed() {
@@ -404,4 +462,46 @@ export function readOrCreateToken(home: string): string {
   writeFileSync(file, token, { mode: 0o600 });
   chmodSync(file, 0o600);
   return token;
+}
+
+/** The remembered colours (appearance.json in the runtime directory); the defaults when absent or unreadable. */
+export function loadAppearance(home: string): Appearance {
+  try {
+    const saved = JSON.parse(readFileSync(join(home, APPEARANCE_FILE), "utf8")) as Partial<Appearance>;
+    const color = (value: unknown, fallback: Appearance["base"]) => {
+      const c = value as { hex?: unknown; name?: unknown } | undefined;
+      // eslint-disable-next-line no-control-regex -- a stored name must hold no control characters
+      return c && isHexColor(c.hex) && typeof c.name === "string" && c.name.length > 0 && c.name.length <= 40 && !/[\u0000-\u001f]/.test(c.name) ? { hex: c.hex, name: c.name } : fallback;
+    };
+    return { base: color(saved.base, DEFAULT_APPEARANCE.base), accent: color(saved.accent, DEFAULT_APPEARANCE.accent) };
+  } catch { return DEFAULT_APPEARANCE; }
+}
+
+/** How Aion responds to sound, as the user last set it (audio.json); capture sources are never remembered. */
+export function loadAudioSettings(home: string): AudioSettings {
+  try {
+    const saved = JSON.parse(readFileSync(join(home, AUDIO_FILE), "utf8")) as Partial<AudioSettings>;
+    return {
+      ...DEFAULT_AUDIO_SETTINGS,
+      ...(typeof saved.enabled === "boolean" ? { enabled: saved.enabled } : {}),
+      ...((AUDIO_MODES as readonly unknown[]).includes(saved.mode) ? { mode: saved.mode } : {}),
+      ...((AUDIO_INTENSITIES as readonly unknown[]).includes(saved.intensity) ? { intensity: saved.intensity } : {}),
+      ...(typeof saved.sensitivity === "number" && saved.sensitivity >= 0 && saved.sensitivity <= 1 ? { sensitivity: saved.sensitivity } : {}),
+    };
+  } catch { return DEFAULT_AUDIO_SETTINGS; }
+}
+
+export function saveAudioSettings(home: string, settings: AudioSettings) {
+  try {
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    const { enabled, mode, intensity, sensitivity } = settings;
+    writeFileSync(join(home, AUDIO_FILE), JSON.stringify({ enabled, mode, intensity, sensitivity }, null, 2), { mode: 0o600 });
+  } catch { /* the choice still applies for this session */ }
+}
+
+export function saveAppearance(home: string, appearance: Appearance) {
+  try {
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    writeFileSync(join(home, APPEARANCE_FILE), JSON.stringify({ base: appearance.base, accent: appearance.accent }, null, 2), { mode: 0o600 });
+  } catch { /* the choice still applies for this session */ }
 }

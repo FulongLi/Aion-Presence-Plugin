@@ -6,11 +6,11 @@
   <key>CFBundleName</key><string>Aion Audio Bridge</string>
   <key>CFBundleExecutable</key><string>aion-audio-bridge</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.4.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleShortVersionString</key><string>0.4.2</string>
+  <key>CFBundleVersion</key><string>2</string>
   <key>LSMinimumSystemVersion</key><string>14.2</string>
   <key>LSUIElement</key><true/>
   <key>NSAudioCaptureUsageDescription</key>
-  <string>Aion measures how loud the assistant's voice is, and in which frequency bands, so its particle body can move with it. Only those numbers are used; no audio is recorded, stored, sent or transcribed.</string>
+  <string>Aion measures how loud the sound you choose is (Codex's voice, or music you play), and in which frequency bands, so its particle body can move with it. The sound is analysed in memory on this Mac; only those measurements are used. Nothing is recorded, stored, sent or transcribed.</string>
 </dict>
 </plist>

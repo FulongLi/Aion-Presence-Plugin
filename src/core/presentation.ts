@@ -1,5 +1,6 @@
-import { IMAGE_FITS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
+import { IMAGE_FITS, PORTRAIT_STYLES, portraitStyleFor, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
 import type { Scene3D } from "../visual/scene3d/types";
+import type { MusicHighlight, MusicScore } from "../music/notation/score";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -52,11 +53,21 @@ export const LIMITS = {
  * artifacts, which only the plugin presents, are held longer.
  */
 export const HOLD_SECONDS = {
-  form: 10, scene: 30, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  form: 10, scene: 30, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  /** A map is something the user keeps working with ("add New York", "make it blue"); each change holds it again. */
+  map: 60, markedTerrain: 60,
 } as const;
 
-/** Media the host adapter has read and validated (an image, or a height field); surfaces fetch the bytes by id. */
+/** Media the host adapter has read and validated (an image, a height field, a map); surfaces fetch the bytes by id. */
 export interface MediaRef { id: string; mime: string; bytes: number }
+
+/**
+ * A place marked on a map or on terrain (v0.4.1): its geocoded coordinates (never estimated from the picture), the
+ * label shown beside it and its colour (the accent unless one was asked for). `highlight` makes it the one the
+ * user is looking for: larger, with a slow pulse.
+ */
+export interface GeoMarker { id: string; label: string; lat: number; lon: number; color: string; highlight?: boolean }
+export const MARKER_LIMITS = { markers: 12, label: 40 } as const;
 
 export interface FileChange { path: string; change: ChangeKind; additions?: number; deletions?: number }
 
@@ -70,20 +81,39 @@ export type PresentationContent =
    * a looked-up picture came from. `width`/`height`: the original picture's size (the card shows the original,
    * never the particle raster). `origin`: looked up on public sources, or a file on this machine. `mode`: the
    * v0.2 preference (particles → body, framed → card), still honoured when no presentation preference is given.
-   * `style` (portraits only): classic, or heritage — the body forms an antique oval portrait (the card is unchanged).
+   * `style` (portraits only): heritage (the default when it is absent) — the body forms an antique oval portrait — or
+   * classic, the head-and-shoulders band. The card shows the original photograph either way.
    */
   | { kind: "image"; media: MediaRef; alt?: string; mode?: ImageMode; fit?: ImageFit; credit?: string; width?: number; height?: number; origin?: "lookup" | "local"; style?: PortraitStyle }
-  /** Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. */
-  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string }
+  /**
+   * Real elevation as a height field (media of type application/vnd.aion.heightfield), shaded in `style`. `region`: what
+   * was asked for (any host process can resolve it again); `markers`: places marked on it.
+   */
+  | { kind: "terrain"; media: MediaRef; style: TerrainStyle; label: string; elevation?: { min: number; max: number }; credit?: string; region?: string; markers?: GeoMarker[] }
+  /**
+   * A geographic map (media of type application/vnd.aion.map: outlines, borders, land, neighbours, already projected)
+   * with places marked on it. `region`: what was asked for.
+   */
+  | { kind: "map"; media: MediaRef; label: string; region: string; markers: GeoMarker[]; credit?: string }
   | { kind: "clock"; time: string }
   | { kind: "number"; value: string }
   | { kind: "symbol"; symbol: SymbolName }
   | { kind: "emoji"; emoji: string }
   /** A 3D object built from a validated scene of primitives (see visual/scene3d); `preset` names a curated one. */
   | { kind: "scene"; scene: Scene3D; label: string; preset?: string }
+  /**
+   * Music notation (v0.4.2): a validated score drawn exactly on a card (the notation engine), with what to highlight.
+   * `symbol`: a music form the body may become beside it (the clef being explained). `lesson`: where in a Music
+   * Library lesson this is, and in which language. `caption`: one short line under the staff. `tempo`: how fast its
+   * play button plays it.
+   */
+  | { kind: "music"; title: string; score: MusicScore; highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; tempo?: number }
   | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] };
 
 export type PresentationKind = PresentationContent["kind"];
+
+/** A step of a Music Library lesson on show. `question`: the step asks the user to name a note. */
+export interface MusicLessonRef { id: number; step: number; steps: number; language: "en" | "zh"; title: string; question?: boolean }
 
 export type Presentation = PresentationContent & {
   /** Unique per presentation, so surfaces know when a new one replaced an identical-looking one. */
@@ -137,6 +167,7 @@ function bodySeconds(content: PresentationContent): number {
   switch (content.kind) {
     case "text": return HOLD_SECONDS.text;
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
+    case "terrain": return content.markers?.length ? HOLD_SECONDS.markedTerrain : HOLD_SECONDS.terrain;
     case "result": case "artifact": return HOLD_SECONDS.image;
     default: return HOLD_SECONDS[content.kind];
   }
@@ -179,6 +210,7 @@ export type BodyVisual =
   | { type: "text"; text: string }
   | { type: "image"; media: MediaRef; fit: ImageFit; style?: PortraitStyle }
   | { type: "terrain"; media: MediaRef; style: TerrainStyle }
+  | { type: "map"; media: MediaRef }
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
   | { type: "none" };
@@ -193,14 +225,17 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "result": { const symbol = RESULT_SYMBOL[presentation.status]; return symbol ? { type: "form", form: symbol } : { type: "none" }; }
     case "image": {
       const fit = presentation.fit ?? "object";
-      return { type: "image", media: presentation.media, fit, ...(fit === "portrait" && presentation.style ? { style: presentation.style } : {}) };
+      const style = portraitStyleFor(fit, presentation.style);
+      return { type: "image", media: presentation.media, fit, ...(style ? { style } : {}) };
     }
     case "terrain": return { type: "terrain", media: presentation.media, style: presentation.style };
+    case "map": return { type: "map", media: presentation.media };
     case "clock": return { type: "text", text: presentation.time };
     case "number": return { type: "text", text: presentation.value };
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
     case "scene": return { type: "scene", scene: presentation.scene };
+    case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
   }
 }
@@ -217,13 +252,21 @@ export function describePresentation(presentation: PresentationContent): string 
     case "form": return `form: ${presentation.label}`;
     case "text": return `text: ${presentation.title ?? presentation.text.slice(0, 40)}`;
     case "result": return `result (${presentation.status}): ${presentation.title}`;
-    case "image": return `${presentation.fit === "portrait" ? presentation.style === "heritage" ? "heritage portrait" : "portrait" : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
-    case "terrain": return `terrain: ${presentation.label}`;
+    case "image": {
+      const style = portraitStyleFor(presentation.fit, presentation.style);
+      return `${style ? `${style} portrait` : "image"}${presentation.alt ? `: ${presentation.alt}` : ""}`;
+    }
+    case "terrain": return `terrain: ${presentation.label}${presentation.markers?.length ? ` (${markerWords(presentation.markers)})` : ""}`;
+    case "map": return `map: ${presentation.label}${presentation.markers.length ? ` (${markerWords(presentation.markers)})` : ""}`;
     case "clock": return `clock: ${presentation.time}`;
     case "number": return `number: ${presentation.value}`;
     case "symbol": return `symbol: ${presentation.symbol}`;
     case "emoji": return `emoji: ${presentation.emoji}`;
     case "scene": return `3D: ${presentation.label}`;
+    case "music": return `music: ${presentation.title}${presentation.lesson ? ` (lesson ${presentation.lesson.id}, step ${presentation.lesson.step}/${presentation.lesson.steps})` : ""}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
   }
 }
+
+/** "Los Angeles, New York" — the marked places in a few words. */
+export const markerWords = (markers: readonly GeoMarker[]) => markers.map(marker => marker.label).join(", ");
