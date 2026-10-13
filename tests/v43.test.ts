@@ -634,7 +634,7 @@ test("Codex Voice Sync in the hub: remembered, connects when Aion opens, reconne
   } finally { await hub.stop(); }
   // A restarted hub (Codex restarted) remembers the choice.
   saveVoiceSync(home, on({ permission: "granted" }));
-  const again = new PresenceHub({ home, port: 0, page: () => PAGE, bridge: { locate: () => null } });
+  const again = new PresenceHub({ home, port: 0, page: () => PAGE, bridge: { isMac: true, macosVersion: 15, locate: () => null } });
   assert.equal(again.snapshot().audio.voiceSync?.enabled, true);
   assert.equal(again.snapshot().audio.voiceSync?.unavailable, "not-installed", "and says why it cannot run here");
   await again.stop();

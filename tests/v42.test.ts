@@ -608,7 +608,7 @@ test("MCP: show_music, play_music, music_lesson and set_audio_visualizer — exa
     out = await call("set_audio_visualizer", { source: "codex" });
     const audio = out.structuredContent!.audio as Record<string, string>;
     assert.match(audio.voice_sync, /^on/, "the choice is remembered");
-    assert.match(out.content[0].text, /Not connected: the Aion Audio Bridge is not installed/, "the bridge is not available in tests, and the result says so");
+    assert.match(out.content[0].text, /Not connected: (?:the Aion Audio Bridge is not installed|it needs macOS)/, "the bridge is not available in tests, and the result says so");
     assert.doesNotMatch(out.content[0].text, /now captured/);
     out = await call("set_audio_visualizer", { mode: "spectrum", intensity: "subtle" });
     assert.deepEqual([(out.structuredContent!.audio as Record<string, string>).mode, (out.structuredContent!.audio as Record<string, string>).intensity], ["spectrum", "subtle"]);
