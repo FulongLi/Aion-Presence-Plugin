@@ -1,6 +1,8 @@
 import { IMAGE_FITS, PORTRAIT_STYLES, portraitStyleFor, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
 import type { Scene3D } from "../visual/scene3d/types";
 import type { MusicHighlight, MusicScore } from "../music/notation/score";
+import type { AnimationSpec } from "../animation/scene/sequence";
+import { animationDuration } from "../animation/control";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -54,6 +56,8 @@ export const LIMITS = {
  */
 export const HOLD_SECONDS = {
   form: 10, scene: 30, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  /** Writing stays until cleared or replaced (something the user studies, like notation); an action sequence, as long as it plays. */
+  writing: 0, animation: 10,
   /** A map is something the user keeps working with ("add New York", "make it blue"); each change holds it again. */
   map: 60, markedTerrain: 60,
 } as const;
@@ -108,7 +112,17 @@ export type PresentationContent =
    * play button plays it.
    */
   | { kind: "music"; title: string; score: MusicScore; highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; tempo?: number }
-  | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] };
+  | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] }
+  /**
+   * A symbol written stroke by stroke (v0.4.3): `stroke` is a writing sequence's id (animation/stroke, e.g. "chinese:永");
+   * the body writes it while a card shows its numbered stroke order. Playback is the snapshot's `animation`.
+   */
+  | { kind: "writing"; stroke: string; label: string }
+  /**
+   * A short action sequence of Aion's figure (v0.4.3): a validated declarative spec (animation/scene); `demo` names a
+   * curated one. The body itself performs it; playback is the snapshot's `animation`.
+   */
+  | { kind: "animation"; sequence: AnimationSpec; label: string; demo?: string };
 
 export type PresentationKind = PresentationContent["kind"];
 
@@ -132,7 +146,7 @@ export type Presentation = PresentationContent & {
 };
 
 /** How a presentation was asked for: a route preference and whether exact detail matters. */
-export interface PresentationRequest { preference?: PresentationPreference; detail?: boolean; capabilities?: PresentationCapabilities }
+export interface PresentationRequest { preference?: PresentationPreference; detail?: boolean; capabilities?: PresentationCapabilities; /** v0.4.3: an animation's playback rate. */ rate?: number }
 
 /** Control, zero-width and bidirectional-override characters. Newlines and tabs are handled separately. */
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
@@ -169,6 +183,8 @@ function bodySeconds(content: PresentationContent): number {
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
     case "terrain": return content.markers?.length ? HOLD_SECONDS.markedTerrain : HOLD_SECONDS.terrain;
     case "result": case "artifact": return HOLD_SECONDS.image;
+    // As long as the sequence plays, and a moment after it.
+    case "animation": return Math.ceil(animationDuration(content) + 1.5);
     default: return HOLD_SECONDS[content.kind];
   }
 }
@@ -213,6 +229,10 @@ export type BodyVisual =
   | { type: "map"; media: MediaRef }
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
+  /** v0.4.3: the body writes a symbol (a writing target revealed stroke by stroke). */
+  | { type: "writing"; stroke: string }
+  /** v0.4.3: the body itself (as the figure) performs an action sequence; nothing is formed. */
+  | { type: "performance" }
   | { type: "none" };
 
 export interface PresentationPlan { body: BodyVisual; card: boolean }
@@ -237,6 +257,8 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "scene": return { type: "scene", scene: presentation.scene };
     case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
+    case "writing": return { type: "writing", stroke: presentation.stroke };
+    case "animation": return { type: "performance" };
   }
 }
 
@@ -265,6 +287,8 @@ export function describePresentation(presentation: PresentationContent): string 
     case "scene": return `3D: ${presentation.label}`;
     case "music": return `music: ${presentation.title}${presentation.lesson ? ` (lesson ${presentation.lesson.id}, step ${presentation.lesson.step}/${presentation.lesson.steps})` : ""}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
+    case "writing": return `writing: ${presentation.label}`;
+    case "animation": return `animation: ${presentation.label}`;
   }
 }
 

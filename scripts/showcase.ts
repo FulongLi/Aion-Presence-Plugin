@@ -505,6 +505,139 @@ DEMOS.push(
   },
 );
 
+DEMOS.push(
+  {
+    name: "stroke-yong", title: "v0.4.3 Demo 4: 永 (eternity) written stroke by stroke; repeat the third stroke; slower; complete", seconds: 40,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_stroke_animation", { symbol: "eternity" });
+      await ctx.wait(2.2); await ctx.shot("formed");
+      await ctx.wait(1.2);
+      await ctx.film("writing", 9.5);
+      await ctx.wait(0.8); await ctx.shot("written");
+      await ctx.tool("control_animation", { action: "repeat", stroke: 3 });
+      await ctx.wait(0.9); await ctx.shot("third-stroke");
+      await ctx.wait(2);
+      await ctx.tool("control_animation", { action: "replay", speed: "slow" });
+      await ctx.wait(3.5); await ctx.shot("slow");
+      await ctx.tool("control_animation", { action: "pause" });
+      await ctx.wait(1); await ctx.shot("paused");
+      await ctx.tool("control_animation", { action: "complete" });
+      await ctx.wait(1.5); await ctx.shot("complete");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+    },
+  },
+  {
+    name: "stroke-letters", title: "v0.4.3 Demo 5: handwriting paths for A and g, and the digit 5", seconds: 40,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_stroke_animation", { symbol: "A", presentation: "body" });
+      await ctx.film("A", 9);
+      await ctx.shot("A");
+      await ctx.tool("show_stroke_animation", { symbol: "g" });
+      await ctx.wait(9.5); await ctx.shot("g");
+      await ctx.tool("show_stroke_animation", { symbol: "5", speed: "fast" });
+      await ctx.wait(6); await ctx.shot("5");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+    },
+  },
+  {
+    name: "stroke-clef", title: "v0.4.3 Demo 6: how to draw a treble clef (one stroke from the G line), then a sharp", seconds: 30,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_stroke_animation", { symbol: "treble clef" });
+      await ctx.film("treble-clef", 9.5);
+      await ctx.shot("treble-clef");
+      await ctx.tool("show_stroke_animation", { symbol: "sharp" });
+      await ctx.wait(9); await ctx.shot("sharp");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+    },
+  },
+);
+
+DEMOS.push(
+  {
+    name: "figure-jump", title: "v0.4.3 Demo 7: \"Show a stick figure jumping over a box\" — a short particle action sequence", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.5); await ctx.shot("sphere");
+      await ctx.tool("play_animation", { demo: "jump-over-obstacle" });
+      await ctx.film("jump", 8.5);
+      await ctx.wait(3.5); await ctx.shot("back");
+    },
+  },
+  {
+    name: "figure-demos", title: "v0.4.3: the five action sequences (walk and stop, jump, pick up, explain a diagram, surprised reaction)", seconds: 70,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      for (const demo of ["walk-and-stop", "pick-up-object", "explain-diagram", "surprised-reaction"]) {
+        await ctx.tool("play_animation", { demo });
+        await ctx.film(demo, demo === "explain-diagram" ? 12.5 : 9.5);
+        await ctx.wait(3);
+      }
+    },
+  },
+  {
+    name: "figure-transition", title: "v0.4.3 Demo 8: sphere → figure performs → sphere; figure body → performs → back to its place; replay at half speed", seconds: 50,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("play_animation", { sequence: { title: "Wave and jump", start: { x: 0.4 }, actions: [{ do: "gesture", name: "wave" }, { do: "jump" }] } });
+      await ctx.film("from-sphere", 9.5);
+      await ctx.wait(2.5);
+      await ctx.tool("set_body_form", { body: "figure" });
+      await ctx.wait(3);
+      await ctx.tool("play_animation", { demo: "walk-and-stop" });
+      await ctx.film("from-figure", 11);
+      await ctx.tool("play_animation", { demo: "jump-over-obstacle", speed: "slow" });
+      await ctx.wait(5); await ctx.shot("slow");
+      await ctx.tool("control_animation", { action: "pause" });
+      await ctx.wait(1); await ctx.shot("paused");
+      await ctx.tool("control_animation", { action: "resume" });
+      await ctx.wait(9);
+      await ctx.tool("set_body_form", { body: "sphere" });
+      await ctx.wait(3);
+    },
+  },
+  {
+    name: "local-portrait", title: "v0.4.3 Demo 2: a photograph on this machine as a heritage portrait; classic on request; a local landscape stays a picture", seconds: 40,
+    async run(ctx) {
+      const found = await cachedPortrait("Nikola Tesla");
+      const dir = mkdtempSync(join(tmpdir(), "aion-local-"));
+      const photo = join(dir, `tesla.${found.mime === "image/png" ? "png" : found.mime === "image/webp" ? "webp" : "jpg"}`);
+      writeFileSync(photo, found.bytes);
+      await ctx.wait(1.5);
+      await ctx.tool("show_portrait", { source: photo, person: "Nikola Tesla" });
+      await ctx.wait(4); await ctx.shot("heritage");
+      await ctx.tool("show_image", { source: photo, intent: "portrait", style: "classic", alt: "Nikola Tesla" });
+      await ctx.wait(4.5); await ctx.shot("classic");
+      // The same file without portrait intent is shown as it is: a card, never an oval.
+      await ctx.tool("show_image", { source: photo, alt: "a photograph (no portrait intent)" });
+      await ctx.wait(4); await ctx.shot("no-intent");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+      rmSync(dir, { recursive: true, force: true });
+    },
+  },
+  {
+    name: "storyteller", title: "v0.4.3 Demo 3: storytelling visuals — Tesla's heritage portrait, where he was born and where he arrived, a year", seconds: 40,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_portrait", { person: "Nikola Tesla" });
+      await ctx.wait(5); await ctx.shot("portrait");
+      await ctx.tool("show_map", { region: "Europe", markers: [{ place: "Smiljan", label: "Smiljan · 1856" }, { place: "Graz" }, { place: "Prague" }, { place: "Budapest" }, { place: "Paris" }] });
+      await ctx.wait(5); await ctx.shot("europe");
+      await ctx.tool("show_map", { region: "United States", markers: [{ place: "New York", label: "New York · 1884", highlight: true }, { place: "Colorado Springs" }] });
+      await ctx.wait(5); await ctx.shot("new-york");
+      await ctx.tool("show_text", { title: "1884", text: "Tesla arrives in New York and goes to work at Edison's Machine Works." });
+      await ctx.wait(4); await ctx.shot("year");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+    },
+  },
+);
+
 /** Demos register here as they are built (later phases append to DEMOS). */
 export const demos = DEMOS;
 

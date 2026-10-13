@@ -18,6 +18,7 @@ const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
   show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_scene: schemas.showSceneInput, set_scene_view: schemas.setSceneViewInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
   show_map: schemas.showMapInput, mark_map: schemas.markMapInput, set_colors: schemas.setColorsInput,
+  show_stroke_animation: schemas.showStrokeAnimationInput, play_animation: schemas.playAnimationInput, control_animation: schemas.controlAnimationInput,
 };
 
 test("the Aion Presence skill is discoverable with a trigger-oriented description", () => {
@@ -72,7 +73,7 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|music)_|^express$/.test(name)));
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|music|control)_|^express$/.test(name)));
   for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name), `${name} is a real tool`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);
@@ -122,6 +123,12 @@ test("Visual Intent Policy: natural requests map to the right tool, with argumen
     ["I want to learn how to read music.", "music_lesson"], ["Can you play it?", "play_music"], ["Play the C major scale.", "play_music"],
     ["What does middle C look like?", "show_music"], ["React to your own voice.", "set_audio_visualizer"], ["Show me your audio spectrum.", "set_audio_visualizer"],
     ["Make the particles more responsive.", "set_audio_visualizer"], ["Go back to your normal appearance.", "set_audio_visualizer"], ["Stop listening to system audio.", "set_audio_visualizer"],
+    // v0.4.3: local portraits, storytelling, stroke order, animations and Codex Voice Sync, as the brief words them.
+    ["Show this local photograph as a portrait.", "show_portrait"], ["Show this image without the oval frame.", "show_image"], ["Tell me the story of Nikola Tesla.", "show_portrait"],
+    ["Teach me how to write the character for eternity.", "show_stroke_animation"], ["Show me the stroke order of 水.", "show_stroke_animation"],
+    ["Show me how to write a treble clef.", "show_stroke_animation"], ["Write it more slowly.", "control_animation"], ["Repeat the third stroke.", "control_animation"],
+    ["Show the whole character again.", "control_animation"], ["Show a stick figure jumping over a box.", "play_animation"], ["Make the figure walk toward the box.", "play_animation"],
+    ["Replay the animation.", "control_animation"], ["Stop reacting to your voice.", "set_audio_visualizer"],
   ];
   for (const [say, tool] of expected) {
     const row = rows.find(item => item.say === say);

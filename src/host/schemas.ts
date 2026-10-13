@@ -17,6 +17,10 @@ import { SCORE_LIMITS } from "../music/notation/score";
 import { MUSIC_FORM_IDS } from "../music/visual/glyphForms";
 import { LANGUAGES, LESSONS } from "../music/lessons/lessons";
 import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES } from "../audio/settings";
+import { WRITING_SYSTEMS, STROKE_LIMITS } from "../animation/stroke/types";
+import { FACINGS, OBJECT_SIZES, OBJECT_TYPES, SCENE_GESTURES, SEQUENCE_LIMITS, WALK_SPEEDS } from "../animation/scene/sequence";
+import { DEMO_NAMES, type DemoName } from "../animation/scene/demos";
+import { ANIMATION_ACTIONS, ANIMATION_SPEEDS } from "../animation/control";
 
 /**
  * Input and output schemas shared by the MCP tools and the hub's local HTTP API, so a command is validated
@@ -94,19 +98,26 @@ export const showTextInput = z.object({
 export const showImageInput = z.object({
   query: checked(VISUAL_LIMITS.query, value => validQuery(value, VISUAL_LIMITS.query), `query: a short search phrase of at most ${VISUAL_LIMITS.query} characters, no URLs or markup`).optional()
     .describe(`What to look up and show, as a short specific search phrase, e.g. "Tesla Model Y", "Eiffel Tower at night", "${AION_IDENTITY.creatorCompany} logo". At most ${VISUAL_LIMITS.query} characters, no URLs. Use either query or source, not both.`),
-  intent: z.enum(IMAGE_INTENTS).optional().describe("With query: what kind of picture this is; it chooses the sources and the framing. Default general."),
+  intent: z.enum(IMAGE_INTENTS).optional().describe("What kind of picture this is; it chooses the sources (query) and the framing. Default general. "
+    + "With source too: portrait (or celebrity) when the user says the local picture is a portrait (\"show this photo as a portrait\") — it is then a heritage "
+    + "portrait like a looked-up one. Leave it out for any other local picture (a screenshot, a landscape, a car): it stays as it is."),
   source: z.string().min(1).max(12_000_000).optional()
     .describe("Instead of query: an image on this machine — an absolute path to a PNG, JPEG, WebP, GIF or SVG file (or a file:// URL), or a data:image/…;base64 URL. Remote URLs are not accepted here; use query to look something up."),
   alt: line(LIMITS.alt, "alt").optional().describe("Short description of the image."),
   mode: z.enum(IMAGE_MODES).optional().describe("Older form of presentation (particles = body, framed = card). Prefer presentation."),
   presentation: presentation.optional(),
   detail: z.boolean().optional().describe("true when the user wants to inspect the picture's exact detail: it is shown as a card, not dissolved into particles."),
-  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity): heritage (default, an antique oval) or classic. Ignored for anything else."),
+  style: portraitStyle.optional().describe("Only for a portrait (intent portrait or celebrity, with query or source): heritage (default, an antique oval) or classic. Ignored for anything else."),
   hold_seconds: hold.optional(),
 }).strict();
 
 export const showPortraitInput = z.object({
-  person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).describe("Full, unambiguous name of the person, e.g. \"Nikola Tesla\"."),
+  person: checked(VISUAL_LIMITS.person, validPerson, `person: a full name of at most ${VISUAL_LIMITS.person} letters`).optional()
+    .describe("Full, unambiguous name of the person to look up, e.g. \"Nikola Tesla\". With source: only their name (no lookup)."),
+  source: z.string().min(1).max(12_000_000).optional()
+    .describe("Instead of a lookup: a portrait photograph on this machine — an absolute path to a PNG, JPEG or WebP file (or file:// or data:image URL), "
+      + "e.g. one the user gave you or one you generated. It is composed exactly like a looked-up portrait (heritage oval by default)."),
+  alt: line(LIMITS.alt, "alt").optional().describe("With source: a short description (default: person)."),
   style: portraitStyle.optional(),
   presentation: presentation.optional(),
   hold_seconds: hold.optional(),
@@ -358,5 +369,64 @@ export const setAudioVisualizerInput = z.object({
   mode: z.enum(AUDIO_MODES).optional().describe("auto: the sphere for speech, the circular spectrum for sustained external music. sphere · spectrum (circular particle spectrum) · hybrid (sphere inside a lighter ring)."),
   intensity: z.enum(AUDIO_INTENSITIES).optional().describe("subtle, balanced (default) or expressive."),
   sensitivity: z.number().min(0).max(1).optional().describe("0…1: how quiet a sound may be and still move Aion (default 0.5)."),
-  stop: z.array(z.enum(["codex", "system", "tab"])).max(3).optional().describe("Stop capturing these sources (\"stop listening to system audio\")."),
+  stop: z.array(z.enum(["codex", "system", "tab"])).max(3).optional().describe("Stop capturing these sources (\"stop listening to system audio\"; codex also turns Codex Voice Sync off)."),
+  voice_sync: z.boolean().optional().describe("Codex Voice Sync, remembered across sessions and restarts: true — Aion follows your real spoken voice whenever it is open, "
+    + "with no further request (source codex turns it on too); false — off (or, with source codex, capture only for this session). Covers Codex's voice only, never other apps."),
+}).strict();
+
+// ── v0.4.3: stroke animation and action sequences ───────────────────────────────────────────────────────────────
+
+const speed = z.enum(["slow", "normal", "fast"]).describe("slow (half speed: for a learner, or \"write it more slowly\"), normal (default) or fast.");
+
+export const showStrokeAnimationInput = z.object({
+  symbol: z.string().min(1).max(40).describe("What to write: the character, letter, digit or symbol itself (\"永\", \"A\", \"a\", \"7\", \"π\", \"𝄞\") or its name "
+    + "(\"eternity\", \"treble clef\", \"高音谱号\", \"capital A\", \"integral\"). Letters are case-sensitive: \"a\" and \"A\" differ."),
+  system: z.enum(WRITING_SYSTEMS).optional().describe("Narrows the search when a symbol could belong to more than one: chinese, latin, digits, music, math."),
+  speed: speed.optional(),
+  presentation: presentation.optional().describe("auto (default): the body writes it while a card shows the numbered stroke order. body: the body only."),
+  hold_seconds: hold.optional().describe("Default: until cleared or replaced (the user is learning it)."),
+}).strict();
+
+const sceneObjectInput = z.object({
+  id: z.string().regex(/^[a-z][a-z0-9-]{0,23}$/).describe("A short id the actions refer to, e.g. \"box\"."),
+  type: z.enum(OBJECT_TYPES).describe("box, ball, or panel (a diagram card standing in the air, to point at)."),
+  x: z.number().min(-SEQUENCE_LIMITS.reach).max(SEQUENCE_LIMITS.reach).describe(`Where it stands on the stage, −${SEQUENCE_LIMITS.reach} (left) … ${SEQUENCE_LIMITS.reach} (right).`),
+  size: z.enum(OBJECT_SIZES).optional(),
+  from: z.number().optional().describe("A ball only: it rolls in from this x at the start."),
+  label: z.string().max(24).optional(),
+}).strict();
+
+const actionInput = z.discriminatedUnion("do", [
+  z.object({ do: z.literal("walk"), to: z.union([z.number(), z.string()]).describe("An x on the stage, or an object id (it stops in front of it)."), speed: z.enum(WALK_SPEEDS).optional() }).strict(),
+  z.object({ do: z.literal("jump"), over: z.string().optional().describe("An object id to jump over (it runs up first); omit for a jump on the spot.") }).strict(),
+  z.object({ do: z.literal("pick-up"), object: z.string().describe("A box or ball id: it walks to it, squats, lifts it.") }).strict(),
+  z.object({ do: z.literal("put-down") }).strict(),
+  z.object({ do: z.literal("point"), at: z.union([z.string(), z.tuple([z.number(), z.number()])]).describe("An object id (a panel's mark), or [x, y] on the stage.") }).strict(),
+  z.object({ do: z.literal("face"), toward: z.string().describe("left, right, viewer, or an object id.") }).strict(),
+  z.object({ do: z.literal("gesture"), name: z.enum(SCENE_GESTURES) }).strict(),
+  z.object({ do: z.literal("react"), to: z.string().optional().describe("Surprise: a start back away from this object, then recovery.") }).strict(),
+  z.object({ do: z.literal("crouch") }).strict(),
+  z.object({ do: z.literal("wait"), seconds: z.number().min(0.2).max(SEQUENCE_LIMITS.wait) }).strict(),
+]);
+
+export const animationSequenceInput = z.object({
+  title: z.string().min(1).max(SEQUENCE_LIMITS.title).describe("What it shows, e.g. \"Jump over a box\"."),
+  start: z.object({ x: z.number().min(-SEQUENCE_LIMITS.reach).max(SEQUENCE_LIMITS.reach).optional(), facing: z.enum(FACINGS).optional() }).strict().optional()
+    .describe("Where the figure stands first (default x 0, facing the viewer)."),
+  objects: z.array(sceneObjectInput).max(SEQUENCE_LIMITS.objects).optional(),
+  actions: z.array(actionInput).min(1).max(SEQUENCE_LIMITS.actions).describe("Approved motion primitives, in order. Turning toward a destination or an object is automatic."),
+}).strict();
+
+export const playAnimationInput = z.object({
+  demo: z.enum(DEMO_NAMES as [DemoName, ...DemoName[]]).optional().describe(`A curated sequence: ${DEMO_NAMES.join(", ")}.`),
+  sequence: animationSequenceInput.optional().describe(`Your own short sequence of approved primitives (at most ${SEQUENCE_LIMITS.seconds} s, ${SEQUENCE_LIMITS.actions} actions, ${SEQUENCE_LIMITS.objects} objects).`),
+  speed: speed.optional(),
+  hold_seconds: hold.optional(),
+}).strict();
+
+export const controlAnimationInput = z.object({
+  action: z.enum(ANIMATION_ACTIONS).describe("pause, resume (or play), replay, speed (with speed), next / previous (stroke), repeat (a stroke: with stroke, or the current one), "
+    + "complete (show the finished symbol), stop (end the animation)."),
+  stroke: z.number().int().min(1).max(STROKE_LIMITS.strokes).optional().describe("For repeat: which stroke, from 1 (\"repeat the third stroke\" → 3)."),
+  speed: z.enum(ANIMATION_SPEEDS).optional().describe("slow, normal, fast, or slower / faster than now (\"write it more slowly\" → slower, or replay with slow)."),
 }).strict();

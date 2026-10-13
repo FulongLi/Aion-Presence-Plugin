@@ -1,4 +1,5 @@
 import type { AudioSourceKind } from "./features";
+import type { VoiceSyncPermission } from "./voiceSync";
 
 /**
  * How Aion responds to sound (the set_audio_visualizer tool): which source, which visual mode, how strongly.
@@ -9,8 +10,9 @@ import type { AudioSourceKind } from "./features";
  *   intensity  subtle · balanced · expressive
  *   sensitivity 0…1: how quiet a sound may be and still count
  *
- * Capture permissions are never part of these settings: opening a source (Codex's voice, another app, a tab) is asked
- * for each time, by the user, and stops with the session.
+ * Capture permissions are never part of these settings: opening a source (another app, a tab) is asked for each time,
+ * by the user, and stops with the session. The one exception is Codex's own voice once the user has opted in to Codex
+ * Voice Sync (v0.4.3, voiceSync.ts): that choice is remembered on its own, and it covers Codex only.
  */
 export const AUDIO_SOURCE_PREFERENCES = ["auto", "microphone", "codex", "system", "tab", "music"] as const;
 export type AudioSourcePreference = typeof AUDIO_SOURCE_PREFERENCES[number];
@@ -49,7 +51,16 @@ export interface BridgeStatus {
   reason?: string;
   /** Samples arrived but every one was exactly zero: macOS has not granted "System Audio Recording". */
   silentCapture?: boolean;
+  /** v0.4.3: the bridge runs and waits for the app's audio processes to appear (Codex not open yet, or not yet playing). */
+  waiting?: boolean;
 }
 
-export interface AudioPresence { settings: AudioSettings; bridge: BridgeStatus }
+/** Codex Voice Sync as the surfaces and the tools see it (v0.4.3, see voiceSync.ts): the choice, the evidence, a line. */
+export interface VoiceSyncState {
+  enabled: boolean; permission: VoiceSyncPermission; status: string;
+  /** Why the bridge cannot run on this machine at all (not-macos, macos-too-old, not-installed); absent when it can. */
+  unavailable?: string;
+}
+
+export interface AudioPresence { settings: AudioSettings; bridge: BridgeStatus; voiceSync?: VoiceSyncState }
 export const DEFAULT_AUDIO_PRESENCE: AudioPresence = Object.freeze({ settings: DEFAULT_AUDIO_SETTINGS, bridge: Object.freeze({ state: "off" as const }) });

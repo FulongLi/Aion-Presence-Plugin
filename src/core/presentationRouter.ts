@@ -34,6 +34,8 @@ export type RouteReason =
   | "portrait-hybrid"
   /** auto: notation on a card while the body forms the symbol being explained (a clef, a note value). */
   | "notation-hybrid"
+  /** auto (v0.4.3): the body writes the symbol while a card shows its numbered stroke order. */
+  | "writing-hybrid"
   /** auto: a looked-up, high-resolution picture — a particle impression and the picture itself. */
   | "picture-hybrid"
   /** auto: the picture is too small to be worth a card of its own. */
@@ -73,7 +75,7 @@ export const PICTURE_QUALITY = { portraitMinSide: 240, pictureMinLongSide: 640 }
 /** Whether the particle body can carry this content legibly. */
 export function bodyCapable(content: PresentationContent): boolean {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": case "map": return true;
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": case "map": case "writing": case "animation": return true;
     case "text": return !content.title && isGlyphText(content.text);
     case "result": return content.status !== "info";
     case "music": return content.symbol !== undefined;
@@ -83,13 +85,15 @@ export function bodyCapable(content: PresentationContent): boolean {
 
 /** Whether this content has a card form. A form, a symbol or an emoji is only ever the body. */
 export function cardCapable(content: PresentationContent): boolean {
-  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji" || content.kind === "scene");
+  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji" || content.kind === "scene" || content.kind === "animation");
 }
 
 function automatic(content: PresentationContent, detail: boolean): { route: PresentationRoute; reason: RouteReason } {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene": case "map":
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene": case "map": case "animation":
       return { route: "body", reason: "body-native" };
+    case "writing":
+      return { route: "hybrid", reason: "writing-hybrid" };
     case "text":
       return bodyCapable(content) ? { route: "body", reason: "body-native" } : { route: "card", reason: "fidelity" };
     case "result": case "artifact":
@@ -101,11 +105,12 @@ function automatic(content: PresentationContent, detail: boolean): { route: Pres
       if (detail) return { route: "card", reason: "detail-requested" };
       if (content.fit === "logo") return { route: "body", reason: "body-native" };
       const short = Math.min(content.width ?? 0, content.height ?? 0), long = Math.max(content.width ?? 0, content.height ?? 0);
-      // A picture from this machine (a screenshot, a generated image, a diagram) is shown exactly.
-      if (content.origin === "local") return { route: "card", reason: "fidelity" };
+      // A portrait is a portrait wherever it came from (v0.4.3): the particle portrait and the original photograph.
       if (content.fit === "portrait") {
         return short >= PICTURE_QUALITY.portraitMinSide ? { route: "hybrid", reason: "portrait-hybrid" } : { route: "body", reason: "low-resolution" };
       }
+      // Any other picture from this machine (a screenshot, a generated image, a diagram) is shown exactly.
+      if (content.origin === "local") return { route: "card", reason: "fidelity" };
       return long >= PICTURE_QUALITY.pictureMinLongSide ? { route: "hybrid", reason: "picture-hybrid" } : { route: "body", reason: "low-resolution" };
     }
   }

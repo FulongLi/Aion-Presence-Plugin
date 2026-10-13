@@ -62,6 +62,10 @@ export function createUniforms(config: ParticleConfig) {
     sphereAudio: uniform(0), ringMorph: uniform(0),
     ringRadius: uniform(RING_LAYOUTS.spectrum.radius as number), ringHeight: uniform(RING_LAYOUTS.spectrum.height as number), ringCore: uniform(RING_LAYOUTS.spectrum.core as number),
     ringCoreScale: uniform(RING_LAYOUTS.spectrum.coreScale as number), ringFlow: uniform(0.08),
+    // Writing (v0.4.3, see render/writing.ts): how far the symbol is written, the pen tip and its light. These values
+    // show every grain as sampled, so a target that is not writing is unchanged.
+    writeProgress: uniform(1e6), writeComplete: uniform(1), writePen: uniform(0), writeStroke: uniform(-1), writeRest: uniform(1), writeGhost: uniform(1),
+    writeTip: uniform(new Vector3()),
     size: uniform(config.geometry.size), ambient: uniform(config.lighting.ambient),
     key: uniform(config.lighting.key), fill: uniform(config.lighting.fill), wrap: uniform(config.lighting.wrap),
   };

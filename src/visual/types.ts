@@ -136,7 +136,19 @@ export interface MapTarget {
   map: GeoMap;
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget;
+/**
+ * Ordered writing strokes (v0.4.3, see animation/stroke): each stroke's centre line in writing order (flat [x, y, …],
+ * normalized −1…1, y up) with its pen width at start and end, and faint guides (a practice grid, a staff). The sampler
+ * gives every grain a reveal key — the stroke's index plus how far along it the grain lies — so the renderer can write
+ * the symbol stroke by stroke without sampling it again.
+ */
+export interface StrokesTarget {
+  kind: "strokes";
+  strokes: { path: number[]; width: [number, number] }[];
+  guides: number[][];
+}
+
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget | StrokesTarget;
 
 /** A particle arrangement ready for the runtime: a visual target plus how long to hold it. */
 export interface MorphTarget {

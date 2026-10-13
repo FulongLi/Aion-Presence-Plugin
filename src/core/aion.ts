@@ -1,6 +1,6 @@
 import { AionBody, type AionBodyId } from "./body";
 import { EyesAnimator, isEyeExpression, type EyeExpression } from "./eyes/expression";
-import { ATTENTIVE_TILT, CONCERN, DROWSY, gestureClip, NOD, PLEASED, SHRUG, SURPRISE, THINK, type Clip, type FigureGesture } from "./figure/motion";
+import { ATTENTIVE_TILT, CONCERN, DROWSY, gestureClip, NOD, PLEASED, SHRUG, SURPRISE, THINK, type Channels, type Clip, type FigureGesture } from "./figure/motion";
 import { FigureAnimator } from "./figure/pose";
 import { AION_IDENTITY } from "./identity";
 import type { PresenceSignal } from "./signal";
@@ -54,7 +54,18 @@ export class Aion implements BodySource {
   }
 
   get currentState(): AionState { return this.state.state; }
+  /** The persistent body (a performance borrows the figure without changing it). */
   get currentBody(): AionBodyId { return this.body.form; }
+
+  /**
+   * v0.4.3: performs an action sequence — `frame()` gives this moment's pose channels (null when it has ended). The body
+   * becomes the figure for it (on a smaller, lower stage) and returns to the persistent body afterwards.
+   */
+  perform(performance: { frame(): Channels | null; stage: { scale: number; y: number } } | null) {
+    this.performance = performance;
+    this.body.override = performance ? "figure" : null;
+  }
+  private performance: { frame(): Channels | null; stage: { scale: number; y: number } } | null = null;
 
   /** Changes the persistent body; false when it already is that body. */
   setBody(form: AionBodyId) { return this.body.set(form); }
@@ -97,11 +108,12 @@ export class Aion implements BodySource {
     this.frame.level = this.body.sample(step);
     this.frame.eyes = this.body.eyes;
     // Each body's motion is only computed while any of it is visible.
-    if (this.frame.level > 0 || this.body.form === "figure") {
+    if (this.frame.level > 0 || this.body.shown === "figure") {
+      this.figure.perform(this.performance?.frame() ?? null, this.performance?.stage);
       this.figure.sample(step, state, now - this.state.since, signal.assistantAmplitude, calm, signal.userAmplitude);
     }
     if (this.look && this.clock > this.look.until) this.look = null;
-    if (this.frame.eyes > 0 || this.body.form === "eyes") {
+    if (this.frame.eyes > 0 || this.body.shown === "eyes") {
       this.eyes.sample(step, state, now - this.state.since, { listen: signal.userAmplitude, amplitude: signal.assistantAmplitude, calm, look: this.look?.at ?? null });
     }
     this.orbit = (this.orbit + step * 0.35 * signal.thinking * (calm ? 0.3 : 1)) % (Math.PI * 2);

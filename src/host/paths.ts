@@ -18,6 +18,8 @@ export const HOOK_HEARTBEAT_FILE = "hooks-seen";
 export const APPEARANCE_FILE = "appearance.json";
 /** How Aion responds to sound (mode, intensity, sensitivity); never which sources it may capture. */
 export const AUDIO_FILE = "audio.json";
+/** Codex Voice Sync (v0.4.3): whether the user opted in to Aion following Codex's voice, and what macOS has shown. */
+export const VOICE_SYNC_FILE = "voice-sync.json";
 /** Hook events seen this recently mean the plugin's hooks are trusted and running. */
 export const HOOKS_ACTIVE_MS = 30 * 60_000;
 /** The companion surface's preferred local port (any free port is used when it is taken). */

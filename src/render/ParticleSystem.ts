@@ -18,6 +18,7 @@ import { integrateSpring } from "./physics/springPhysics";
 import { createMaterial } from "./rendering/material";
 import { ringRest, ringWeight } from "./physics/ring";
 import { sphereAudioField } from "./physics/audioField";
+import { writingTarget } from "./physics/writing";
 
 export function createParticleSystem(capacity: number, config: ParticleConfig) {
   const sphere = createSphere(capacity, config.geometry.radius);
@@ -30,6 +31,9 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   const targetTones = new StorageInstancedBufferAttribute(new Float32Array(capacity).fill(1), 1);
   const target = storage(targetPositions, "vec3", capacity).toReadOnly();
   const tones = storage(targetTones, "float", capacity).toReadOnly();
+  // Each grain's reveal key for writing targets (v0.4.3, see render/writing.ts); −1 (shown as sampled) for every other.
+  const targetKeys = new StorageInstancedBufferAttribute(new Float32Array(capacity).fill(-1), 1);
+  const keys = storage(targetKeys, "float", capacity).toReadOnly();
   // Aion's other bodies: every grain bound to the figure's skeleton (core/figure/layout.ts) and to an eye
   // (core/eyes/layout.ts). One buffer, four vec4 per particle (figure bind, local; eyes bind, local), so the
   // compute stage stays within WebGPU's default of eight storage buffers.
@@ -58,7 +62,7 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
     // The circular audio spectrum (v0.4.2) is a layer over the persistent body: the same grains re-form as the ring.
     const w = ringWeight(r, u);
     const bodyRest = mix(persistent, ringRest(r, u).position, w);
-    const base = mix(bodyRest, formedTarget(target.element(instanceIndex), u), m);
+    const base = mix(bodyRest, formedTarget(writingTarget(target.element(instanceIndex), keys.element(instanceIndex), u), u), m);
     // The sphere's own field (breathing, listening, thinking, speech tufts) is shaped for a sphere. The figure
     // takes none of it (its strokes stay precise) and gets its body language from the pose instead.
     const sphereForce = presenceForce(r, s, u).add(sphereAudioField(r, u).mul(u.stiffness).mul(u.motion))
@@ -85,7 +89,7 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   // with six vertices per particle instead of a full polyhedron.
   const geometry = new PlaneGeometry(1, 1);
   // Read per instance from storage in the vertex stage: the material already uses every vertex buffer slot.
-  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), tones.toAttribute(), u, bodyInputs());
+  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), tones.toAttribute(), u, bodyInputs(), keys.element(instanceIndex));
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.frustumCulled = false;
   // Targets sampled ahead of time (a director that knows its visuals); anything else is sampled on upload.
@@ -97,6 +101,8 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
       const points = prepared.get(value.visual) ?? createTargetPoints(value.visual, capacity);
       targetPositions.array.set(points.positions); targetPositions.needsUpdate = true;
       targetTones.array.set(points.tones); targetTones.needsUpdate = true;
+      if (points.keys) targetKeys.array.set(points.keys); else (targetKeys.array as Float32Array).fill(-1);
+      targetKeys.needsUpdate = true;
     },
     setCount(count: number) { mesh.count = count; compute.count = count; },
     dispose() { compute.dispose(); geometry.dispose(); material.dispose(); mesh.dispose(); },

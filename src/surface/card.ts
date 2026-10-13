@@ -4,6 +4,8 @@ import { reliefPixels } from "../visual/relief";
 import { decodeMap, frameBounds } from "../visual/geo/map";
 import { geoToNormal } from "../visual/geo/projection";
 import { highlight, renderScore, type RenderedScore } from "./music/notation";
+import { strokeSequence } from "../animation/stroke/registry";
+import { buildStrokeCard, type StrokeCard } from "./strokeCard";
 
 /**
  * A card: information Aion presents beside its body when exactness or recognizability matters (the CARD and
@@ -24,7 +26,7 @@ const CHANGE_LABEL: Record<FileChange["change"], string> = { added: "added", mod
  * `wide`: the card carries a picture or code and takes more room. `images`: object URLs to release later. `music`: the
  * engraved score of a music card (its notes can be lit up), and `play`, its play button.
  */
-export interface CardContent { root: HTMLElement; wide: boolean; images: string[]; music?: RenderedScore; play?: HTMLButtonElement }
+export interface CardContent { root: HTMLElement; wide: boolean; images: string[]; music?: RenderedScore; play?: HTMLButtonElement; /** v0.4.3: a stroke-order card, lit as the body writes. */ writing?: StrokeCard }
 
 export interface CardSources {
   /** The bytes of a presented medium, by id. */
@@ -38,7 +40,7 @@ export async function buildCard(presentation: Presentation, sources: CardSources
   const root = el("div", "card-body");
   const images: string[] = [];
   let wide = false;
-  let music: RenderedScore | undefined, play: HTMLButtonElement | undefined;
+  let music: RenderedScore | undefined, play: HTMLButtonElement | undefined, writing: StrokeCard | undefined;
   const picture = (url: string, alt: string, className = "picture") => {
     images.push(url);
     const img = el("img", className);
@@ -203,8 +205,16 @@ export async function buildCard(presentation: Presentation, sources: CardSources
       if (footer.childElementCount) root.append(footer);
       break;
     }
-    case "form": case "symbol": case "emoji": case "scene":
+    case "writing": {
+      // The numbered stroke order beside the body that writes it (v0.4.3); it follows the writing (see strokeCard.ts).
+      const sequence = strokeSequence(presentation.stroke);
+      if (!sequence) break;
+      writing = buildStrokeCard(sequence);
+      root.append(writing.root);
+      break;
+    }
+    case "form": case "symbol": case "emoji": case "scene": case "animation":
       break;
   }
-  return { root, wide, images, ...(music ? { music } : {}), ...(play ? { play } : {}) };
+  return { root, wide, images, ...(music ? { music } : {}), ...(play ? { play } : {}), ...(writing ? { writing } : {}) };
 }

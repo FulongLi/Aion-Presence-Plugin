@@ -1,4 +1,4 @@
-// Aion Audio Bridge (v0.4.2) — the macOS capture adapter for Codex's voice and other applications' sound.
+// Aion Audio Bridge (v0.4.2, follow mode v0.4.3) — the macOS capture adapter for Codex's voice and other applications' sound.
 //
 // It captures audio output with a Core Audio process tap (macOS 14.2+): one application (every process of it mixed
 // together), or the whole system mix. The samples go to exactly one place: the local Aion hub, over a private Unix socket
@@ -7,8 +7,10 @@
 // renderer. (Until v0.4.1 this experiment computed its own spectrum; Aion now has one analyser for every source.)
 //
 //   aion-audio-bridge list                                    audio clients: pid, bundle id, name, playing now or not
-//   aion-audio-bridge stream --socket PATH --nonce N (--bundle ID | --pid N | --system) [--seconds S]
+//   aion-audio-bridge stream --socket PATH --nonce N (--bundle ID | --pid N | --system) [--seconds S] [--follow]
 //       --bundle ID   every process of that app (ID and ID.*, e.g. com.openai.codex and its helpers) mixed together
+//       --follow      (v0.4.3) wait for the app's audio processes (sending "AION-WAIT1 <nonce>\n" meanwhile) and exit
+//                     when they or the output device change, so the hub reconnects to the new ones
 //       --name NAME   an application by name ("Music", "Spotify"), with all of its processes
 //       --system      everything the Mac plays (a global tap), except this bridge itself
 //   aion-audio-bridge probe (--bundle ID | --pid N | --system) [--seconds S]
@@ -161,13 +163,9 @@ func option(_ name: String) -> String? {
     return args[index + 1]
 }
 
-/// The processes a command names: an app's whole family by bundle id, one pid, or (global) the processes to leave out.
-func chooseTap() -> (tap: Tap, label: String) {
+/// The audio clients a command names: an app's whole family by bundle id or by name, or one pid (empty for --system).
+func matchingClients() -> [AudioClient] {
     let clients = audioClients()
-    if CommandLine.arguments.contains("--system") {
-        let me = clients.filter { $0.pid == getpid() }.map(\.object)
-        return (Tap(processes: me, global: true), "system")
-    }
     var chosen: [AudioClient] = []
     if let pid = option("--pid").flatMap({ pid_t($0) }) { chosen = clients.filter { $0.pid == pid } }
     if let bundle = option("--bundle") { chosen = clients.filter { $0.bundle == bundle || $0.bundle.hasPrefix(bundle + ".") } }
@@ -176,8 +174,25 @@ func chooseTap() -> (tap: Tap, label: String) {
         chosen = clients.filter { $0.name.lowercased() == name || $0.bundle.lowercased().split(separator: ".").last.map(String.init) == name }
         if let family = chosen.first?.bundle, !family.isEmpty { chosen = clients.filter { $0.bundle == family || $0.bundle.hasPrefix(family + ".") } }
     }
+    return chosen
+}
+
+/// The processes a command names: an app's whole family by bundle id, one pid, or (global) the processes to leave out.
+func chooseTap() -> (tap: Tap, label: String, pids: Set<pid_t>) {
+    if CommandLine.arguments.contains("--system") {
+        let me = audioClients().filter { $0.pid == getpid() }.map(\.object)
+        return (Tap(processes: me, global: true), "system", [])
+    }
+    let chosen = matchingClients()
     guard !chosen.isEmpty else { fail("no-such-client: no audio client matches (see: list)") }
-    return (Tap(processes: chosen.map(\.object)), chosen.map { "\($0.pid) \($0.name)" }.joined(separator: ", "))
+    return (Tap(processes: chosen.map(\.object)), chosen.map { "\($0.pid) \($0.name)" }.joined(separator: ", "), Set(chosen.map(\.pid)))
+}
+
+/// Calls `changed` whenever a system audio property changes (the list of client processes, the default output device).
+/// Core Audio notifies: nothing is polled.
+func watch(_ selector: AudioObjectPropertySelector, on queue: DispatchQueue, _ changed: @escaping () -> Void) {
+    var where_ = address(selector)
+    AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &where_, queue) { _, _ in changed() }
 }
 
 func cpuSeconds() -> Double {
@@ -238,7 +253,18 @@ case "stream":
         if n == 0 || (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) { _exit(0) }
     }
     watchdog.resume()
-    let (tap, label) = chooseTap()
+    // --follow (v0.4.3, Codex Voice Sync): wait for the app's audio processes instead of failing, and end (so the hub
+    // reconnects) when they change — a helper restarting — or when the output device changes.
+    let follow = CommandLine.arguments.contains("--follow") && !CommandLine.arguments.contains("--system")
+    let changes = DispatchQueue(label: "aion.audio-bridge.changes")
+    if follow && matchingClients().isEmpty {
+        let line = "AION-WAIT1 \(nonce)\n"
+        guard line.utf8CString.withUnsafeBytes({ writeAll(fd, UnsafeRawBufferPointer(rebasing: $0.dropLast())) }) else { exit(0) }
+        let appeared = DispatchSemaphore(value: 0)
+        watch(kAudioHardwarePropertyProcessObjectList, on: changes) { if !matchingClients().isEmpty { appeared.signal() } }
+        appeared.wait()
+    }
+    let (tap, label, tapped) = chooseTap()
     let writer = DispatchQueue(label: "aion.audio-bridge.writer", qos: .userInteractive)
     var alive = true, ready = false
     let stop: (Int32) -> Never = { code in tap.stop(); close(fd); exit(code) }
@@ -266,6 +292,12 @@ case "stream":
         if alive && !withUnsafeBytes(of: &zero, { writeAll(fd, $0) }) { alive = false; _exit(0) }
     }
     keepAlive.resume()
+    if follow {
+        watch(kAudioHardwarePropertyProcessObjectList, on: changes) { if Set(matchingClients().map(\.pid)) != tapped { stop(0) } }
+    }
+    if CommandLine.arguments.contains("--follow") {
+        watch(kAudioHardwarePropertyDefaultSystemOutputDevice, on: changes) { stop(0) }
+    }
     for sig in [SIGINT, SIGTERM] {
         signal(sig, SIG_IGN)
         let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
@@ -276,7 +308,7 @@ case "stream":
     dispatchMain()
 case "probe":
     let seconds = Double(option("--seconds") ?? "5") ?? 5
-    let (tap, label) = chooseTap()
+    let (tap, label, _) = chooseTap()
     var peak: Float = 0
     let lock = NSLock()
     tap.onSamples = { samples, _ in

@@ -2,7 +2,7 @@ import { subjectMap } from "./image";
 import { HERITAGE_OVAL, ovalMask } from "./oval";
 import { sceneParticles } from "./scene3d/sample";
 import { validScene } from "./scene3d/validate";
-import type { HeightFieldTarget, MapTarget, PointLayoutTarget, Raster, Raster2DTarget, VisualTarget } from "./types";
+import type { HeightFieldTarget, MapTarget, PointLayoutTarget, Raster, Raster2DTarget, StrokesTarget, VisualTarget } from "./types";
 import { frameBounds, mapWorldPoint } from "./geo/map";
 import { rasterizePolygon } from "./heightfield";
 
@@ -11,7 +11,15 @@ import { rasterizePolygon } from "./heightfield";
  * and it does not care where the target came from. Every sampler draws from a stable random sequence,
  * so every quality-tier prefix still shows the whole visual.
  */
-export interface TargetPoints { positions: Float32Array; tones: Float32Array }
+export interface TargetPoints {
+  positions: Float32Array;
+  tones: Float32Array;
+  /**
+   * Writing targets only (v0.4.3): each grain's reveal key — stroke index + its fraction along the stroke (≥ 0), −1 for
+   * a grain that is always shown (a guide), −2 for the pen's own cluster (its position is an offset from the pen tip).
+   */
+  keys?: Float32Array;
+}
 
 export function createTargetPoints(target: VisualTarget, count: number): TargetPoints {
   switch (target.kind) {
@@ -21,6 +29,7 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
     // A 3D scene is validated again here: the renderer never builds geometry it has not checked.
     case "mesh3d": return sceneParticles(validScene(target.scene), count);
     case "map": return mapPoints(target, count);
+    case "strokes": return strokePoints(target, count);
     default: throw new Error("invalid-target");
   }
 }
@@ -555,4 +564,97 @@ function mapPoints(target: MapTarget, count: number): TargetPoints {
     tones[i] = Math.max(0, Math.min(1, spec.tone * (0.85 + next() * 0.3)));
   }
   return { positions, tones };
+}
+
+/** Writing targets (v0.4.3): their scale on the stage (as point layouts), the pen's and the guides' shares of grains. */
+export const strokeLayout = { scale: 1.6, pen: 0.03, guides: 0.05, penSpread: 0.022, strokes: 40, guideLines: 96, vertices: 6000 };
+
+/** Reveal keys of grains that are not part of a stroke. */
+export const WRITING_KEYS = { guide: -1, pen: -2 } as const;
+
+function validateStrokes(target: StrokesTarget) {
+  const finite = (values: readonly number[]) => values.every(value => Number.isFinite(value) && Math.abs(value) <= 1.05);
+  const { strokes, guides } = target;
+  if (!Array.isArray(strokes) || !strokes.length || strokes.length > strokeLayout.strokes || !Array.isArray(guides) || guides.length > strokeLayout.guideLines) {
+    throw new Error("invalid-strokes");
+  }
+  let vertices = 0;
+  for (const stroke of strokes) {
+    if (!Array.isArray(stroke.path) || stroke.path.length < 4 || stroke.path.length % 2 || !finite(stroke.path)
+      || !stroke.width.every(w => w > 0 && w <= 0.3)) throw new Error("invalid-strokes");
+    vertices += stroke.path.length / 2;
+  }
+  for (const guide of guides) {
+    if (!Array.isArray(guide) || guide.length < 4 || guide.length % 2 || !finite(guide)) throw new Error("invalid-strokes");
+    vertices += guide.length / 2;
+  }
+  if (vertices > strokeLayout.vertices) throw new Error("invalid-strokes");
+}
+
+/**
+ * Writing strokes drawn in particles. Grains are spread along each stroke in proportion to its length × width (an even
+ * ink), across the pen's width with a soft edge; each carries its reveal key. A few grains form the pen's small cluster
+ * of light (offsets around the tip) and a few the faint guides. Deterministic, so every quality tier is a prefix.
+ */
+function strokePoints(target: StrokesTarget, count: number): TargetPoints {
+  validateStrokes(target);
+  const { strokes, guides } = target;
+  const segments: { stroke: number; ax: number; ay: number; bx: number; by: number; s0: number; s1: number; w0: number; w1: number }[] = [];
+  const weights: number[] = [];
+  strokes.forEach((stroke, index) => {
+    let total = 0;
+    for (let k = 2; k < stroke.path.length; k += 2) total += Math.hypot(stroke.path[k] - stroke.path[k - 2], stroke.path[k + 1] - stroke.path[k - 1]);
+    let at = 0;
+    for (let k = 2; k < stroke.path.length; k += 2) {
+      const [ax, ay, bx, by] = [stroke.path[k - 2], stroke.path[k - 1], stroke.path[k], stroke.path[k + 1]];
+      const length = Math.hypot(bx - ax, by - ay);
+      if (length < 1e-9) continue;
+      const s0 = total > 0 ? at / total : 0, s1 = total > 0 ? (at + length) / total : 1;
+      const w0 = stroke.width[0] + (stroke.width[1] - stroke.width[0]) * s0, w1 = stroke.width[0] + (stroke.width[1] - stroke.width[0]) * s1;
+      segments.push({ stroke: index, ax, ay, bx, by, s0, s1, w0, w1 });
+      weights.push(length * (w0 + w1) / 2);
+      at += length;
+    }
+  });
+  const guideSegments: number[][] = [];
+  const guideWeights: number[] = [];
+  for (const guide of guides) for (let k = 2; k < guide.length; k += 2) {
+    const segment = [guide[k - 2], guide[k - 1], guide[k], guide[k + 1]];
+    guideSegments.push(segment); guideWeights.push(Math.hypot(segment[2] - segment[0], segment[3] - segment[1]));
+  }
+  const cumulative = (values: number[]) => { const out = new Float64Array(values.length); let sum = 0; values.forEach((v, i) => { sum += v; out[i] = sum; }); return out; };
+  const strokeDistribution = cumulative(weights), guideDistribution = cumulative(guideWeights);
+  const strokeTotal = strokeDistribution[strokeDistribution.length - 1] ?? 0, guideTotal = guideDistribution[guideDistribution.length - 1] ?? 0;
+  if (!(strokeTotal > 0)) throw new Error("invalid-strokes");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count), keys = new Float32Array(count);
+  const next = random(0x57a0e);
+  const gaussian = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
+  const { scale, pen, penSpread } = strokeLayout;
+  const guideShare = guideTotal > 0 ? strokeLayout.guides : 0;
+  for (let i = 0; i < count; i++) {
+    const role = next();
+    if (role < pen) {
+      // The pen: a small, dense cluster around the tip (the renderer adds the tip).
+      positions.set([gaussian() * penSpread, gaussian() * penSpread, 0.04 + gaussian() * penSpread * 0.5], i * 3);
+      tones[i] = 0.9 + next() * 0.1;
+      keys[i] = WRITING_KEYS.pen;
+    } else if (role < pen + guideShare) {
+      const g = guideSegments[pickCell(guideDistribution, next() * guideTotal)];
+      const t = next();
+      positions.set([(g[0] + (g[2] - g[0]) * t) * scale, (g[1] + (g[3] - g[1]) * t) * scale, -0.06 + (next() - 0.5) * 0.02], i * 3);
+      tones[i] = 0.1 + next() * 0.06;
+      keys[i] = WRITING_KEYS.guide;
+    } else {
+      const s = segments[pickCell(strokeDistribution, next() * strokeTotal)];
+      const t = next(), length = Math.hypot(s.bx - s.ax, s.by - s.ay);
+      const width = s.w0 + (s.w1 - s.w0) * t;
+      // Even across the pen's width, with a slightly soft edge.
+      const across = ((next() - 0.5) * 0.94 + gaussian() * 0.03) * width;
+      const x = s.ax + (s.bx - s.ax) * t - (s.by - s.ay) / length * across, y = s.ay + (s.by - s.ay) * t + (s.bx - s.ax) / length * across;
+      positions.set([x * scale, y * scale, (next() - 0.5) * 0.03], i * 3);
+      tones[i] = 0.82 + next() * 0.16;
+      keys[i] = s.stroke + Math.min(0.999, s.s0 + (s.s1 - s.s0) * t);
+    }
+  }
+  return { positions, tones, keys };
 }

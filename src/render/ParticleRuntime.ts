@@ -15,6 +15,7 @@ import { SpeechMotion } from "./speechMotion";
 import { PaletteEase } from "./palette";
 import type { ParticlePalette } from "../core/colors";
 import { ringParams } from "./ring";
+import { NO_WRITING, type WritingUniforms } from "./writing";
 
 /** What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. */
 export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
@@ -22,7 +23,14 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource; audio?: AudioVisualSource }
+export interface RuntimeInputs {
+  presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource; audio?: AudioVisualSource;
+  /** v0.4.3: how far a formed writing target is written (render/writing.ts); absent or NO_WRITING: shown as sampled. */
+  writing?: WritingSource;
+}
+
+/** The writing state each frame, already in world units (the tip) (see surface/writing.ts). */
+export interface WritingSource { sample(dt: number): WritingUniforms }
 
 /**
  * Sound for the body (v0.4.2), already chosen and eased by the surface (see surface/audioVisual.ts): the active
@@ -222,6 +230,10 @@ export async function createParticleRuntime(
       const ring = ringParams(sound.layout);
       u.ringRadius.value = ring.radius; u.ringHeight.value = ring.height; u.ringCore.value = ring.core; u.ringCoreScale.value = ring.coreScale; u.ringFlow.value = ring.flow * (calm() ? 0.2 : 1);
     }
+    const writing = inputs.writing?.sample(dt) ?? NO_WRITING;
+    u.writeProgress.value = writing.progress; u.writeComplete.value = writing.complete; u.writePen.value = writing.pen;
+    u.writeStroke.value = writing.stroke; u.writeRest.value = writing.rest; u.writeGhost.value = writing.ghost;
+    u.writeTip.value.set(...writing.tip);
     const colors = palette.sample(dt);
     u.baseColor.value.setRGB(...colors.cool); u.warmColor.value.setRGB(...colors.warm); u.formedColor.value.setRGB(...colors.formed);
     try {

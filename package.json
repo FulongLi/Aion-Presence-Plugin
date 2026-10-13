@@ -1,6 +1,6 @@
 {
   "name": "aion-presence-plugin",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "private": true,
   "description": "Aion Presence: a visual embodiment layer for Codex. Codex is the intelligence; Aion is the body.",
   "type": "module",
