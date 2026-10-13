@@ -21,11 +21,13 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `figure/` | Figure 2.0: skeleton, the clean particle layout (strokes, head ring, joint beads), poses with two-bone IK (`pose.ts`), and the Expressive Motion System (`motion.ts`: eased keyframe clips, per-state tracks, gestures, the explanation cue). See [FIGURE.md](FIGURE.md). |
 | `eyes/` | Aion Eyes (v0.4.1 cartoon design): one luminous shape per eye, bound by direction and share of the outline's reach (`layout.ts`, with its CPU reference), expressions as shapes, spring-driven motion with entries, tempo, blinks and saccades (`expression.ts`). See [EYES.md](EYES.md). |
 | `colors.ts` | Aion's colours (v0.4.1): parsing (English and Chinese names, presets, hex), the particle palette (Aion Silver exact; others scaled, saturated and lifted to read on black), the accent. See [COLORS.md](COLORS.md). |
-| `audio.ts` | `HostAudioSource`, the seam for a host that someday exposes assistant audio. Today: `NO_HOST_AUDIO`. |
+| `audio.ts` | `HostAudioSource`, the seam for real assistant audio: `NO_HOST_AUDIO`, or Codex's voice through the native bridge (v0.4.2, `surface/audioVisual.ts`). |
 | `presentationRouter.ts` | The Presentation Router: BODY, CARD or HYBRID for each presentation, from its kind, size, origin and fidelity needs, an optional preference (`auto` by default) and the surface's capabilities. Pure policy; deterministic overrides of clearly bad requests. |
 | `presentation.ts`, `store.ts` | What can be presented (form, text, result, image with fit, size and origin, terrain with its elevation, clock, number, symbol, emoji, artifact), routed; separate body and card lifetimes (SCF's hold times for the body, counted as time formed); a new topic retires temporary cards; the revisioned store. |
 | `visual/` | Visual forms (Tao, celestial, symbols), target sampling incl. SCF's 2.5D height-field sampler, intent-driven `normalizeImage` (portrait band, map, object, logo; the heritage oval, `oval.ts`), height-field codec, SVG checks, validators, the Visual Action controller. |
 | `visual/geo/` | Geography (v0.4.1), pure and shared: equal-area projections and frames (`projection.ts`), spherical extents — the primary part of a scattered region, windows (`extent.ts`), map geometry projected, densified and clipped, with its `AMP1` codec (`map.ts`), and `markerWorldPoint`, a place's position on a formed map or terrain through the samplers' own geometry (`markers.ts`). See [MAPS.md](MAPS.md). |
+| `audio/` (v0.4.2) | The Audio Analysis Engine (`analyzer.ts`: the only FFT; loudness, 32 log bands, onsets, beats, voice), the common feature format, the feature bus, the source policy (`route.ts`), the music detector, settings and the compact wire form. Pure. See [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md). |
+| `music/` (v0.4.2) | The Music Library: theory (pitch, rhythm, scales), notation (staff positions, the validated score, audio-clock scheduling), lessons in English and Chinese, practice questions, and the body's music symbols (Bravura outlines). Pure. See [MUSIC.md](MUSIC.md). |
 | `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
 
 ### Precedence
@@ -71,6 +73,10 @@ before density). Additions, mirrored in the Canvas 2D fallback:
   weight per grain for each layer. The figure and eye bindings share one storage buffer (four vec4 per particle),
   so the compute stage stays within WebGPU's default eight storage buffers. The figure takes none of the sphere's
   field (its strokes stay precise).
+- **Sound** (v0.4.2): a ring layer over the persistent body (`physics/ring.ts`, CPU reference `render/ring.ts`): the
+  same grains re-form as a circular particle spectrum (bass at the bottom, treble at the top) around a small core; and
+  an audio field on the sphere (`physics/audioField.ts`). Both are driven by one `AudioVisualFrame` per frame and are
+  zero without sound.
 - **3D objects** (v0.4): `formedTarget()` turns a formed target by yaw, pitch and zoom (identity for flat
   visuals). While it is 3D, tone follows depth and the ripple is reduced. The orbit controller
   (`interaction/orbit.ts`) turns it slowly and lets the user drag, zoom and reset; `toWorld()` maps a screen point
@@ -101,6 +107,9 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   field, carrying its frame → compact bytes. Results become
   local media; the surface never contacts a remote host.
 - **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
+- **Audio bridge** (`audio/bridge.ts`, v0.4.2): the hub's end of the macOS Aion Audio Bridge — a private Unix socket, the
+  shared analyser at 60 Hz, features out as `event: audio` on the companion stream. Started only when the user asks.
+- **Music** (`music.ts`, v0.4.2): tool arguments → validated scores, note facts, lesson moves, answers.
 - **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
   companion window once (`autoOpen`: first-run | always | never).
 
@@ -122,6 +131,11 @@ Aion Core (state, engine, body, Presentation Router)  ·  Aion Renderer (WebGPU,
      ├── Browser companion  transports/companion.ts + immersive.ts — app window, Enter Presence, fullscreen
      └── Desktop (future)   a native shell: one more transport with its own window controls
 ```
+
+Sound and music (v0.4.2): `audioVisual.ts` gathers every source's features (the microphone, a shared tab via
+`capture.ts`, the Music Library's `music/player.ts`, and the hub's bridge features) and applies the source policy;
+`music/notation.ts` engraves scores with VexFlow and Bravura for the music card; the player schedules notes on the
+audio clock and the card lights each as it is heard.
 
 Places marked on a map or terrain are drawn by `markers.ts` on an overlay above the particles (glowing grains, a pulse,
 a crisp label; pins on terrain) at the screen position the renderer's `project()` gives their coordinates, every frame;

@@ -24,7 +24,12 @@ Aion never starts its own voice or model session to obtain audio.
   `experiments/audio-bridge/`. It is not part of the plugin and is not yet verified against Codex Voice itself.
 - ScreenCaptureKit can do the same with a broader permission (screen recording). Not used.
 
-Until one of these is verified and integrated, `responding` stays semantic.
+**v0.4.2** (codex-cli 0.162.0-alpha.17.2, ChatGPT desktop with Codex 155, macOS 26.6): the app-server's output audio is
+delivered only to its own client over a private pipe (and not at all in the WebRTC transport), so plugins still get
+no audio from the host. The Core Audio bridge is integrated as the capture adapter (`native/audio-bridge/`,
+`set_audio_visualizer` source `codex`): when the user asks for it and macOS allows it, Codex's real voice becomes a
+`HostAudioSource` and Aion speaks with it. Not yet verified against a real Codex voice session; until a capture is
+streaming, `responding` stays semantic. See [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md).
 
 ## Echo without host audio
 
