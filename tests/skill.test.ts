@@ -12,6 +12,7 @@ const skill = discoverSkills().find(item => item.name === "aion-presence")!;
 
 /** The input schema of each tool, as the MCP server registers it. */
 const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }> = {
+  show_music: schemas.showMusicInput, play_music: schemas.playMusicInput, music_lesson: schemas.musicLessonInput, set_audio_visualizer: schemas.setAudioVisualizerInput,
   open_presence: schemas.openPresenceInput, set_presence_state: schemas.setPresenceStateInput, set_body_form: schemas.setBodyFormInput,
   show_image: schemas.showImageInput, show_portrait: schemas.showPortraitInput, show_terrain: schemas.showTerrainInput, show_form: schemas.showFormInput,
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
@@ -71,7 +72,7 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark)_|^express$/.test(name)));
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|music)_|^express$/.test(name)));
   for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name), `${name} is a real tool`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);
@@ -117,6 +118,10 @@ test("Visual Intent Policy: natural requests map to the right tool, with argumen
     ["Add New York in yellow.", "mark_map"], ["Change the Los Angeles marker to blue.", "mark_map"], ["Remove the New York marker.", "mark_map"],
     ["Show me Scotland's terrain and mark Glasgow in red.", "show_terrain"], ["Change your colour to blue.", "set_colors"],
     ["把粒子颜色改成紫色。", "set_colors"], ["Restore your original colour.", "set_colors"], ["展示一下牛顿的肖像。", "show_portrait"],
+    // v0.4.2: music and sound, as the brief words them.
+    ["I want to learn how to read music.", "music_lesson"], ["Can you play it?", "play_music"], ["Play the C major scale.", "play_music"],
+    ["What does middle C look like?", "show_music"], ["React to your own voice.", "set_audio_visualizer"], ["Show me your audio spectrum.", "set_audio_visualizer"],
+    ["Make the particles more responsive.", "set_audio_visualizer"], ["Go back to your normal appearance.", "set_audio_visualizer"], ["Stop listening to system audio.", "set_audio_visualizer"],
   ];
   for (const [say, tool] of expected) {
     const row = rows.find(item => item.say === say);

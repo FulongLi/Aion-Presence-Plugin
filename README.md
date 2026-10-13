@@ -58,6 +58,11 @@ Codex answers                →  Aion visibly answers, for as long as the answe
 "Explain a² + b² = c²."      →  the figure looks at the equation, points at c² and explains with its hands
 "Show me the classic portrait instead." →  the head-and-shoulders particle portrait
 "Show me an Egyptian pyramid in 3D." · "Rotate it." →  a real 3D pyramid that turns; drag it, zoom, reset
+"I want to learn how to read music." →  lesson 1: an engraved staff beside Aion, its five lines lit one by one
+"Play the C major scale."    →  the scale appears and plays; each note lights up the moment it is heard
+"Show me the treble clef."   →  Aion's particles form a treble clef beside the notation
+"Visualize the music."       →  the music you play (another app, a tab) turns Aion into a circular particle spectrum
+"React to your own voice."   →  on macOS, with your permission, Aion moves with Codex's real voice
 ```
 
 - **Three persistent bodies**, one Aion: the original particle **Sphere** (abstract intelligence, visuals),
@@ -73,6 +78,12 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   country, continent or region, and **global terrain** in true equal-area shape, with markers on both
   ([docs/MAPS.md](docs/MAPS.md), measured coverage in [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md)); **your colours**
   for the particles and the markers, remembered ([docs/COLORS.md](docs/COLORS.md)).
+- **v0.4.2**: the **Music Library** — engraved notation (VexFlow, Bravura), local playback where each note lights up
+  as it is heard, eight lessons in English and Chinese, note-reading practice, music symbols formed by the body, the
+  figure pointing at the note ([docs/MUSIC.md](docs/MUSIC.md)); and an **audio-reactive presence** — one analyser
+  for every source (the microphone, a shared tab, the Music Library, other apps and Codex's own voice through the
+  macOS bridge), a sphere that moves with real sound and a **circular particle spectrum** for music
+  ([docs/AUDIO-REACTIVE.md](docs/AUDIO-REACTIVE.md)). Codex Voice through the bridge is implemented but not yet verified.
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -184,8 +195,11 @@ hooks Aion still works; the Skill then sets the main states itself.
 - **3D scenes are data, never code**: every scene is validated strictly (known fields and names only, bounded
   numbers, at most 24 objects, 256 after repeats, 80,000 triangles, 16 KB) in the MCP server, again in the hub and
   again before geometry is built. No 3D asset is ever fetched.
-- **Assistant audio**: the plugin does not capture any. The macOS audio-bridge experiment (not in the runtime) and
-  its findings are in [docs/AUDIO-BRIDGE.md](docs/AUDIO-BRIDGE.md).
+- **Sound** (v0.4.2): every source is reduced to loudness and frequency bands on this device; nothing is recorded,
+  stored, sent or transcribed. A browser tab is shared only through the browser's own picker. Codex's voice and other
+  apps' sound are captured only when you ask, by the macOS Aion Audio Bridge (built locally, with macOS's System Audio
+  Recording permission), which talks only to the local hub over a private socket; capture sources are never
+  remembered. See [docs/AUDIO-REACTIVE.md](docs/AUDIO-REACTIVE.md) and [docs/AUDIO-BRIDGE.md](docs/AUDIO-BRIDGE.md).
 
 ## Development
 
@@ -201,7 +215,10 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, and v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours — in both renderers (`-- --offline` skips lookups) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, and v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths — in both renderers (`-- --offline` skips lookups; `-- --only=v42` one section) |
+| `npm run audio:eval` | Measures the music detector on real recordings on this Mac (Apple Loops, system voices); nothing is kept |
+| `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` (Xcode command-line tools) |
+| `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge: a real app's sound, or Codex's voice while you talk to it |
 | `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`.e2e/showcase/*.webm`, screenshots, filmed frames for `scripts/media/gif.py`); `-- --list`, `-- map-usa eyes-motion`, `-- --headed`, `-- --canvas` |
 | `npm run geo:coverage` | Geography against the live services (continents, the largest and smallest countries, high latitudes, the date line, OSM regions, markers, terrain); writes [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md) |
 | `npm run geo:build -- <dir>` | Rebuilds the bundled world from the Natural Earth GeoJSON files (see [docs/MAPS.md](docs/MAPS.md)) |

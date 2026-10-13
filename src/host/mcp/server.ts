@@ -31,10 +31,16 @@ import { VisualResolver } from "../resolver";
 import {
   expressInput, mediaInput, setSceneViewInput, showSceneInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
   showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput, showMapInput, markMapInput, setColorsInput,
+  showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
+import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
+import { checkScore, type CheckedScore, type MusicHighlight } from "../../music/notation/score";
+import { lessonById, LESSONS, type Language } from "../../music/lessons/lessons";
+import type { MusicLessonRef } from "../../core/presentation";
+import type { AudioSettings } from "../../audio/settings";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -60,7 +66,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -90,6 +96,21 @@ export const presenceOutput = z.object({
     .describe("The places marked on the map or terrain on show, with their real coordinates (say them if useful)."),
   colors: z.object({ base: z.object({ hex: z.string(), name: z.string() }), accent: z.object({ hex: z.string(), name: z.string() }) }).optional()
     .describe("Aion's colours now: the particles' base colour and the accent of markers and highlights. Remembered across sessions."),
+  music: z.object({
+    title: z.string(), clef: z.string(), time: z.string().optional(),
+    notes: z.array(z.record(z.string(), z.unknown())).describe("Each note: its pitch and name, solfège, frequency (Hz), duration, and where it sits on the staff."),
+    playback: z.enum(["playing", "blocked", "requested", "no-window", "stopped"]).optional()
+      .describe("playing: sounding in Aion's window now. blocked: the browser needs one click in Aion's window first (say so). requested: sent (the embedded view does not report). no-window: Aion is not open."),
+    lesson: z.object({ id: z.number(), title: z.string(), step: z.number(), steps: z.number(), language: z.string(), text: z.string(), question: z.boolean().optional() }).optional()
+      .describe("The lesson step on show. text is the teaching point: say it in your own words, in the user's language."),
+    answer: z.object({ correct: z.boolean(), expected: z.string(), heard: z.string().nullable() }).optional(),
+  }).optional(),
+  audio: z.object({
+    enabled: z.boolean(), source: z.string(), mode: z.string(), intensity: z.string(), sensitivity: z.number(),
+    codex: z.string().describe("Codex voice capture: streaming (real audio drives the body), starting, off, unavailable (why) or failed (why)."),
+    system: z.string().describe("Other apps' sound: as codex."),
+    microphone: z.string().optional(), tab: z.string().optional(),
+  }).optional().describe("How Aion responds to sound, and which sources are really connected. Never claim a source is connected unless it says so."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -190,6 +211,26 @@ export const TOOL_DESCRIPTIONS = {
   set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
     + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
     + "show_scene object is on show; to leave it, use clear_presentation.",
+  show_music: "Show music notation exactly, on a staff beside Aion (the notation engine places every note where theory says): single notes, a scale, "
+    + "a short melody or rhythm, or an empty staff (staff: true) to explain lines and spaces. Use it whenever the user is learning or asking about "
+    + "notes, clefs, rhythms or scales (\"What does middle C look like?\", \"Show me the C major scale\", \"How do I read music?\"). Pitches are scientific "
+    + "(C4 is middle C); highlight lights up notes, a line, a space, the clef or the time signature while you explain; symbol makes the body form "
+    + "that symbol beside it (a clef, a note value); play: true also plays it with each note lighting up. The result lists every note's name, "
+    + "solfège, frequency and staff position, for your explanation. Never draw notation with show_image or show_artifact.",
+  play_music: "Play music on this device (A4 = 440 Hz, a soft piano-like tone, nothing generated by a model): the music on show (optionally only some "
+    + "notes, by index), or notes or a scale you give (they are shown as they play). Each note lights up the moment it sounds, and Aion's body moves "
+    + "with the sound. Use when the user asks to hear something (\"Can you play it?\", \"Play the C major scale\", \"Play it slower\" → tempo). "
+    + "stop: true stops. If the result says blocked, the user must click once in Aion's window (a browser rule) — say so.",
+  music_lesson: `Teach music theory step by step with Aion's notation, playback and body. Lessons: ${LESSONS.map(lesson => `${lesson.id} ${lesson.title.en}`).join("; ")}. `
+    + "Start one (\"I want to learn to read music\" → lesson 1), go on (step next, previous, repeat), switch language (language zh or en: the lesson and "
+    + "step stay), or check the user's answer to a practice question (answer: \"E\"). Each result has the step's teaching point (music.lesson.text): "
+    + "say it in your own words, in the user's language, then wait for them; never read the whole lesson at once.",
+  set_audio_visualizer: "How Aion moves with sound: which source (the user's microphone, your own spoken voice captured on this Mac, another app's "
+    + "music, a shared browser tab, Aion's own music), which form (auto, sphere, spectrum — a circular particle spectrum — or hybrid), how strongly "
+    + "(subtle, balanced, expressive) and how sensitive. Use only when the user asks (\"React to your own voice\" → source codex; \"Visualize the music\" "
+    + "→ mode spectrum (and source system with the app, or tab); \"Make the particles more responsive\" → intensity expressive or sensitivity up; "
+    + "\"Go back to your normal appearance\" → mode sphere; \"Stop listening to system audio\" → stop [system]). Capturing your voice or another app "
+    + "needs macOS and the user's permission; the result says what is really connected — never claim more. Colours stay set_colors.",
   express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
     + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
     + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
@@ -658,6 +699,194 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const message = `Colours: particles ${snapshot.appearance.base.name}, accent ${snapshot.appearance.accent.name} (remembered).`
       + `${lifted.length ? ` ${lifted.join(" and ")} is brightened a little so it stays visible on black.` : ""} Say it in the first person if at all.`;
     return result({ ...summarize(snapshot, modeFor(ctx), message), colors: { base: snapshot.appearance.base, accent: snapshot.appearance.accent } });
+  });
+
+  // ── Music and sound (v0.4.2) ───────────────────────────────────────────────────────────────────────────────────
+
+  /** The lesson this server last showed: "next", "in Chinese" and answers continue it. */
+  let lessonAt: LessonPosition | null = null;
+  const musicFailure = (problem: string) => failure(`music-invalid: ${problem}. Fix it and try again, or explain in words.`);
+  const musicOutput = (title: string, built: CheckedScore, language: Language = "en", extra: Partial<NonNullable<PresenceOutput["music"]>> = {}): NonNullable<PresenceOutput["music"]> => ({
+    title, clef: built.clef, ...(built.score.time ? { time: built.score.time } : {}), notes: noteFacts(built, language), ...extra,
+  });
+  /** Waits (briefly) for Aion's window to say whether playback `id` is sounding. */
+  const playbackState = async (id: number, mode: SurfaceMode): Promise<NonNullable<PresenceOutput["music"]>["playback"]> => {
+    if (mode === "embedded") return "requested";
+    let snapshot = await link.run(backend => backend.state());
+    if (!snapshot.hub.viewers) return "no-window";
+    const deadline = Date.now() + 2_000;
+    while (Date.now() < deadline) {
+      const report = snapshot.hub.surface.audio?.playback;
+      if (report && report.id >= id) return report.state === "blocked" ? "blocked" : report.state === "playing" || report.state === "finished" ? "playing" : "stopped";
+      snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.max(50, deadline - Date.now())));
+    }
+    return "requested";
+  };
+  const playbackWords = (state: NonNullable<PresenceOutput["music"]>["playback"]) => state === "blocked"
+    ? " The browser is holding the sound until the user clicks once in Aion's window: ask them to."
+    : state === "no-window" ? " Aion is not open, so nothing sounds: call open_presence first." : "";
+  /** Shows a score as a music card (routed: card, or hybrid with a symbol) and, if asked, plays it. */
+  const showScore = async (ctx: ServerContext, built: CheckedScore, title: string, options: {
+    highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; hold?: number; preference?: PresentationPreference;
+    play?: boolean | readonly number[]; tempo?: number; volume?: number; language?: Language; lessonText?: string; answer?: NonNullable<PresenceOutput["music"]>["answer"];
+  }) => {
+    const content: PresentationContent = {
+      kind: "music", title, score: built.score, ...(options.highlight?.length ? { highlight: options.highlight } : {}),
+      ...(options.caption ? { caption: options.caption } : {}), ...(options.symbol ? { symbol: options.symbol } : {}), ...(options.lesson ? { lesson: options.lesson } : {}),
+      ...(options.tempo ? { tempo: options.tempo } : {}),
+    };
+    let snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: options.hold ?? 0, presentation: options.preference }));
+    const mode = modeFor(ctx);
+    let playback: NonNullable<PresenceOutput["music"]>["playback"];
+    if (options.play) {
+      const chosen = events(built, Array.isArray(options.play) ? options.play : undefined);
+      if (chosen.ok) {
+        snapshot = await link.run(backend => backend.apply({ type: "play", events: chosen.value, tempo: defaultTempo(options.tempo), volume: options.volume ?? 0.8, presentation: snapshot.presentation?.id }));
+        playback = await playbackState(snapshot.playback!.id, mode);
+      }
+    }
+    const lesson = options.lesson ? { id: options.lesson.id, title: options.lesson.title, step: options.lesson.step, steps: options.lesson.steps, language: options.lesson.language, text: options.lessonText ?? "", ...(options.lesson.question ? { question: true } : {}) } : undefined;
+    const message = `Shown: ${describePresentation(content)}${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}.${playback ? ` Playback: ${playback}.` : ""}${playbackWords(playback)} `
+      + (lesson ? "Teach this step in your own words, in the user's language (music.lesson.text); then wait for them." : "Explain it in your own voice; music.notes has every note's name and place.");
+    return result({
+      ...summarize(snapshot, mode, message),
+      music: musicOutput(title, built, options.language, { ...(playback ? { playback } : {}), ...(lesson ? { lesson } : {}), ...(options.answer ? { answer: options.answer } : {}) }),
+    });
+  };
+
+  server.registerTool("show_music", {
+    title: "Show music notation",
+    description: TOOL_DESCRIPTIONS.show_music,
+    inputSchema: showMusicInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const built = buildScore(args, args.title);
+    if (!built.ok) return musicFailure(built.problem);
+    const lit = highlights(args.highlight, built.score);
+    if (!lit.ok) return musicFailure(lit.problem);
+    return showScore(ctx, built.score, built.title, {
+      highlight: lit.value, caption: args.caption, symbol: args.symbol, hold: args.hold_seconds, preference: args.presentation, play: args.play, tempo: args.tempo,
+    });
+  });
+
+  server.registerTool("play_music", {
+    title: "Play music",
+    description: TOOL_DESCRIPTIONS.play_music,
+    inputSchema: playMusicInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    if (args.stop) return run(ctx, backend => backend.apply({ type: "stop-music" }), () => "Music stopped.");
+    if (args.notes?.length || args.scale) {
+      const built = buildScore(args);
+      if (!built.ok) return musicFailure(built.problem);
+      return showScore(ctx, built.score, built.title, { play: args.only?.length ? args.only : true, tempo: args.tempo, volume: args.volume });
+    }
+    // The music on show.
+    const snapshot = await link.run(backend => backend.state());
+    const shown = snapshot.presentation?.kind === "music" ? snapshot.presentation : null;
+    if (!shown) return failure("no-music: no music is on show. Give notes or a scale (they are shown as they play), or use show_music first.");
+    const check = checkScore(shown.score);
+    if (!check.ok) return failure("no-music: the music on show cannot be played.");
+    const chosen = events(check.value, args.only);
+    if (!chosen.ok) return musicFailure(chosen.problem);
+    const played = await link.run(backend => backend.apply({ type: "play", events: chosen.value, tempo: defaultTempo(args.tempo), volume: args.volume ?? 0.8, presentation: shown.id }));
+    const mode = modeFor(ctx);
+    const playback = await playbackState(played.playback!.id, mode);
+    return result({
+      ...summarize(played, mode, `Playing ${args.only?.length ? `note${args.only.length > 1 ? "s" : ""} ${args.only.join(", ")} of ` : ""}${shown.title} (${playback}).${playbackWords(playback)} Do not narrate this tool call.`),
+      music: musicOutput(shown.title, check.value, shown.lesson?.language, { playback }),
+    });
+  });
+
+  server.registerTool("music_lesson", {
+    title: "Music lesson",
+    description: TOOL_DESCRIPTIONS.music_lesson,
+    inputSchema: musicLessonInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    // The lesson on show (any Aion process may have shown it), else the one this server remembers.
+    const shown = (await link.run(backend => backend.state())).presentation;
+    const current = shown?.kind === "music" && shown.lesson ? { id: shown.lesson.id, step: shown.lesson.step, language: shown.lesson.language } : lessonAt;
+    if (args.answer !== undefined) {
+      if (!current) return failure("no-question: no practice question is on show. Start one with lesson 8.");
+      const step = lessonById(current.id)!.steps[current.step - 1];
+      const answer = answerStep(step, args.answer);
+      if (!answer) return failure("no-question: this step asks no question; carry on with step \"next\".");
+      const lesson = lessonById(current.id)!;
+      const built = checkScore(step.score(current.language));
+      if (!built.ok) return failure("lesson-invalid");
+      lessonAt = current;
+      return showScore(ctx, built.value, lesson.title[current.language], {
+        highlight: step.highlight, lesson: { id: lesson.id, step: current.step, steps: lesson.steps.length, language: current.language, title: lesson.title[current.language], question: true },
+        caption: answer.correct ? (current.language === "zh" ? `✓ 正确：${answer.expected}` : `✓ Correct: ${answer.expected}`) : (current.language === "zh" ? `再想想（是 ${answer.expected}）` : `Not quite: it is ${answer.expected}`),
+        play: [0], tempo: step.tempo, language: current.language, lessonText: step.text[current.language], answer: { correct: answer.correct, expected: answer.expected, heard: answer.heard },
+      });
+    }
+    const move = moveLesson(current, args);
+    if (!move.ok) return failure(`lesson: ${move.problem}`);
+    const { lesson, step, position } = move;
+    const built = checkScore(step.score(position.language));
+    if (!built.ok) return failure("lesson-invalid");
+    lessonAt = position;
+    const play = args.play === false || !step.play ? false : step.play === "all" ? true : step.play;
+    return showScore(ctx, built.value, lesson.title[position.language], {
+      highlight: step.highlight, symbol: step.symbol, play, tempo: step.tempo, language: position.language, lessonText: step.text[position.language],
+      lesson: { id: lesson.id, step: position.step, steps: lesson.steps.length, language: position.language, title: lesson.title[position.language], ...(step.question ? { question: true } : {}) },
+    });
+  });
+
+  /** Where every source stands, for the tool result (from the hub's own knowledge and the window's report). */
+  const audioOutput = (snapshot: HubSnapshot): NonNullable<PresenceOutput["audio"]> => {
+    const { settings, bridge } = snapshot.audio;
+    const describe = (source: "codex" | "system") => bridge.source !== source ? "off"
+      : bridge.state === "streaming" ? (bridge.silentCapture ? "streaming, but every sample is silent: macOS has not granted System Audio Recording to Aion Audio Bridge" : `streaming${bridge.app ? ` (${bridge.app})` : ""}`)
+        : `${bridge.state}${bridge.reason ? ` (${bridge.reason})` : ""}`;
+    const audio = snapshot.hub.surface.audio;
+    return { ...settings, codex: describe("codex"), system: describe("system"), ...(audio ? { microphone: audio.microphone, tab: audio.tab } : {}) };
+  };
+  const bridgeWords = (reason?: string) => ({
+    "not-macos": "it needs macOS (Core Audio process taps)",
+    "macos-too-old": "it needs macOS 14.2 or later",
+    "not-installed": "the Aion Audio Bridge is not installed on this Mac (from the Aion Presence repository: npm run audio-bridge:install)",
+    "no-connection": "the capture did not start in time — macOS is probably asking to allow System Audio Recording for \"Aion Audio Bridge\": the user can allow it (or in System Settings → Privacy & Security), then ask again",
+    "launch": "the bridge could not be launched", "ended": "the bridge stopped", "handshake": "the bridge did not identify itself",
+  } as Record<string, string>)[reason ?? ""] ?? reason ?? "unknown";
+
+  server.registerTool("set_audio_visualizer", {
+    title: "Set Aion's response to sound",
+    description: TOOL_DESCRIPTIONS.set_audio_visualizer,
+    inputSchema: setAudioVisualizerInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (args, ctx) => {
+    const settings = Object.fromEntries(Object.entries({ enabled: args.enabled, source: args.source, mode: args.mode, intensity: args.intensity, sensitivity: args.sensitivity })
+      .filter(([, value]) => value !== undefined)) as Partial<AudioSettings>;
+    const capture = args.source === "codex" ? { source: "codex" as const } : args.source === "system" ? { source: "system" as const, ...(args.app ? { app: args.app } : {}) } : undefined;
+    const stop = (args.stop ?? []).filter((source): source is "codex" | "system" => source !== "tab");
+    // Choosing another source ends a capture that is no longer wanted.
+    if (args.source && args.source !== "auto" && !capture) stop.push("codex", "system");
+    let snapshot = await link.run(backend => backend.apply({ type: "audio", ...(Object.keys(settings).length ? { settings } : {}), ...(capture ? { capture } : {}), ...(stop.length ? { stop: [...new Set(stop)] } : {}) }));
+    if (args.stop?.includes("tab") || (args.source && args.source !== "tab" && args.source !== "auto")) snapshot = await link.run(backend => backend.apply({ type: "audio", settings: { source: args.source ?? "auto" } }));
+    // A capture: wait for the bridge to stream (or say why not); the first start waits for the user's answer to macOS's prompt.
+    const deadline = Date.now() + 22_000;
+    while (capture && (snapshot.audio.bridge.state === "starting" || snapshot.audio.bridge.state === "off") && Date.now() < deadline) {
+      snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.max(50, deadline - Date.now())));
+    }
+    const audio = audioOutput(snapshot);
+    const bridge = snapshot.audio.bridge;
+    const notes: string[] = [];
+    if (capture) {
+      notes.push(bridge.state === "streaming" && !bridge.silentCapture ? `${capture.source === "codex" ? "Your own voice" : "The sound"} is now captured on this Mac and analysed locally; Aion moves with it.`
+        : bridge.state === "streaming" ? "The bridge runs, but macOS gives it only silence: System Audio Recording is not allowed for Aion Audio Bridge (System Settings → Privacy & Security → Screen & System Audio Recording)."
+          : `Not connected: ${bridgeWords(bridge.reason)}. Aion keeps its semantic response; do not claim it follows the real audio.`);
+    }
+    if (args.source === "tab") notes.push(snapshot.hub.viewers ? "Ask the user to click \"Share tab audio\" in Aion's window and choose the tab (with \"Share tab audio\" on)." : "Aion's window is not open: open_presence first, then the user shares a tab there.");
+    if (args.source === "microphone" && audio.microphone && audio.microphone !== "connected") notes.push(`The microphone is ${audio.microphone}.`);
+    const message = `Sound: ${audio.enabled ? `${audio.source} · ${audio.mode} · ${audio.intensity}` : "off"}. ${notes.join(" ")} Say it in the first person if at all.`;
+    return result({ ...summarize(snapshot, modeFor(ctx), message), audio });
   });
 
   server.registerTool("show_form", {

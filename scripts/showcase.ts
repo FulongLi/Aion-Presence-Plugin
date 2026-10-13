@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,6 +51,8 @@ export interface DemoContext {
   /** Calls an Aion MCP tool by name, exactly as Codex does (the real server, the real resolver, this hub). Returns its text. */
   tool(name: string, args?: Record<string, unknown>): Promise<string>;
   log(text: string): void;
+  /** What the stand-in for the macOS audio bridge plays when a capture starts (scripts/lib/fakeBridge.ts). */
+  bridgeSignal(signal: string): void;
 }
 
 interface Demo { name: string; title: string; seconds: number; speech?: boolean; run(ctx: DemoContext): Promise<void> }
@@ -397,12 +400,122 @@ DEMOS.push(
   },
 );
 
+DEMOS.push(
+  {
+    name: "music-staff", title: "v0.4.2 Demo A: lesson 1 (the staff: lines, then spaces), lesson 2 (the treble clef, formed by the body beside the notation)", seconds: 30,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("music_lesson", { lesson: 1 });
+      await ctx.wait(3); await ctx.shot("lines");
+      await ctx.tool("music_lesson", { step: "next" });
+      await ctx.wait(2.5); await ctx.shot("spaces");
+      await ctx.tool("music_lesson", { lesson: 2 });
+      await ctx.film("treble-clef", 6);
+      await ctx.shot("treble-clef");
+      await ctx.tool("music_lesson", { language: "zh" });
+      await ctx.wait(2.5); await ctx.shot("chinese");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(2.5);
+    },
+  },
+  {
+    name: "music-middle-c", title: "v0.4.2 Demo B: middle C on its ledger line, played and lit while it sounds", seconds: 14,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_music", { title: "Middle C", notes: [{ pitch: "C4", duration: "whole", label: "middle C" }], highlight: [{ note: 0 }] });
+      await ctx.wait(2.5); await ctx.shot("shown");
+      await ctx.tool("play_music", { tempo: 70 });
+      await ctx.film("playing", 4);
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "music-scale", title: "v0.4.2 Demo C: the C major scale — each note lights as it is heard; the sphere moves with the music", seconds: 18,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_music", { scale: { tonic: "C4" } });
+      await ctx.wait(2.5); await ctx.shot("shown");
+      await ctx.tool("play_music", { tempo: 96 });
+      await ctx.film("playing", 6.5);
+      await ctx.wait(1.5);
+    },
+  },
+  {
+    name: "music-figure", title: "v0.4.2: Figure 2.0 explains a lit note, then points at each note of the scale as it sounds", seconds: 24,
+    async run(ctx) {
+      await ctx.tool("set_body_form", { body: "figure" });
+      await ctx.wait(3);
+      await ctx.tool("show_music", { title: "G on line 2", notes: [{ pitch: "G4", duration: "whole", label: "G" }], highlight: [{ note: 0 }, { line: 2 }] });
+      await ctx.film("explains", 4);
+      await ctx.tool("play_music", { scale: { tonic: "C4" }, tempo: 84 });
+      await ctx.film("points", 7);
+      await ctx.tool("set_body_form", { body: "sphere" });
+      await ctx.wait(3);
+    },
+  },
+  {
+    name: "spectrum", title: "v0.4.2 Demo F/H: shared music (stand-in capture) → detected → circular spectrum; bass vs treble; back to the sphere", seconds: 70,
+    async run(ctx) {
+      await ctx.wait(1.5); await ctx.shot("sphere");
+      ctx.bridgeSignal("music");
+      await ctx.tool("set_audio_visualizer", { source: "system", app: "Music", mode: "auto" });
+      await ctx.wait(4.5);
+      await ctx.film("sphere-to-spectrum", 5);
+      await ctx.wait(1); await ctx.shot("spectrum");
+      await ctx.film("spectrum-music", 5);
+      ctx.bridgeSignal("bass");
+      await ctx.tool("set_audio_visualizer", { source: "system", app: "Music", mode: "spectrum" });
+      await ctx.wait(3); await ctx.film("bass", 3); await ctx.shot("bass");
+      ctx.bridgeSignal("treble");
+      await ctx.tool("set_audio_visualizer", { source: "system", app: "Music", mode: "spectrum" });
+      await ctx.wait(3); await ctx.film("treble", 3); await ctx.shot("treble");
+      ctx.bridgeSignal("music");
+      await ctx.tool("set_audio_visualizer", { source: "system", app: "Music", mode: "hybrid", intensity: "expressive" });
+      await ctx.wait(3); await ctx.film("hybrid", 4); await ctx.shot("hybrid");
+      await ctx.tool("set_colors", { base: "blue" });
+      await ctx.wait(2); await ctx.shot("blue");
+      await ctx.tool("set_colors", { reset: "base" });
+      await ctx.tool("set_audio_visualizer", { mode: "sphere", intensity: "balanced" });
+      await ctx.film("spectrum-to-sphere", 4);
+      await ctx.wait(1); await ctx.shot("back-to-sphere");
+      await ctx.tool("set_audio_visualizer", { stop: ["system"], mode: "auto" });
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "codex-voice-sim", title: "v0.4.2 Demo E (stand-in capture, not Codex): a speech signal through the bridge path drives the speaking sphere", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      ctx.bridgeSignal("speech");
+      await ctx.tool("set_audio_visualizer", { source: "codex" });
+      await ctx.wait(1.5);
+      await ctx.film("speaking", 6);
+      await ctx.shot("speaking");
+      await ctx.tool("set_audio_visualizer", { stop: ["codex"], source: "auto" });
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "listening-spectrum", title: "v0.4.2 Demo D (Chrome's fake microphone): the listening sphere follows the voice's loudness and spectrum", seconds: 16, speech: true,
+    async run(ctx) {
+      await ctx.wait(3);
+      await ctx.film("listening", 8);
+      await ctx.shot("listening");
+    },
+  },
+);
+
 /** Demos register here as they are built (later phases append to DEMOS). */
 export const demos = DEMOS;
 
 async function runDemo(browser: Browser, demo: Demo) {
   const home = mkdtempSync(join(tmpdir(), "aion-showcase-"));
-  const hub = new PresenceHub({ home, port: 0, page: () => readFileSync(pagePath, "utf8") });
+  let signal = "music";
+  // Sound demos use a stand-in for the macOS bridge app (real socket, real analysis, generated sound).
+  const hub = new PresenceHub({
+    home, port: 0, page: () => readFileSync(pagePath, "utf8"),
+    bridge: { locate: () => "stand-in", isMac: true, macosVersion: 15, launch: (_app, args) => spawn(process.execPath, ["--import", "tsx", join(REPO_ROOT, "scripts", "lib", "fakeBridge.ts"), ...args], { stdio: "ignore", env: { ...process.env, AION_FAKE_SIGNAL: signal } }) },
+  });
   await hub.start();
   hub.apply({ type: "open", greet: false });
   const videoDir = mkdtempSync(join(tmpdir(), "aion-video-"));
@@ -416,7 +529,7 @@ async function runDemo(browser: Browser, demo: Demo) {
   await page.goto(`${hub.surfaceUrl}&debug=1${demo.speech ? "" : "&mic=0"}${canvas ? "&renderer=canvas" : ""}`);
   await page.addStyleTag({ content: "#debug { display: none !important; }" });
   const ctx: DemoContext = {
-    hub, page, log,
+    hub, page, log, bridgeSignal: next => { signal = next; },
     apply: command => { hub.apply(command); },
     wait: seconds => new Promise(resolve => setTimeout(resolve, seconds * 1000)),
     shot: async moment => { await page.screenshot({ path: join(OUT, `${demo.name}${canvas ? "-canvas" : ""}-${moment}.png`) }); log(`📷 ${moment}`); },

@@ -10,6 +10,13 @@ import { SCENE_PRESET_NAMES } from "../visual/scene3d/presets";
 import { SCENE_LIMITS } from "../visual/scene3d/types";
 import { IMAGE_INTENTS, PORTRAIT_STYLES, SYMBOL_NAMES, TERRAIN_STYLES } from "../visual/types";
 import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPerson, validQuery, VISUAL_LIMITS } from "../visual/validate";
+import { DURATIONS, TEMPO } from "../music/theory/rhythm";
+import { SCALE_KINDS, type ScaleKind } from "../music/theory/scales";
+import { CLEFS } from "../music/notation/staff";
+import { SCORE_LIMITS } from "../music/notation/score";
+import { MUSIC_FORM_IDS } from "../music/visual/glyphForms";
+import { LANGUAGES, LESSONS } from "../music/lessons/lessons";
+import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES } from "../audio/settings";
 
 /**
  * Input and output schemas shared by the MCP tools and the hub's local HTTP API, so a command is validated
@@ -280,3 +287,76 @@ export function svgSource(markup: string): string | null {
   const svg = cleanCode(markup, LIMITS.artifact);
   return svg && /^\s*(?:<\?xml[^>]*>\s*)?(?:<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(svg) && /<\/svg>\s*$/i.test(svg) ? svg : null;
 }
+
+// ── v0.4.2: music and sound ────────────────────────────────────────────────────────────────────────────────────
+
+const scoreNoteInput = z.object({
+  pitch: z.string().max(8).optional().describe("Scientific pitch: C4 is middle C, A4 = 440 Hz; sharps and flats as C#4, Bb3. Omit for a rest."),
+  duration: z.enum(DURATIONS).optional().describe("whole, half, quarter (default), eighth or sixteenth."),
+  dotted: z.boolean().optional(),
+  label: z.string().max(SCORE_LIMITS.label).optional().describe("A short label under the note (\"C\", \"do\", \"middle C\")."),
+}).strict();
+
+const scaleInput = z.object({
+  tonic: z.string().max(6).describe("The starting note with its octave, e.g. C4."),
+  kind: z.enum(SCALE_KINDS as [ScaleKind, ...ScaleKind[]]).optional().describe("major (default), natural-minor or harmonic-minor."),
+  octaves: z.number().int().min(1).max(2).optional(),
+  direction: z.enum(["up", "down", "up-down"]).optional().describe("up (default), down, or up then down."),
+  duration: z.enum(DURATIONS).optional(),
+}).strict();
+
+const highlightInput = z.object({
+  note: z.number().int().min(0).optional().describe("A note by its index, from 0."),
+  line: z.number().int().min(1).max(5).optional().describe("A staff line, 1 (bottom) … 5 (top)."),
+  space: z.number().int().min(1).max(4).optional().describe("A staff space, 1 (bottom) … 4 (top)."),
+  clef: z.literal(true).optional(), time: z.literal(true).optional(),
+}).strict();
+
+const musicCommon = {
+  clef: z.enum(CLEFS).optional().describe("treble or bass. Omit: treble, or bass when every note is below middle C."),
+  time: z.string().max(4).optional().describe("A time signature (4/4, 3/4, 2/4, 6/8, C…) when rhythm matters; omit for scales and single notes. Every bar must be full."),
+  notes: z.array(scoreNoteInput).max(SCORE_LIMITS.notes).optional().describe("The notes, in order."),
+  scale: scaleInput.optional().describe("Instead of notes: a scale, spelled correctly."),
+  tempo: z.number().min(TEMPO.min).max(TEMPO.max).optional().describe(`Quarter notes a minute when played (default ${TEMPO.default}).`),
+};
+
+export const showMusicInput = z.object({
+  title: line(LIMITS.title, "title").optional().describe("What it shows, e.g. \"C major scale\", \"Middle C\"."),
+  ...musicCommon,
+  staff: z.boolean().optional().describe("true with no notes: an empty staff (to explain lines and spaces)."),
+  highlight: z.array(highlightInput).max(SCORE_LIMITS.highlights).optional().describe("What to light up: notes by index, a line, a space, the clef or the time signature."),
+  caption: line(LIMITS.summary, "caption").optional().describe("One short line under the staff."),
+  symbol: z.enum(MUSIC_FORM_IDS as [string, ...string[]]).optional().describe(`A symbol Aion's body forms beside the notation while you explain it: ${MUSIC_FORM_IDS.join(", ")}.`),
+  play: z.boolean().optional().describe("Also play it at once, each note lighting up as it sounds."),
+  presentation: presentation.optional(),
+  hold_seconds: hold.optional().describe("Default: until cleared or replaced (music is something the user studies)."),
+}).strict();
+
+export const playMusicInput = z.object({
+  ...musicCommon,
+  only: z.array(z.number().int().min(0)).max(SCORE_LIMITS.notes).optional().describe("Play only these notes of the music on show (indices from 0), e.g. [0] for the first."),
+  volume: z.number().min(0).max(1).optional().describe("0…1 (default 0.8)."),
+  stop: z.boolean().optional().describe("true: stop the music playing."),
+}).strict();
+
+export const musicLessonInput = z.object({
+  lesson: z.union([z.number().int().min(1).max(LESSONS.length), z.string().max(40)]).optional()
+    .describe(`Which lesson: ${LESSONS.map(lesson => `${lesson.id} ${lesson.title.en}`).join("; ")}. Omit to continue the current one.`),
+  step: z.union([z.number().int().min(1).max(40), z.enum(["first", "next", "previous", "repeat"])]).optional().describe("A step number, or first, next (default when continuing), previous, repeat."),
+  language: z.enum(LANGUAGES).optional().describe("en or zh: the language of the teaching text and labels. Switching keeps the lesson and step."),
+  answer: z.string().max(40).optional().describe("The user's answer to a practice question (\"E\", \"E4\", \"mi\", \"F sharp\")."),
+  play: z.boolean().optional().describe("Play the step's example (default true when the step has one)."),
+}).strict();
+
+export const setAudioVisualizerInput = z.object({
+  enabled: z.boolean().optional().describe("false: Aion stops moving with sound (it keeps its semantic states)."),
+  source: z.enum(AUDIO_SOURCE_PREFERENCES).optional().describe(
+    "auto (default): whatever really sounds. microphone: the user's voice. codex: your own spoken voice, captured on macOS through the Aion Audio Bridge. "
+    + "system: another app's sound on this Mac (name it in app, e.g. Music, Spotify) or the whole mix. tab: a browser tab the user shares in Aion's window. "
+    + "music: Aion's own Music Library playback."),
+  app: z.string().max(60).optional().describe("For system: the application to listen to (\"Music\", \"Spotify\", \"com.spotify.client\"). Omit for everything the Mac plays."),
+  mode: z.enum(AUDIO_MODES).optional().describe("auto: the sphere for speech, the circular spectrum for sustained external music. sphere · spectrum (circular particle spectrum) · hybrid (sphere inside a lighter ring)."),
+  intensity: z.enum(AUDIO_INTENSITIES).optional().describe("subtle, balanced (default) or expressive."),
+  sensitivity: z.number().min(0).max(1).optional().describe("0…1: how quiet a sound may be and still move Aion (default 0.5)."),
+  stop: z.array(z.enum(["codex", "system", "tab"])).max(3).optional().describe("Stop capturing these sources (\"stop listening to system audio\")."),
+}).strict();

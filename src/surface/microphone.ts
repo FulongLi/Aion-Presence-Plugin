@@ -1,6 +1,8 @@
 import { EmphasisDetector } from "../core/listening/emphasis";
 import { rms, type MicFrame, type MicInput } from "../core/listening/frame";
 import { VoiceActivityDetector } from "../core/listening/vad";
+import { AudioAnalyzer } from "../audio/analyzer";
+import type { AudioFeatures } from "../audio/features";
 
 export type MicPermission = "granted" | "denied" | "prompt" | "unknown";
 
@@ -22,7 +24,7 @@ export async function requestMicrophone(): Promise<MediaStream> {
   });
 }
 
-interface AudioFrame { numberOfFrames: number; copyTo(destination: Float32Array, options: { planeIndex: number; format: "f32-planar" }): void; close(): void }
+interface AudioFrame { numberOfFrames: number; sampleRate: number; copyTo(destination: Float32Array, options: { planeIndex: number; format: "f32-planar" }): void; close(): void }
 type TrackProcessor = new (init: { track: MediaStreamTrack }) => { readable: ReadableStream<AudioFrame> };
 
 /**
@@ -31,6 +33,9 @@ type TrackProcessor = new (init: { track: MediaStreamTrack }) => { readable: Rea
  * recording, storage, transcription, playback or network transfer, and no AI model hears it: Codex owns the
  * conversation. Where supported, raw frames are read straight from the track (MediaStreamTrackProcessor), which
  * needs no AudioContext. Otherwise an AnalyserNode is used, resumed on first interaction.
+ *
+ * v0.4.2: the same samples also pass through the shared Audio Analysis Engine (src/audio/analyzer.ts), in memory, so
+ * the listening body can follow the voice's spectrum as well as its loudness. Only features come out of it.
  */
 export class MicrophoneListener implements MicInput {
   readonly vad = new VoiceActivityDetector();
@@ -46,6 +51,8 @@ export class MicrophoneListener implements MicInput {
   private lastRms = 0;
   private frames = 0;
   private readonly frame: MicFrame = { voiced: false, level: 0, utterance: 0, emphasis: 0, rms: 0 };
+  /** The spectrum of the same samples (created at the stream's sample rate). */
+  private analyzer: AudioAnalyzer | null = null;
   /** Diagnostics: the input device's name as the browser reports it (never sent anywhere). */
   deviceLabel = "";
   constructor(private readonly onEnded: () => void = () => {}) {}
@@ -93,6 +100,8 @@ export class MicrophoneListener implements MicInput {
           const view = buffer.subarray(0, value.numberOfFrames);
           value.copyTo(view, { planeIndex: 0, format: "f32-planar" });
           for (let i = 0; i < view.length; i++) this.sum += view[i] * view[i];
+          if (!this.analyzer || this.analyzer.sampleRate !== value.sampleRate) this.analyzer = new AudioAnalyzer(value.sampleRate);
+          this.analyzer.push(view);
           this.count += view.length;
           this.frames++;
         } finally { value.close(); }
@@ -114,6 +123,8 @@ export class MicrophoneListener implements MicInput {
       if (!this.analyser || !this.samples || this.context?.state !== "running") return null;
       this.analyser.getFloatTimeDomainData(this.samples);
       energy = rms(this.samples);
+      if (!this.analyzer) this.analyzer = new AudioAnalyzer(this.context.sampleRate);
+      this.analyzer.pushWindow(this.samples, dt * this.context.sampleRate);
     }
     const vad = this.vad.sample(energy, dt);
     this.frame.voiced = vad.voiced;
@@ -124,6 +135,14 @@ export class MicrophoneListener implements MicInput {
     return this.frame;
   }
 
+  /** The spectrum features of the latest samples (null before any arrive). `dt`: seconds since the last call. */
+  features(dt: number): AudioFeatures | null {
+    return this.analyzer ? this.analyzer.analyze(dt) : null;
+  }
+
+  /** How quiet a sound may be and still count in the spectrum (0…1). */
+  set sensitivity(value: number) { if (this.analyzer) this.analyzer.sensitivity = value; }
+
   stop() {
     void this.reader?.cancel().catch(() => {});
     this.track?.stop();
@@ -131,6 +150,7 @@ export class MicrophoneListener implements MicInput {
     void this.context?.close().catch(() => {});
     this.track = this.source = this.analyser = this.context = this.samples = this.reader = undefined;
     this.sum = this.count = this.lastRms = this.frames = 0;
+    this.analyzer?.reset(); this.analyzer = null;
     this.vad.reset(); this.emphasis.reset();
   }
 }

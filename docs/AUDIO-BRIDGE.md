@@ -1,4 +1,19 @@
-# Native Audio Bridge: feasibility report (v0.4 experiment)
+# Native Audio Bridge (macOS)
+
+> **v0.4.2: integrated.** The bridge moved from `experiments/` to `native/audio-bridge/` and is now the capture adapter
+> for Codex's voice and other applications' sound (`set_audio_visualizer` sources `codex` and `system`). It no longer
+> computes features itself: it streams samples over a private Unix socket to the hub, where the shared Audio Analysis
+> Engine analyses them; only features reach the renderer. How it fits: [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md). The
+> v0.4 feasibility report follows, unchanged except where marked; its measurements still describe the tap.
+>
+> | | v0.4.2 |
+> | --- | --- |
+> | Build and install | `npm run audio-bridge:install` → `~/.aion-presence/audio-bridge/Aion Audio Bridge.app` (or `AION_AUDIO_BRIDGE`) |
+> | Commands | `list` · `stream --socket PATH --nonce HEX (--bundle ID \| --name APP \| --pid N \| --system)` · `probe (…) [--seconds S]` |
+> | Protocol | Once the tap really runs (macOS may first ask for permission): `AION-PCM1 <nonce> <rate>\n`, then `[UInt32 LE count][count × Float32 LE]` mono frames; count 0 is a keep-alive every 0.5 s. The hub never writes; a watchdog sees the socket close and the app exits at once, even while it waits for permission |
+> | Who starts it | The hub, only when the user asks (`set_audio_visualizer`), through LaunchServices (`open -g -n`) so macOS asks this app for permission |
+> | Verified | A real process tap (`afplay`): real samples, 10.7 ms buffers, 21.3 ms device latency, 0.4 % CPU. The socket → hub → surface path with a stand-in app (smoke) |
+> | Not yet verified | Codex Voice itself (needs a person speaking: `npm run audio:verify -- --codex`); the full real-app path through the hub on this Mac is waiting for the rebuilt app's System Audio Recording permission |
 
 **Question.** Can Aion move with the real frequency content of GPT/Codex's spoken voice, rather than the semantic
 `responding` animation, without a second model, voice session or API key?
@@ -8,8 +23,8 @@ isolation, with about 50 ms latency and about 1–2 % of one CPU core. It requir
 user's "System Audio Recording" permission. It has **not yet been checked against Codex Voice itself** (that needs
 someone speaking to Codex). The Codex host also has an *official* path: its app-server streams the assistant's
 output audio (experimental). That path should be tested before an OS-level capture ships. The bridge is therefore an
-experiment in `experiments/audio-bridge/`. It is **not** part of the plugin runtime. The plugin keeps the semantic
-`responding` animation.
+experiment in `experiments/audio-bridge/` (v0.4.2: integrated from `native/audio-bridge/`; see above). Without a
+verified capture the plugin keeps the semantic `responding` animation.
 
 Tested on macOS 26.6.2 (25G83), Apple silicon, ChatGPT desktop 26.1007 with Codex CLI 0.162.0-alpha.17.2.
 
@@ -85,7 +100,7 @@ and silence otherwise, confirm it. If Codex's voice is played by a process outsi
 - Echo: with real assistant audio, the existing echo guard (`PresenceEngine`, SCF's) applies directly. That is an
   improvement over today's conservative semantic guard.
 
-## Integration plan (only once Codex Voice is verified)
+## Integration plan (v0.4; v0.4.2 implemented it, with a socket instead of HTTP and the analysis in the hub)
 
 1. Host: the bridge (or, preferably, an app-server client that subscribes to `thread/realtime/outputAudio/delta`
    and reduces each chunk to the same features in memory) posts `{level, bands, voice}` frames to the hub on

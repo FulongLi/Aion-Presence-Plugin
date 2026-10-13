@@ -22,6 +22,14 @@ import { decodeImage, rasterizeEmoji, rasterizeText } from "./glyphs";
 import { ImmersiveController } from "./immersive";
 import { MicrophoneListener, microphonePermission, requestMicrophone, type MicPermission } from "./microphone";
 import type { ConnectionState, PresenceTransport } from "./transports/types";
+import { AudioVisualizer } from "./audioVisual";
+import { TabAudioCapture, type TabCaptureState } from "./capture";
+import { MusicPlayer, type PlaybackState } from "./music/player";
+import { highlight as lightNotes, type RenderedScore } from "./music/notation";
+import { decodeFeatures } from "../audio/wire";
+import { checkScore, playbackEvents } from "../music/notation/score";
+import { TEMPO } from "../music/theory/rhythm";
+import type { PlaybackRequest } from "../core/store";
 
 export interface ViewElements {
   root: HTMLElement;
@@ -33,6 +41,8 @@ export interface ViewElements {
   enter: HTMLButtonElement;
   /** The overlay the places marked on a map or terrain are drawn on (optional: absent, no markers are drawn). */
   markers?: HTMLCanvasElement;
+  /** v0.4.2: the quiet indicator of a connected sound source, its label and its one button (share a tab). */
+  sound?: { root: HTMLElement; label: HTMLElement; action: HTMLButtonElement };
 }
 
 /** A body visual with the seconds it stays formed (Infinity: until the presentation ends). */
@@ -89,6 +99,16 @@ export class PresenceView {
   private sceneViewId: number | null = null;
   /** How a formed 3D object is viewed: slow turn, drag, zoom (see render/interaction/orbit.ts). */
   readonly orbit = new OrbitController();
+  /** Sound (v0.4.2): every source's features, the policy, the ring and the sphere's audio field. */
+  readonly audio = new AudioVisualizer();
+  /** The Music Library's playback; it sounds only in the window the hub chose (see playbackOwner). */
+  readonly player = new MusicPlayer((id, state) => this.playbackChanged(id, state));
+  /** A browser tab's sound, when the user shares one. */
+  readonly tab = new TabAudioCapture(state => this.tabChanged(state));
+  private playbackId: number | null = null;
+  private playback: { id: number; state: PlaybackState } | null = null;
+  /** The music card on show: its engraved score, its presentation and the note sounding now. */
+  private music: { rendered: RenderedScore; presentation: Extract<Presentation, { kind: "music" }>; sounding: number | null } | null = null;
   private orbitRevision = -1;
   private cardImages: string[] = [];
   private statusTimer?: ReturnType<typeof setTimeout>;
@@ -102,15 +122,22 @@ export class PresenceView {
     // The host's activity (hub) is the base; the engine layers local listening on top (see core/signal.ts). Only a
     // visual the body itself has become is "presenting": a card beside the body leaves it listening and answering.
     this.aion = new Aion({ activity: () => this.presence.activity, presenting: () => this.visual.presenting, signal: () => this.presence.signal });
-    this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity });
+    // Codex's real voice (when the user has the bridge capture it) is the engine's host audio; Aion's own music keeps
+    // the microphone from taking the speakers for the user.
+    this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity, audio: this.audio.hostAudio, playback: () => this.audio.playbackAudible });
     this.immersive = new ImmersiveController({ entry: elements.entry, enter: elements.enter }, transport, () => this.userGesture());
     this.markerLayer = elements.markers ? new MarkerLayer(elements.markers, {
       target: () => this.visual.phase === "sphere" ? null : this.visual.target,
       level: () => this.visual.level,
       project: point => this.runtime?.project(point) ?? null,
     }) : null;
-    // An AnalyserNode fallback may wait for a first interaction (autoplay policy).
-    for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => this.listener.resume(), { passive: true });
+    // An AnalyserNode fallback may wait for a first interaction (autoplay policy); so may music.
+    for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => { this.listener.resume(); if (this.playbackOwner) this.player.unlock(); }, { passive: true });
+    transport.onAudio = message => {
+      const frame = decodeFeatures(message);
+      if (frame && (frame.source === "codex" || frame.source === "system")) this.audio.publish(frame.source, frame.features);
+    };
+    if (elements.sound) elements.sound.action.addEventListener("click", () => void this.shareTab());
     elements.fullscreen.addEventListener("click", () => void this.toggleFullscreen());
     document.addEventListener("keydown", event => {
       if ((event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey) void this.toggleFullscreen();
@@ -128,7 +155,29 @@ export class PresenceView {
   }
 
   inputs(): RuntimeInputs {
-    return { presence: this.presence, morph: this.visual, body: this.aion, framing: { sample: dt => this.frame(dt) }, orbit: { sample: dt => this.orbitFrame(dt) } };
+    return {
+      presence: this.presence, morph: this.visual, body: this.aion, framing: { sample: dt => this.frame(dt) }, orbit: { sample: dt => this.orbitFrame(dt) },
+      audio: { sample: dt => this.soundFrame(dt) },
+    };
+  }
+
+  /**
+   * Once per rendered frame: this page's own sources are measured (the microphone, a shared tab, Aion's music) and
+   * published, the music card's lit note follows what is heard, and the body's sound frame is chosen.
+   */
+  private soundFrame(dt: number) {
+    const sensitivity = this.audio.settings.sensitivity;
+    if (this.listener.running) {
+      this.listener.sensitivity = sensitivity;
+      const mic = this.listener.features(dt);
+      if (mic) this.audio.publish("microphone", mic);
+    }
+    const tab = this.tab.features(dt, sensitivity);
+    if (tab) this.audio.publish("tab", tab);
+    const music = this.player.features(dt);
+    if (music) this.audio.publish("music", music);
+    this.followPlayback();
+    return this.audio.sample(dt);
   }
 
   /** Lets the user turn and zoom a formed 3D object on the stage. */
@@ -189,6 +238,7 @@ export class PresenceView {
       this.runtime?.setPalette(particlePalette(appearance.base.hex), first);
       this.elements.root.style.setProperty("--accent", accentColor(appearance.accent.hex));
     }
+    this.applyAudio(snapshot, previous);
     const presentation = snapshot.presentation;
     // Places marked on the map or terrain on show: they change in place, and the map stays up a while longer.
     const markers: GeoMarker[] = presentation?.kind === "map" ? presentation.markers : presentation?.kind === "terrain" ? presentation.markers ?? [] : [];
@@ -255,6 +305,9 @@ export class PresenceView {
       dismiss.textContent = "×";
       dismiss.addEventListener("click", () => this.dismiss());
       card.replaceChildren(dismiss, content.root);
+      this.music = content.music && presentation.kind === "music" ? { rendered: content.music, presentation, sounding: null } : null;
+      // The card's own play button plays it here, at once (the click is also what lets a browser sound).
+      content.play?.addEventListener("click", () => this.playCard());
       card.classList.toggle("wide", content.wide);
       card.dataset.route = presentation.route;
       card.dataset.kind = presentation.kind;
@@ -276,7 +329,8 @@ export class PresenceView {
   private attendToCard() {
     if (this.visual.presenting || this.cardState !== "shown") return;
     const card = this.elements.card;
-    const term = card.querySelector<HTMLElement>("mark.emphasis");
+    // What is being explained: an emphasised term, or the first lit note of a music card.
+    const term = card.querySelector<HTMLElement>("mark.emphasis") ?? card.querySelector<HTMLElement>(".music-score .lit.music-note, .music-score .lit");
     const target = (term ?? card.querySelector<HTMLElement>(".card-body > :not(.dismiss)") ?? card).getBoundingClientRect();
     const world = this.runtime?.toWorld(term ? target.left + target.width / 2 : target.left, target.top + Math.min(target.height / 2, 60));
     if (this.aion.currentBody === "figure" && world) {
@@ -296,6 +350,7 @@ export class PresenceView {
   }
 
   private closeCard() {
+    this.music = null;
     if (this.cardState === "none") return;
     this.cardState = "leaving";
     this.elements.root.classList.remove("with-card");
@@ -409,6 +464,7 @@ export class PresenceView {
       this.mic = denied ? "denied" : "unavailable";
       this.micPermission = await microphonePermission();
       if (denied) this.noteOnce("Microphone off · I can still answer, I just won't see when you speak");
+      this.reportAudio();
       return;
     }
     this.micPermission = "granted";
@@ -421,6 +477,7 @@ export class PresenceView {
       this.mic = "unavailable";
       this.stopListening();
     }
+    this.reportAudio();
   }
 
   private noteOnce(text: string) {
@@ -430,13 +487,127 @@ export class PresenceView {
 
   /** Releases the microphone entirely (the page is closing). */
   stopListening() {
+    this.tab.stop();
+    this.player.stop(false);
     this.presence.setMicrophone(null);
     this.listener.stop();
     for (const track of this.stream?.getTracks() ?? []) track.stop();
     this.stream = null;
   }
 
-  private microphoneLost() { this.presence.setMicrophone(null); this.mic = "unavailable"; }
+  private microphoneLost() { this.presence.setMicrophone(null); this.mic = "unavailable"; this.audio.bus.setConnected("microphone", false, performance.now() / 1000); this.reportAudio(); }
+
+  // ── Sound and music (v0.4.2) ─────────────────────────────────────────────────────────────────────────────────
+
+  /** This window plays music and opens captures: the newest companion window, or the embedded view when none is open. */
+  get playbackOwner(): boolean {
+    const hub = this.snapshot?.hub;
+    if (!hub) return false;
+    if (this.transport.kind === "embedded") return hub.viewers === 0;
+    return !hub.audioWindow || hub.audioWindow === this.transport.windowId;
+  }
+
+  private applyAudio(snapshot: HubSnapshot, previous: HubSnapshot | null) {
+    const audio = snapshot.audio;
+    if (!audio) return;
+    this.audio.settings = audio.settings;
+    // A bridge source that is not streaming drives nothing, whatever frames arrived before.
+    const now = performance.now() / 1000;
+    for (const source of ["codex", "system"] as const) {
+      if (!(audio.bridge.state === "streaming" && audio.bridge.source === source)) this.audio.bus.setConnected(source, false, now);
+    }
+    // A tab is shared only by a click here; choosing another source stops sharing it.
+    if (audio.settings.source !== "tab" && audio.settings.source !== "auto" && this.tab.state === "connected") this.tab.stop();
+    this.updateSound();
+    // Music to play: a new request, in the one window that plays (a window that opens later never replays an old one).
+    const playback = snapshot.playback;
+    if (playback && playback.id !== this.playbackId) {
+      const fresh = this.playbackId !== null || !previous;
+      this.playbackId = playback.id;
+      if (fresh && previous && this.playbackOwner) void this.player.play(playback);
+      else if (fresh && !previous && playback.stop) this.player.stop(false);
+    }
+  }
+
+  /** The card's play button: the music on show, here and now. */
+  private playCard() {
+    const music = this.music;
+    if (!music) return;
+    const check = checkScore(music.presentation.score);
+    if (!check.ok) return;
+    this.player.unlock();
+    const request: PlaybackRequest = { id: -Date.now(), events: playbackEvents(check.value), tempo: music.presentation.tempo ?? TEMPO.default, volume: 0.8, presentation: music.presentation.id };
+    void this.player.play(request);
+  }
+
+  /** The lit note follows what is heard; the figure points at it and the eyes follow it. */
+  private followPlayback() {
+    const position = this.player.position();
+    const music = this.music;
+    if (!music) return;
+    const sounding = position && position.presentation === music.presentation.id ? position.index : null;
+    if (sounding === music.sounding) return;
+    music.sounding = sounding;
+    lightNotes(music.rendered, music.presentation.highlight ?? [], sounding);
+    if (sounding !== null) this.attendToNote(music.rendered.notes[sounding]);
+  }
+
+  /** The body turns to a note of the music card (the figure points, the eyes glance). */
+  private attendToNote(note: SVGElement | null | undefined) {
+    if (!note || this.visual.presenting || this.cardState !== "shown") return;
+    const box = note.getBoundingClientRect();
+    const world = this.runtime?.toWorld(box.left + box.width / 2, box.top + box.height / 2);
+    if (!world) return;
+    if (this.aion.currentBody === "figure") this.aion.figure.cue(POINT([world[0] / FIGURE_SCALE, world[1] / FIGURE_SCALE, 0.25], 0.5));
+    else if (this.aion.currentBody === "eyes") this.aion.glance([0.85, Math.max(-0.75, Math.min(0.75, world[1] * 0.38))], 0.8);
+  }
+
+  private playbackChanged(id: number, state: PlaybackState) {
+    if (id < 0) { if (state === "blocked") this.say("Click once to let Aion play sound"); return; }
+    this.playback = { id, state };
+    if (state === "blocked") this.say("Click anywhere in Aion's window to hear the music", 8_000);
+    this.reportAudio();
+  }
+
+  /** Shares a tab's sound (only from the user's click on "Share tab audio"). */
+  private async shareTab() {
+    const state = await this.tab.start();
+    if (state === "denied") this.say("No tab audio shared · choose a tab and keep \"Share tab audio\" on", 6_000);
+    if (state === "unavailable") this.say("This browser cannot share a tab's sound here", 6_000);
+  }
+
+  private tabChanged(_state: TabCaptureState) {
+    this.audio.bus.setConnected("tab", this.tab.state === "connected", performance.now() / 1000);
+    this.updateSound();
+    this.reportAudio();
+  }
+
+  /** Tells the hub where this window's audio stands, so Codex never claims more than is true. */
+  private reportAudio() {
+    const microphone = this.mic === "ready" ? "connected" : this.mic === "off" ? "off" : this.mic === "requesting" ? "requesting" : this.mic;
+    this.transport.audioStatus?.({ microphone, tab: this.tab.state, ...(this.playback ? { playback: this.playback } : {}) });
+  }
+
+  /** The quiet indicator: a captured source that is really connected, or the one click a tab share needs. */
+  private updateSound() {
+    const sound = this.elements.sound, audio = this.snapshot?.audio;
+    if (!sound || !audio) return;
+    const bridge = audio.bridge;
+    let label = "", action = "";
+    if (!audio.settings.enabled) label = "";
+    else if (bridge.state === "streaming" && !bridge.silentCapture) label = bridge.source === "codex" ? "Codex voice" : `Sound · ${bridge.app ?? "this Mac"}`;
+    else if (bridge.state === "streaming") label = "Sound capture silent · allow System Audio Recording";
+    else if (bridge.state === "starting") label = "Connecting sound…";
+    if (audio.settings.enabled && audio.settings.source === "tab") {
+      if (this.tab.state === "connected") label = label ? `${label} · Tab audio` : "Tab audio";
+      else if (this.playbackOwner || this.transport.kind === "embedded") action = this.tab.state === "requesting" ? "" : "Share tab audio";
+    }
+    sound.root.hidden = !label && !action;
+    sound.root.classList.toggle("waiting", !label);
+    sound.label.textContent = label;
+    sound.action.hidden = !action;
+    sound.action.textContent = action;
+  }
 
   /** Diagnostics for ?debug=1: the whole live chain, so a real device can be checked step by step. */
   diagnostics(): Record<string, string> {
@@ -456,6 +627,16 @@ export class PresenceView {
       state: `${this.aion.currentState} · body ${this.aion.currentBody} · userAmplitude ${signal.userAmplitude.toFixed(2)} · responding ${signal.responding.toFixed(2)} · speaking ${signal.mode === "speaking" ? "yes" : "no"} · hostAudio ${this.presence.hostAudio}`,
       visual: `${this.visual.phase} · card ${this.cardState}${presentation ? ` · route ${presentation.route} (${presentation.reason})` : ""} · revision ${this.snapshot?.revision ?? "-"}`,
       hooks: this.snapshot?.hub.hooksActive ? "active" : "not detected",
+      audio: (() => {
+        const settings = this.audio.settings, route = this.audio.route, bridge = this.snapshot?.audio?.bridge;
+        const sources = (["microphone", "codex", "system", "tab", "music"] as const).map(kind => {
+          const state = this.audio.bus.state(kind, performance.now() / 1000);
+          return state.connected ? `${kind}${state.sounding ? "*" : ""}` : "";
+        }).filter(Boolean).join(" ");
+        const detector = this.audio.detectors.tab.evidence.confidence || this.audio.detectors.system.evidence.confidence;
+        return `${settings.enabled ? `${settings.source}/${settings.mode}/${settings.intensity}` : "off"} · route ${route.reason} (sphere ${route.sphere ?? "-"}, ring ${route.ring ?? "-"})`
+          + ` · sources ${sources || "none"} · bridge ${bridge?.state ?? "-"}${bridge?.reason ? ` (${bridge.reason})` : ""} · music ${detector.toFixed(2)}`;
+      })(),
     };
   }
 

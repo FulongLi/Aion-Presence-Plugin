@@ -23,7 +23,8 @@ export async function connectAion(options: {
   home?: string; capabilities?: Record<string, unknown>; env?: NodeJS.ProcessEnv; resolver?: VisualResolver; now?: () => Date; relaunchQuietMs?: number;
 } = {}) {
   const home = options.home ?? tempHome();
-  const link = new PresenceLink({ home, port: 0, page: () => PAGE });
+  // Never the machine's real audio bridge in a test: capture is always "not installed" here.
+  const link = new PresenceLink({ home, port: 0, page: () => PAGE, bridge: { locate: () => null } });
   const opened: string[] = [];
   const server = createAionServer({
     link, page: () => PAGE, version: "0.0.0-test", env: { ...options.env }, resolver: options.resolver ?? offlineResolver(), now: options.now, relaunchQuietMs: options.relaunchQuietMs,

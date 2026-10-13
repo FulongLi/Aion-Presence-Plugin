@@ -7,6 +7,7 @@ import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
 import { PaletteEase } from "../palette";
 import { SILVER_PALETTE } from "../../core/colors";
+import { RING_STAGGER, ringHash, ringParams, ringPoint, sphereAudioOffset, type RingPoint } from "../ring";
 
 /**
  * The fallback body for browsers or embedded hosts without WebGPU: the same particles (the same sphere
@@ -34,12 +35,13 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const sphere = createSphere(count, radius);
   const layout = createFigureLayout(count), eyesLayout = createEyesLayout(count);
   // Per-particle stagger, as in the GPU morph and body weights (physics/morph.ts).
-  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count);
+  const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count), ringStagger = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = [sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2]];
     morphStagger[i] = hash(x, y, z, 12.9898, 78.233, 37.719, 43758.5453);
     bodyStagger[i] = hash(x, y, z, 41.3, 17.9, 63.1, 24634.6345);
     eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
+    ringStagger[i] = ringHash(x, y, z, ...RING_STAGGER);
   }
   let target: { positions: Float32Array; tones: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -83,6 +85,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const gather = presence.focus * listening.contraction + presence.acousticFocus * particleDefaults.focus.contraction + presence.userAmplitude * listening.response;
     const swirl = presence.thinking * 0.08;
     const warm = presence.warmth * 0.28;
+    // Sound (v0.4.2): the sphere's audio field and the circular spectrum, from the CPU reference (render/ring.ts).
+    const sound = inputs.audio?.sample(dt);
+    const audio = sound ? { bands: sound.bands, bass: sound.bass, mid: sound.mid, treble: sound.treble, beat: sound.beat, gain: sound.gain * (calm() ? 0.3 : 1), level: sound.level, weight: sound.sphere } : null;
+    const ring = sound ? ringParams(sound.layout) : null;
+    if (ring && calm()) ring.flow *= 0.2;
+    const point: RingPoint = { position: [0, 0, 0], energy: 0, core: false };
     const colors = palette.sample(dt);
     const base = colors.cool.map((value, k) => (value + (colors.warm[k] - value) * warm) * 255);
     // Formed visuals take the palette's formed tint relative to its body colour (Aion Silver: unchanged from v0.4).
@@ -100,6 +108,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       const s = (Math.sin(clock * 0.9 + ry * 1.4) * swirl + Math.sin(clock * 0.7 + ry * 1.6) * presence.responding * responding.flow) * motion;
       let x = rx * (1 + b) + rz * s, y = ry * (1 + b), z = rz * (1 + b) - rx * s;
       let tone = 0.62 + 0.3 * (rz / radius) + (presence.focus + presence.userAmplitude) * listening.glow + rise * presence.responding * responding.glow;
+      const rw = sound && sound.ring > 0 ? smooth(sound.ring * 1.35 - ringStagger[i] * 0.35) : 0;
+      if (audio && audio.weight > 0 && rw < 1) {
+        const [ox, oy, oz] = sphereAudioOffset([rx, ry, rz], audio, clock);
+        x += ox * (1 - rw); y += oy * (1 - rw); z += oz * (1 - rw);
+        tone += (audio.level * 0.12 + audio.beat * 0.1) * audio.weight * Math.min(1.3, audio.gain);
+      }
       const bw = body.level > 0 ? smooth(body.level * 1.35 - bodyStagger[i] * 0.35) : 0;
       if (bw > 0) {
         const f = figurePoint(layout, i, body.anchors, { clock, orbit: body.orbit, thinking: presence.thinking });
@@ -114,6 +128,12 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         tone += (Math.min(1, e.tone * 1.25) - tone) * ew;
         // The eyes' fill grains are larger (fewer particles here than on the GPU, so a little larger still).
         grain += (e.grain * 1.6 - 1) * ew;
+      }
+      if (rw > 0 && audio && ring) {
+        ringPoint([rx, ry, rz], ring, audio, clock, point);
+        x += (point.position[0] - x) * rw; y += (point.position[1] - y) * rw; z += (point.position[2] - z) * rw;
+        tone += ((0.62 + point.energy * 0.95 + audio.beat * 0.12) * (point.core ? 0.85 : 1) - tone) * rw;
+        grain += (0.86 - grain) * rw;
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
       if (mw > 0 && target) {

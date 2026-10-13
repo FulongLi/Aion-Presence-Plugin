@@ -3,6 +3,7 @@ import { Color, Vector3, Vector4 } from "three";
 import { ANCHOR_COUNT } from "../../core/figure/skeleton";
 import { EYE_PARAMS } from "../../core/eyes/layout";
 import { uniform, uniformArray } from "three/tsl";
+import { RING_BANDS, RING_LAYOUTS } from "../ring";
 import type { ParticleConfig } from "../particleDefaults";
 
 export function createUniforms(config: ParticleConfig) {
@@ -54,6 +55,13 @@ export function createUniforms(config: ParticleConfig) {
     eyes: uniformArray(Array.from({ length: EYE_PARAMS / 2 }, () => new Vector4()), "vec4"),
     // Aion's base colour (v0.4.1, see core/colors.ts): the body's light, its warm variant, and formed visuals' tint.
     baseColor: uniform(new Color("#a8bed1")), warmColor: uniform(new Color("#d5c5bb")), formedColor: uniform(new Color(0.78, 0.9, 1)),
+    // Sound (v0.4.2, see render/ring.ts): the active source's features, the ring layer's weight and shape, and the
+    // weight of the sphere's own audio field. All 0 leaves every body exactly as before.
+    audioBands: uniformArray(Array<number>(RING_BANDS).fill(0), "float"),
+    audioLevel: uniform(0), audioBass: uniform(0), audioMid: uniform(0), audioTreble: uniform(0), audioBeat: uniform(0), audioGain: uniform(1),
+    sphereAudio: uniform(0), ringMorph: uniform(0),
+    ringRadius: uniform(RING_LAYOUTS.spectrum.radius as number), ringHeight: uniform(RING_LAYOUTS.spectrum.height as number), ringCore: uniform(RING_LAYOUTS.spectrum.core as number),
+    ringCoreScale: uniform(RING_LAYOUTS.spectrum.coreScale as number), ringFlow: uniform(0.08),
     size: uniform(config.geometry.size), ambient: uniform(config.lighting.ambient),
     key: uniform(config.lighting.key), fill: uniform(config.lighting.fill), wrap: uniform(config.lighting.wrap),
   };

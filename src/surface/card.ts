@@ -3,6 +3,7 @@ import { decodeHeightField } from "../visual/heightfield";
 import { reliefPixels } from "../visual/relief";
 import { decodeMap, frameBounds } from "../visual/geo/map";
 import { geoToNormal } from "../visual/geo/projection";
+import { highlight, renderScore, type RenderedScore } from "./music/notation";
 
 /**
  * A card: information Aion presents beside its body when exactness or recognizability matters (the CARD and
@@ -19,8 +20,11 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
 
 const CHANGE_LABEL: Record<FileChange["change"], string> = { added: "added", modified: "modified", deleted: "deleted", renamed: "renamed" };
 
-/** `wide`: the card carries a picture or code and takes more room. `images`: object URLs to release later. */
-export interface CardContent { root: HTMLElement; wide: boolean; images: string[] }
+/**
+ * `wide`: the card carries a picture or code and takes more room. `images`: object URLs to release later. `music`: the
+ * engraved score of a music card (its notes can be lit up), and `play`, its play button.
+ */
+export interface CardContent { root: HTMLElement; wide: boolean; images: string[]; music?: RenderedScore; play?: HTMLButtonElement }
 
 export interface CardSources {
   /** The bytes of a presented medium, by id. */
@@ -34,6 +38,7 @@ export async function buildCard(presentation: Presentation, sources: CardSources
   const root = el("div", "card-body");
   const images: string[] = [];
   let wide = false;
+  let music: RenderedScore | undefined, play: HTMLButtonElement | undefined;
   const picture = (url: string, alt: string, className = "picture") => {
     images.push(url);
     const img = el("img", className);
@@ -175,8 +180,31 @@ export async function buildCard(presentation: Presentation, sources: CardSources
       }
       break;
     }
+    case "music": {
+      // Exact notation, engraved (VexFlow, Bravura): the body never draws a staff. Lit notes follow the explanation and the sound.
+      wide = true;
+      const header = el("div", "music-head");
+      header.append(el("h2", undefined, presentation.title));
+      if (presentation.lesson) header.append(el("span", "music-step", `${presentation.lesson.step} / ${presentation.lesson.steps}`));
+      root.append(header);
+      const staff = el("div", "music-score");
+      root.append(staff);
+      music = await renderScore(staff, presentation.score, 440);
+      music.svg.setAttribute("aria-label", `${presentation.title}: ${presentation.score.notes.map(note => note.pitch ?? "rest").join(" ")}`);
+      highlight(music, presentation.highlight ?? []);
+      const footer = el("div", "music-foot");
+      if (presentation.score.notes.some(note => note.pitch)) {
+        play = el("button", "music-play", "▶");
+        play.type = "button";
+        play.setAttribute("aria-label", presentation.lesson?.language === "zh" ? "播放" : "Play");
+        footer.append(play);
+      }
+      if (presentation.caption) footer.append(el("p", "caption", presentation.caption));
+      if (footer.childElementCount) root.append(footer);
+      break;
+    }
     case "form": case "symbol": case "emoji": case "scene":
       break;
   }
-  return { root, wide, images };
+  return { root, wide, images, ...(music ? { music } : {}), ...(play ? { play } : {}) };
 }

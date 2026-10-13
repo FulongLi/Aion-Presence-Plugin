@@ -1,5 +1,6 @@
 import { IMAGE_FITS, PORTRAIT_STYLES, portraitStyleFor, SYMBOL_NAMES, TERRAIN_STYLES, type ImageFit, type PortraitStyle, type SymbolName, type TerrainStyle } from "../visual/types";
 import type { Scene3D } from "../visual/scene3d/types";
+import type { MusicHighlight, MusicScore } from "../music/notation/score";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -52,7 +53,7 @@ export const LIMITS = {
  * artifacts, which only the plugin presents, are held longer.
  */
 export const HOLD_SECONDS = {
-  form: 10, scene: 30, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  form: 10, scene: 30, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
   /** A map is something the user keeps working with ("add New York", "make it blue"); each change holds it again. */
   map: 60, markedTerrain: 60,
 } as const;
@@ -100,9 +101,19 @@ export type PresentationContent =
   | { kind: "emoji"; emoji: string }
   /** A 3D object built from a validated scene of primitives (see visual/scene3d); `preset` names a curated one. */
   | { kind: "scene"; scene: Scene3D; label: string; preset?: string }
+  /**
+   * Music notation (v0.4.2): a validated score drawn exactly on a card (the notation engine), with what to highlight.
+   * `symbol`: a music form the body may become beside it (the clef being explained). `lesson`: where in a Music
+   * Library lesson this is, and in which language. `caption`: one short line under the staff. `tempo`: how fast its
+   * play button plays it.
+   */
+  | { kind: "music"; title: string; score: MusicScore; highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; tempo?: number }
   | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] };
 
 export type PresentationKind = PresentationContent["kind"];
+
+/** A step of a Music Library lesson on show. `question`: the step asks the user to name a note. */
+export interface MusicLessonRef { id: number; step: number; steps: number; language: "en" | "zh"; title: string; question?: boolean }
 
 export type Presentation = PresentationContent & {
   /** Unique per presentation, so surfaces know when a new one replaced an identical-looking one. */
@@ -224,6 +235,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
     case "scene": return { type: "scene", scene: presentation.scene };
+    case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
   }
 }
@@ -251,6 +263,7 @@ export function describePresentation(presentation: PresentationContent): string 
     case "symbol": return `symbol: ${presentation.symbol}`;
     case "emoji": return `emoji: ${presentation.emoji}`;
     case "scene": return `3D: ${presentation.label}`;
+    case "music": return `music: ${presentation.title}${presentation.lesson ? ` (lesson ${presentation.lesson.id}, step ${presentation.lesson.step}/${presentation.lesson.steps})` : ""}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
   }
 }
