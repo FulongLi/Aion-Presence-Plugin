@@ -19,6 +19,7 @@ stored, transcribed or sent, and no model hears anything: Codex stays the intell
 | Real app → real bridge → hub → features (`npm run audio:verify -- --play-loops`) | **Pending a permission** | The rebuilt bridge waits for macOS's System Audio Recording consent (see below) |
 | Shared browser tab (`getDisplayMedia`) | **Implemented, not automated** | Needs the user's click and the browser's picker; cannot be scripted |
 | **Codex Voice → Aion** | **Not yet verified** | Needs a person speaking with Codex in voice mode while `npm run audio:verify -- --codex` runs |
+| **Codex Voice Sync** (v0.4.3): remembered opt-in, reconnects when Aion opens, backoff, stops when closed | **Verified with a stand-in app** | Unit tests (policy, persistence, permission evidence, the controller) and smoke: opted in once, the capture connects, stops when Aion closes and reconnects by itself when it is opened again, with no tool call — over the real socket with `scripts/lib/fakeBridge.ts`. Against real Codex Voice: not yet |
 | Automatic music detection | **Measured, conservative** | Real music (Apple Loops) and system voices; see the table below. Speech over a music bed reads as music |
 
 Without a verified capture, Codex's answer keeps the **semantic** `responding` animation (no invented amplitude or
@@ -152,6 +153,56 @@ Investigated in order of preference:
 3. **Browser capture.** A tab's audio needs the user's pick in the browser's own dialog (`getDisplayMedia`); on macOS
    browsers offer tabs only, not other apps. Microphone permission never grants playback audio.
 
+## Codex Voice Sync (v0.4.3)
+
+Asking Aion to react to its own voice is now a lasting choice, not a per-session request. Once the user has opted in,
+Aion follows Codex's real spoken voice whenever it is open — after closing the window, restarting Codex or the computer,
+or updating the plugin — with no further tool call; when Codex stops speaking, the body returns to its idle behaviour; the
+user's own voice is still the microphone's (listening), unchanged.
+
+```text
+"React to your own voice" ─► set_audio_visualizer { source: "codex" }  (or voice_sync: true)
+        └─► voice-sync.json { enabled, permission, updatedAt }   (Aion's data directory, 0600)
+a companion window connects ─► opted in, sound on, no other app being captured ─► capture Codex's voice
+the last window closes ─► 8 s grace (a reload keeps it) ─► the capture stops: nothing is captured for nobody
+the capture fails or ends ─► reconnect after 1, 2, 4, 8, 16, 32 s ─► then stop until Aion is opened again or the user asks
+a capture that has run 30 s ─► the backoff starts over
+```
+
+**Consent and permission.** Nothing is captured before the user asks. The first time, the tool result asks Codex to say
+once what this means: only the Codex app's sound on this Mac, analysed locally, never recorded or sent; macOS asks once
+to allow System Audio Recording for "Aion Audio Bridge"; "stop reacting to your voice" turns it off. What macOS allows
+is learnt from evidence only, and remembered with the choice:
+
+| `permission` | Evidence | Reconnecting |
+| --- | --- | --- |
+| `granted` | A real (non-zero) sample from Codex arrived | Yes |
+| `unconfirmed` | The tap ran; Codex has not sounded since (quiet proves nothing) | Yes |
+| `silent` | Only exactly-zero samples (macOS withholds the audio: denied) | Yes — macOS does not prompt again after a denial; the indicator and `audio.voice_sync` say the capture is silent and where to allow it |
+| `unanswered` | The capture never started (the prompt was probably left open) | **No**, until the user asks again — a pending prompt is never raised over and over |
+
+**Scope.** Voice Sync covers Codex's voice only: it never captures another app or the system mix (those are still asked
+for each time, and a capture of another app the user chose takes precedence; Voice Sync resumes when it ends). It needs
+a companion window (the embedded MCP Apps view receives no hub event stream). One capture runs at a time and features are
+analysed once, in the hub.
+
+**Reliability.**
+
+| Situation | What happens |
+| --- | --- |
+| Codex restarts | Aion's hub restarts with it (it lives in Aion's MCP process); the choice is read back and the capture connects when the window does |
+| Codex's audio helper restarts, or a new one starts for a voice session | The bridge (`--follow`, v0.4.3) watches Core Audio's process list — a notification, not polling — and ends when the tapped processes change; the hub reconnects after 1 s to the new ones |
+| Codex has no audio process yet | The bridge waits for one (`AION-WAIT1`), without a time limit and without being mistaken for a permission prompt; the indicator says "Codex voice · ready" |
+| The output device changes | The bridge ends (its aggregate device was built on the old one); the hub reconnects |
+| The bridge crashes or the socket closes | `ended` → bounded reconnection |
+| macOS permission changes | Granted later: the next connection streams real samples (`granted`). Revoked: samples become zero (`silent`) |
+| The bridge is not installed, or macOS is too old | Nothing is attempted; the result says why (`not-installed`, `macos-too-old`) and the choice is kept for when it can run |
+| Acoustic feedback | None: a process tap hears Codex's output, never the microphone; Aion's own music is excluded by the source policy (rule 1) |
+
+A bridge built before v0.4.3 ignores `--follow`: it still captures, but does not wait for or follow Codex's audio processes.
+**Installing the v0.4.3 bridge** (`npm run audio-bridge:install`) rebuilds the ad-hoc-signed app, so macOS asks for System
+Audio Recording again.
+
 ## Permissions and privacy
 
 | Source | Asks | Where it is analysed | Leaves the device |
@@ -159,10 +210,12 @@ Investigated in order of preference:
 | Microphone | The browser's microphone prompt (once) | The page | Nothing |
 | Shared tab | The browser's share picker, after a click on "Share tab audio" | The page | Nothing |
 | Music Library playback | Nothing (one click lets a page sound) | The page | Nothing |
-| Codex's voice, other apps | Only when the user asks (`set_audio_visualizer`); macOS's "System Audio Recording Only" for the bridge app | The hub, on loopback | Nothing |
+| Codex's voice, other apps | Only when the user asks (`set_audio_visualizer`); macOS's "System Audio Recording Only" for the bridge app. Codex's voice is then remembered (Codex Voice Sync) | The hub, on loopback | Nothing |
 
-- No capture starts by itself; capture sources are never remembered across sessions (only mode, intensity and
-  sensitivity are, in `audio.json`). "Stop listening to system audio" ends the capture at once.
+- No capture starts by itself, with one exception the user chooses: Codex Voice Sync (above), remembered in
+  `voice-sync.json` and limited to Codex's voice while Aion is open. Other sources are never remembered across sessions
+  (only mode, intensity and sensitivity are, in `audio.json`). "Stop listening to system audio" ends that capture at
+  once; "stop reacting to your voice" turns Voice Sync off.
 - The bridge talks only to the hub, over a Unix socket in a fresh 0700 directory with a one-time nonce; the hub
   re-validates every frame; the event stream carries features only. Tests check that the capture code has no
   network, storage or playback path (`tests/v42.test.ts`, `tests/apiIndependence.test.ts`).
@@ -199,7 +252,9 @@ asks to allow **System Audio Recording** for "Aion Audio Bridge"; rebuilding the
 
 ## Known limitations
 
-- Codex Voice synchronisation is implemented end to end but **not yet verified** with a real voice session.
+- Codex Voice synchronisation is implemented end to end (and, since v0.4.3, reconnects by itself) but **not yet verified**
+  with a real voice session: run `npm run audio:verify -- --codex` while speaking to Codex.
+- Voice Sync drives the companion window only; it waits for a window to be open.
 - The bridge is macOS 14.2+ only, built locally (`npm run audio-bridge:install`, Xcode command-line tools), ad-hoc
   signed: a shipped bridge needs a Developer ID signature so the permission survives updates.
 - A process tap hears everything that app plays (a notification sound in Codex, a video in the same app).

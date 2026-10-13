@@ -62,7 +62,11 @@ Codex answers                →  Aion visibly answers, for as long as the answe
 "Play the C major scale."    →  the scale appears and plays; each note lights up the moment it is heard
 "Show me the treble clef."   →  Aion's particles form a treble clef beside the notation
 "Visualize the music."       →  the music you play (another app, a tab) turns Aion into a circular particle spectrum
-"React to your own voice."   →  on macOS, with your permission, Aion moves with Codex's real voice
+"React to your own voice."   →  on macOS, with your permission, Aion moves with Codex's real voice — every time it opens
+"Teach me how to write 永."   →  the body writes the character stroke by stroke beside its numbered stroke order
+"Repeat the third stroke."   →  strokes 1–2 stay written while the third is written again
+"Show a stick figure jumping over a box."  →  Aion's figure runs up, jumps the box and lands, then returns
+"Tell me the story of Nikola Tesla."  →  a heritage portrait and a calm story, told in parts as you ask
 ```
 
 - **Three persistent bodies**, one Aion: the original particle **Sphere** (abstract intelligence, visuals),
@@ -84,6 +88,13 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   for every source (the microphone, a shared tab, the Music Library, other apps and Codex's own voice through the
   macOS bridge), a sphere that moves with real sound and a **circular particle spectrum** for music
   ([docs/AUDIO-REACTIVE.md](docs/AUDIO-REACTIVE.md)). Codex Voice through the bridge is implemented but not yet verified.
+- **v0.4.3**: **stroke animation** — characters, letters, digits, music and maths symbols written stroke by stroke from
+  curated, convention-named data, never guessed from a font ([docs/STROKE-ANIMATION.md](docs/STROKE-ANIMATION.md));
+  **short particle animations** of Aion's own figure — walk, jump, pick up, point, react — composed from approved
+  primitives on one Animation Core ([docs/ANIMATION.md](docs/ANIMATION.md)); **Storyteller Mode** and a calmer
+  narration style ([docs/STORYTELLING.md](docs/STORYTELLING.md)); **local photographs** as heritage portraits; and
+  **Codex Voice Sync**, a remembered opt-in that reconnects Aion to Codex's voice whenever it opens
+  ([docs/AUDIO-REACTIVE.md](docs/AUDIO-REACTIVE.md)).
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -215,7 +226,7 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, and v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths — in both renderers (`-- --offline` skips lookups; `-- --only=v42` one section) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, and v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync — in both renderers (`-- --offline` skips lookups; `-- --only=v43` one section) |
 | `npm run audio:eval` | Measures the music detector on real recordings on this Mac (Apple Loops, system voices); nothing is kept |
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` (Xcode command-line tools) |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge: a real app's sound, or Codex's voice while you talk to it |

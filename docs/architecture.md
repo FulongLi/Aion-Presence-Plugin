@@ -28,6 +28,7 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `visual/geo/` | Geography (v0.4.1), pure and shared: equal-area projections and frames (`projection.ts`), spherical extents — the primary part of a scattered region, windows (`extent.ts`), map geometry projected, densified and clipped, with its `AMP1` codec (`map.ts`), and `markerWorldPoint`, a place's position on a formed map or terrain through the samplers' own geometry (`markers.ts`). See [MAPS.md](MAPS.md). |
 | `audio/` (v0.4.2) | The Audio Analysis Engine (`analyzer.ts`: the only FFT; loudness, 32 log bands, onsets, beats, voice), the common feature format, the feature bus, the source policy (`route.ts`), the music detector, settings and the compact wire form. Pure. See [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md). |
 | `music/` (v0.4.2) | The Music Library: theory (pitch, rhythm, scales), notation (staff positions, the validated score, audio-clock scheduling), lessons in English and Chinese, practice questions, and the body's music symbols (Bravura outlines). Pure. See [MUSIC.md](MUSIC.md). |
+| `animation/` (v0.4.3) | The Animation Core (`timeline.ts`: playback anchored to the clock, easing, keyframes, segments; `control.ts`: one control vocabulary), the Stroke Animation Engine (`stroke/`: the data model, the path processor, curated packs, the writing timeline) and the Scene Sequencer (`scene/`: approved motion primitives compiled onto Figure 2.0, five demos). Pure. See [ANIMATION.md](ANIMATION.md) and [STROKE-ANIMATION.md](STROKE-ANIMATION.md). |
 | `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
 
 ### Precedence
@@ -64,6 +65,8 @@ before density). Additions, mirrored in the Canvas 2D fallback:
 
 - **Listening**: a deeper gather, an inward ripple that follows the user's loudness (at a frequency the body's
   spring passes; syllable-rate changes would be filtered out), and a slightly brighter body.
+- **Writing** (v0.4.3): a writing target's grains carry reveal keys (one more storage buffer, 7 of 8 in compute); a few
+  uniforms reveal the strokes in order and move the pen's cluster (`physics/writing.ts`, CPU reference `render/writing.ts`).
 - **Responding** (semantic; no amplitude, no spectrum): part of the breath gives way to a travelling swell on the
   outer shell, a second swell out of step with it, a slow current around the vertical axis and a faint warm light.
   The figure answers with breathing, torso, shoulder and head movement and hands that articulate now and then
@@ -109,6 +112,8 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
 - **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
 - **Audio bridge** (`audio/bridge.ts`, v0.4.2): the hub's end of the macOS Aion Audio Bridge — a private Unix socket, the
   shared analyser at 60 Hz, features out as `event: audio` on the companion stream. Started only when the user asks.
+- **Codex Voice Sync** (`audio/voiceSync.ts`, v0.4.3): the user's remembered opt-in; the hub connects Codex's voice while
+  a companion window is open and reconnects with bounded backoff (policy in `src/audio/voiceSync.ts`).
 - **Music** (`music.ts`, v0.4.2): tool arguments → validated scores, note facts, lesson moves, answers.
 - **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
   companion window once (`autoOpen`: first-run | always | never).
@@ -136,6 +141,10 @@ Sound and music (v0.4.2): `audioVisual.ts` gathers every source's features (the 
 `capture.ts`, the Music Library's `music/player.ts`, and the hub's bridge features) and applies the source policy;
 `music/notation.ts` engraves scores with VexFlow and Bravura for the music card; the player schedules notes on the
 audio clock and the card lights each as it is heard.
+
+Writing (v0.4.3): `writing.ts` drives the renderer's writing uniforms from the playback in the snapshot, and the card's
+stroke-order diagram (`strokeCard.ts`) follows the same moment; an action sequence makes the figure perform while
+`scene.ts` draws its objects on an overlay at projected positions.
 
 Places marked on a map or terrain are drawn by `markers.ts` on an overlay above the particles (glowing grains, a pulse,
 a crisp label; pins on terrain) at the screen position the renderer's `project()` gives their coordinates, every frame;
