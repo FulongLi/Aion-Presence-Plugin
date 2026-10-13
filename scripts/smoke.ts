@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -32,9 +33,13 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 that turns, is dragged and re-oriented, then returns — in both renderers
  *   v0.4.1        through the real MCP tools: a heritage portrait by default; a map whose markers appear in their colours
  *                 at their places and change in place; a pin on terrain; the body turning blue, purple and back
+ *   v0.4.2        music: lessons, engraved notation checked note by note against staff theory, playback whose lit note
+ *                 follows the audio clock, a clef formed by the body; sound: the hub's real bridge socket fed by a
+ *                 stand-in for the macOS app (scripts/lib/fakeBridge.ts) → analysis → surface → the circular spectrum
+ *                 (detected music, bass vs treble, back to the sphere) and Codex's voice moving the speaking body
  *
  * Screenshots land in .e2e/smoke/. Needs a local Chrome (CHROME_PATH overrides); skips with a message when there
- * is none. `-- --offline` skips the public portrait and terrain lookups.
+ * is none. `-- --offline` skips the public portrait and terrain lookups. `-- --only=v42,listening` runs only those sections.
  */
 const OUT = join(REPO_ROOT, ".e2e", "smoke");
 const chromePath = process.env.CHROME_PATH ?? [
@@ -47,13 +52,21 @@ if (!existsSync(pagePath)) { console.error("smoke: run npm run build first"); pr
 mkdirSync(OUT, { recursive: true });
 
 const home = mkdtempSync(join(tmpdir(), "aion-smoke-"));
-const hub = new PresenceHub({ home, port: 0, page: () => readFileSync(pagePath, "utf8") });
+/** What the stand-in bridge plays next (see scripts/lib/fakeBridge.ts). */
+let bridgeSignal = "music";
+const hub = new PresenceHub({
+  home, port: 0, page: () => readFileSync(pagePath, "utf8"),
+  bridge: {
+    locate: () => "stand-in", isMac: true, macosVersion: 15,
+    launch: (_app, args) => spawn(process.execPath, ["--import", "tsx", join(REPO_ROOT, "scripts", "lib", "fakeBridge.ts"), ...args], { stdio: "ignore", env: { ...process.env, AION_FAKE_SIGNAL: bridgeSignal } }),
+  },
+});
 await hub.start();
 hub.apply({ type: "open" });
 const GPU = ["--enable-unsafe-webgpu", "--enable-features=Vulkan", "--use-angle=metal"];
 const launch = (extra: string[] = []) => chromium.launch({ executablePath: chromePath, headless: true, args: [...GPU, ...extra] });
 // The default fake device (a test tone) for permission paths; the speech-like signal gets its own browser below.
-const browser = await launch(["--use-fake-device-for-media-stream"]);
+const browser = await launch(["--use-fake-device-for-media-stream", "--autoplay-policy=no-user-gesture-required"]);
 const offline = process.argv.includes("--offline");
 const failures: string[] = [];
 const check = (ok: boolean, what: string) => { console.log(`  ${ok ? "✓" : "✗"} ${what}`); if (!ok) failures.push(what); };
@@ -108,15 +121,18 @@ const open = async (target: Browser, query = "", viewport = { width: 1100, heigh
   return { page, errors };
 };
 
+const only = process.argv.find(arg => arg.startsWith("--only="))?.slice(7).split(",");
+const section = (name: string) => !only || only.includes(name);
 try {
-  await renderers();
-  await visuals();
-  for (const renderer of ["auto", "canvas"] as const) await v4(renderer);
-  for (const renderer of ["auto", "canvas"] as const) await v41(renderer);
-  await listening();
-  await responding();
-  await immersive();
-  await embedded();
+  if (section("renderers")) await renderers();
+  if (section("visuals")) await visuals();
+  if (section("v4")) for (const renderer of ["auto", "canvas"] as const) await v4(renderer);
+  if (section("v41")) for (const renderer of ["auto", "canvas"] as const) await v41(renderer);
+  if (section("v42")) { await music(); for (const renderer of ["auto", "canvas"] as const) await sound(renderer); }
+  if (section("listening")) await listening();
+  if (section("responding")) await responding();
+  if (section("immersive")) await immersive();
+  if (section("embedded")) await embedded();
 } finally {
   await browser.close();
   await hub.stop();
@@ -503,6 +519,203 @@ async function responding() {
     check((await until(page, s => s.host === "complete", 8_000)).host === "complete", "then it completes");
     check((await until(page, s => s.responding < 0.1, 4_000)).responding < 0.1, "and the answering motion ends");
     await aion.call("set_body_form", { body: "sphere" });
+    check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await page.close(); await aion.close(); }
+}
+
+/** Music (v0.4.2): lessons, engraved notation checked against theory, playback in step with the audio clock. */
+async function music() {
+  console.log("v0.4.2 music (MCP → hub → surface)");
+  const aion = await connectAion({ home });
+  const { page, errors } = await open(browser, "&mic=0", { width: 1280, height: 800 });
+  type Out = { structuredContent?: Record<string, unknown>; isError?: boolean; content: { text: string }[] };
+  const call = async (name: string, args: Record<string, unknown>) => await aion.call(name, args) as Out;
+  const musicOf = (out: Out) => out.structuredContent?.music as { notes: Record<string, unknown>[]; playback?: string; lesson?: Record<string, unknown>; answer?: { correct: boolean } } | undefined;
+  /** Every staff line and notehead of the card, in svg pixels. */
+  const engraving = () => page.evaluate(`(() => {
+    const svg = document.querySelector("#card .music-score svg"); if (!svg) return null;
+    const lines = [...svg.querySelectorAll(".vf-stave path")].map(p => p.getBBox()).filter(b => b.height < 1.5 && b.width > 20).map(b => b.y);
+    const notes = [...svg.querySelectorAll(".music-note")].map(g => { const head = g.querySelector(".vf-notehead") || g; const b = head.getBBox(); return { cls: g.getAttribute("class"), y: b.y + b.height / 2, x: b.x }; });
+    return { lines: [...new Set(lines.map(y => Math.round(y * 10) / 10))].sort((a, b) => a - b), notes, lit: svg.querySelectorAll(".lit").length, marks: svg.querySelectorAll(".staff-mark").length, clefLit: !!svg.querySelector(".music-clef.lit") };
+  })()`) as Promise<{ lines: number[]; notes: { cls: string; y: number; x: number }[]; lit: number; marks: number; clefLit: boolean } | null>;
+  try {
+    // Demo A: the five-line staff.
+    let out = await call("music_lesson", { lesson: 1 });
+    check(!out.isError && musicOf(out)?.lesson?.step === 1, "lesson 1 begins");
+    await until(page, s => s.card === "shown", 6_000);
+    await pause(1_200);
+    let engraved = await engraving();
+    check(!!engraved && engraved.lines.length === 5, `the staff has five lines (${engraved?.lines.length ?? 0})`);
+    check(!!engraved && engraved.marks === 5, "all five lines are lit for the explanation");
+    await page.screenshot({ path: join(OUT, "music-1-staff.png") });
+    out = await call("music_lesson", { step: "next" });
+    await pause(800);
+    check(musicOf(out)?.lesson?.step === 2 && (await engraving())?.marks === 4, "next: the four spaces are lit");
+
+    // Demo A (cont.): the treble clef, the body forming it beside the staff (HYBRID).
+    out = await call("music_lesson", { lesson: 2 });
+    const clef = await until(page, s => s.card === "shown" && s.phase === "holding" && s.route === "hybrid", 8_000);
+    engraved = await engraving();
+    check(clef.route === "hybrid" && clef.phase === "holding", "the treble clef: notation on the card and the clef in particles (hybrid)");
+    check(!!engraved?.clefLit && engraved.lit >= 2, "the clef, line 2 and its G are lit");
+    await pause(600);
+    await page.screenshot({ path: join(OUT, "music-2-treble-clef.png") });
+    const zh = await call("music_lesson", { language: "zh" });
+    check(musicOf(zh)?.lesson?.step === 1 && musicOf(zh)?.lesson?.id === 2 && /高音谱号/.test(String(musicOf(zh)?.lesson?.title)), "switching to Chinese keeps the lesson and step");
+    await call("music_lesson", { language: "en" });
+
+    // Figure 2.0 teaches: it turns to the lit note and explains it, then points at each note as it sounds.
+    await call("set_body_form", { body: "figure" });
+    await pause(2_600);
+    await call("show_music", { title: "E on line 1", notes: [{ pitch: "E4", duration: "whole", label: "E" }], highlight: [{ note: 0 }, { line: 1 }] });
+    await until(page, s => s.card === "shown", 6_000);
+    await pause(1_700);
+    check(await page.evaluate("window.aionPresence.aion.figure.cueing") === "explain", "the figure turns to the lit note and explains it");
+    await pause(1_200);
+    await page.screenshot({ path: join(OUT, "music-figure-explains.png") });
+    await call("play_music", { scale: { tonic: "C4" }, tempo: 100 });
+    let pointed = false;
+    for (let i = 0; i < 30 && !pointed; i++) { pointed = await page.evaluate("window.aionPresence.aion.figure.cueing") === "point"; await pause(100); }
+    check(pointed, "and points at the notes as they sound");
+    await page.screenshot({ path: join(OUT, "music-figure-points.png") });
+    await pause(4_000);
+    await call("set_body_form", { body: "sphere" });
+    await pause(1_500);
+
+    // Demo B: middle C, on its ledger line, played and lit while it sounds.
+    out = await call("show_music", { title: "Middle C", notes: [{ pitch: "C4", duration: "whole", label: "middle C" }], highlight: [{ note: 0 }], play: true, tempo: 90 });
+    check(musicOf(out)?.playback === "playing", `middle C plays (${musicOf(out)?.playback})`);
+    const facts = musicOf(out)?.notes[0] as { pitch: string; where: string; frequency: number } | undefined;
+    check(facts?.pitch === "C4" && /first ledger line below/.test(facts.where) && Math.abs(facts.frequency - 261.63) < 0.01, `the result names it: ${facts?.pitch}, ${facts?.where}, ${facts?.frequency} Hz`);
+    await pause(700);
+    const sounding = await page.evaluate("!!document.querySelector('#card .music-note.sounding')");
+    check(sounding as boolean, "the note is lit while it sounds");
+    await page.screenshot({ path: join(OUT, "music-3-middle-c.png") });
+    await pause(3_000);
+
+    // Demo C: the C major scale, every note where theory puts it, each lit at the moment it is heard.
+    out = await call("show_music", { title: "C major scale", scale: { tonic: "C4" }, tempo: 80 });
+    await pause(1_500);
+    engraved = await engraving();
+    const spacing = engraved ? (engraved.lines[4] - engraved.lines[0]) / 4 : 0;
+    const bottom = engraved?.lines[4] ?? 0;
+    const positions = [-2, -1, 0, 1, 2, 3, 4, 5];
+    const errorsPx = engraved?.notes.map((note, i) => Math.abs(note.y - (bottom - positions[i] * spacing / 2))) ?? [99];
+    check(engraved?.notes.length === 8 && Math.max(...errorsPx) < spacing * 0.2,
+      `C4…C5 sit exactly on their lines and spaces (largest error ${Math.max(...errorsPx).toFixed(2)} px of a ${spacing.toFixed(1)} px staff space)`);
+    // The lit note is timed in the page itself (a MutationObserver on the card), so the test's own polling adds no jitter.
+    await page.evaluate(`(() => { window.__lit = []; const card = document.querySelector("#card");
+      new MutationObserver(() => { const s = card.querySelector(".music-note.sounding"); const m = s && /note-(\\d+)/.exec(s.getAttribute("class"));
+        const index = m ? Number(m[1]) : -1; if (index >= 0 && (window.__lit.at(-1) || {}).index !== index) window.__lit.push({ index, t: performance.now() }); })
+        .observe(card, { subtree: true, attributes: true, attributeFilter: ["class"] }); })()`);
+    out = await call("play_music", {});
+    check(musicOf(out)?.playback === "playing", "play_music plays the music on show");
+    await pause(2_300);
+    const reason = await page.evaluate("(() => { const a = window.aionPresence.audio; return a.route.reason + ', sphere ' + a.sample(0).sphere.toFixed(2); })()") as string;
+    await page.screenshot({ path: join(OUT, "music-4-scale-playing.png") });
+    await pause(5_000);
+    const seen = await page.evaluate("window.__lit") as { index: number; t: number }[];
+    const order = seen.map(item => item.index).join(" ");
+    const gaps = seen.slice(1).map((item, i) => (item.t - seen[i].t) / 1000);
+    check(order === "0 1 2 3 4 5 6 7", `each note lights in order as it sounds (${order})`);
+    check(gaps.length === 7 && gaps.every(gap => Math.abs(gap - 0.75) < 0.05), `one quarter note apart at 80 bpm (${gaps.map(g => g.toFixed(3)).join(", ")} s; 0.75 s expected)`);
+    check(/^playback/.test(reason), `the body moves with the playback's own sound (${reason})`);
+
+    // Lesson 8: a practice question, answered.
+    out = await call("music_lesson", { lesson: 8 });
+    const asked = musicOf(out)?.notes[0] as { name: string } | undefined;
+    const answer = await call("music_lesson", { answer: asked?.name ?? "C" });
+    check(musicOf(answer)?.answer?.correct === true, `a practice answer is checked (${asked?.name} → correct)`);
+    const wrong = await call("music_lesson", { answer: asked?.name === "E" ? "F" : "E" });
+    check(musicOf(wrong)?.answer?.correct === false, "and a wrong one is not");
+    await aion.call("clear_presentation");
+    check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await page.close(); await aion.close(); }
+}
+
+/**
+ * Sound (v0.4.2): another app's music through the hub's bridge socket (a stand-in for the macOS app) → the circular
+ * spectrum, bass and treble visibly different, back to the sphere; Codex's voice moving the speaking body.
+ */
+async function sound(renderer: "auto" | "canvas") {
+  console.log(`v0.4.2 sound (${renderer})`);
+  const aion = await connectAion({ home });
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`, { width: 1000, height: 760 });
+  const tag = renderer === "canvas" ? "canvas-" : "";
+  type Out = { structuredContent?: { audio?: Record<string, string> }; content: { text: string }[] };
+  const frame = () => page.evaluate(`(() => { const a = window.aionPresence.audio; const f = a.sample(0); const s = window.aionPresence.presence.signal;
+    return { ring: f.ring, sphere: f.sphere, level: f.level, bass: f.bass, treble: f.treble, reason: a.route.reason, music: a.detectors.system.music, conf: a.detectors.system.evidence.confidence, mode: s.mode, voice: s.assistantAmplitude }; })()`) as Promise<{ ring: number; sphere: number; level: number; bass: number; treble: number; reason: string; music: boolean; conf: number; mode: string; voice: number }>;
+  const waitFrame = async (ok: (f: Awaited<ReturnType<typeof frame>>) => boolean, ms: number) => {
+    let f = await frame();
+    for (let waited = 0; waited < ms && !ok(f); waited += 250) { await pause(250); f = await frame(); }
+    return f;
+  };
+  /** Lit pixels outside the sphere's radius, above and below the centre (the ring's bars: bass at the bottom, treble at the top). */
+  const halves = async () => page.evaluate(`(async () => {
+    const c = document.querySelector("#stage canvas"); const w = c.width, h = c.height;
+    const img = new Image(); img.src = c.toDataURL ? c.toDataURL() : ""; await img.decode().catch(() => {});
+    const o = new OffscreenCanvas(200, 152); const x = o.getContext("2d"); x.drawImage(img, 0, 0, 200, 152); const d = x.getImageData(0, 0, 200, 152).data;
+    let top = 0, bottom = 0; for (let y = 0; y < 152; y++) for (let i = 0; i < 200; i++) { const v = d[(y * 200 + i) * 4] + d[(y * 200 + i) * 4 + 1] + d[(y * 200 + i) * 4 + 2]; if (v < 90) continue; const r = Math.hypot(i - 100, (y - 76) * 1); if (r < 44) continue; if (y < 76) top++; else bottom++; }
+    return { top, bottom };
+  })()`) as Promise<{ top: number; bottom: number }>;
+  try {
+    // Demo F: music shared from another app → detected → the circular spectrum.
+    bridgeSignal = "music";
+    await page.screenshot({ path: join(OUT, `${tag}sound-0-sphere.png`) });
+    let out = await aion.call("set_audio_visualizer", { source: "system", app: "Music", mode: "auto" }) as Out;
+    check(/^streaming/.test(out.structuredContent?.audio?.system ?? ""), `the bridge streams (${out.structuredContent?.audio?.system})`);
+    const detected = await waitFrame(f => f.ring > 0.98, 16_000);
+    check(detected.music && detected.reason === "music-detected" && detected.ring > 0.98, `sustained music is detected and Aion becomes the spectrum (confidence ${detected.conf.toFixed(2)}, ring ${detected.ring.toFixed(2)})`);
+    const spectrum = await look(page, 10, 120);
+    await page.screenshot({ path: join(OUT, `${tag}sound-1-spectrum.png`) });
+
+    // Bass versus treble: the same ring, visibly different shapes (bass at the bottom, treble at the top).
+    const profile = async (signal: string) => {
+      bridgeSignal = signal;
+      await aion.call("set_audio_visualizer", { source: "system", app: "Music", mode: "spectrum" });
+      await waitFrame(f => f.ring > 0.98 && f.level > 0.1, 8_000);
+      await pause(1_500);
+      let top = 0, bottom = 0;
+      for (let i = 0; i < 6; i++) { const h = await halves(); top += h.top; bottom += h.bottom; await pause(120); }
+      const f = await frame();
+      await page.screenshot({ path: join(OUT, `${tag}sound-2-${signal}.png`) });
+      return { top, bottom, bass: f.bass, treble: f.treble };
+    };
+    const bass = await profile("bass"), treble = await profile("treble");
+    // The same ring with the sound gone: it calms (it is the music that moves it, not a loop).
+    bridgeSignal = "silence";
+    await aion.call("set_audio_visualizer", { source: "system", app: "Music", mode: "spectrum" });
+    await waitFrame(f => f.ring > 0.98 && f.level < 0.02, 8_000);
+    await pause(1_200);
+    const still = await look(page, 10, 120);
+    check(spectrum.motion > still.motion * 1.5, `the spectrum moves with the music and calms without it (motion ${spectrum.motion.toFixed(2)} vs ${still.motion.toFixed(2)} in silence)`);
+    check(bass.bass > bass.treble && treble.treble > treble.bass, `the analysis tells them apart (bass: bass ${bass.bass.toFixed(2)} / treble ${bass.treble.toFixed(2)}; treble: ${treble.bass.toFixed(2)} / ${treble.treble.toFixed(2)})`);
+    if (renderer === "canvas") {
+      check(bass.bottom > bass.top && treble.top > treble.bottom, `and the ring shows it: bass reaches out below (${bass.bottom} vs ${bass.top}), treble above (${treble.top} vs ${treble.bottom})`);
+    } else {
+      check(bass.bottom / Math.max(1, bass.top) > treble.bottom / Math.max(1, treble.top), `and the ring shows it: bass weighs the bottom (${bass.bottom}/${bass.top}), treble the top (${treble.bottom}/${treble.top})`);
+    }
+
+    // Demo H: back to the sphere, one particle transition (the music still playing moves the sphere gently).
+    bridgeSignal = "music";
+    await aion.call("set_audio_visualizer", { source: "system", app: "Music", mode: "sphere" });
+    const back = await waitFrame(f => f.ring < 0.02, 6_000);
+    check(back.ring < 0.02 && back.reason === "external-sphere", `"Return to your normal sphere": the ring re-forms as the sphere (${back.reason})`);
+    await page.screenshot({ path: join(OUT, `${tag}sound-3-back.png`) });
+    await aion.call("set_audio_visualizer", { stop: ["system"], mode: "auto" });
+    const quiet = await waitFrame(f => f.reason === "quiet", 4_000);
+    check(quiet.reason === "quiet", "stopping system audio releases it");
+
+    // Demo E (simulated capture): Codex's voice through the bridge drives the speaking body, never the spectrum.
+    bridgeSignal = "speech";
+    out = await aion.call("set_audio_visualizer", { source: "codex" }) as Out;
+    check(/^streaming/.test(out.structuredContent?.audio?.codex ?? ""), `Codex's voice streams (${out.structuredContent?.audio?.codex})`);
+    const speaking = await waitFrame(f => f.mode === "speaking" && f.voice > 0.05, 6_000);
+    check(speaking.mode === "speaking" && speaking.ring < 0.02, `the body speaks with the real signal, as a sphere (amplitude ${speaking.voice.toFixed(2)}, ring ${speaking.ring.toFixed(2)})`);
+    await page.screenshot({ path: join(OUT, `${tag}sound-4-codex-voice.png`) });
+    await aion.call("set_audio_visualizer", { stop: ["codex"], source: "auto" });
+    const stopped = await waitFrame(f => f.mode !== "speaking", 4_000);
+    check(stopped.mode !== "speaking", "stopping it returns to the semantic body");
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   } finally { await page.close(); await aion.close(); }
 }

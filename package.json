@@ -1,6 +1,6 @@
 {
   "name": "aion-presence-plugin",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": true,
   "description": "Aion Presence: a visual embodiment layer for Codex. Codex is the intelligence; Aion is the body.",
   "type": "module",
@@ -12,6 +12,7 @@
     "@modelcontextprotocol/ext-apps": "^2.0.3",
     "@modelcontextprotocol/server": "^2.2.0",
     "three": "^0.182.0",
+    "vexflow": "5.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -48,6 +49,10 @@
     "diagnose": "tsx scripts/diagnose.ts",
     "showcase": "tsx scripts/showcase.ts",
     "geo:coverage": "tsx scripts/geo-coverage.ts",
-    "geo:build": "tsx scripts/geo/build-world.ts"
+    "geo:build": "tsx scripts/geo/build-world.ts",
+    "audio:eval": "tsx scripts/audio-eval.ts",
+    "audio:verify": "tsx scripts/audio-verify.ts",
+    "audio-bridge:build": "sh native/audio-bridge/build.sh native/audio-bridge/build",
+    "audio-bridge:install": "sh native/audio-bridge/build.sh \"$HOME/.aion-presence/audio-bridge\""
   }
 }

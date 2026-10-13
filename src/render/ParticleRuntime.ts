@@ -14,6 +14,7 @@ import { createPostFX } from "./rendering/postfx";
 import { SpeechMotion } from "./speechMotion";
 import { PaletteEase } from "./palette";
 import type { ParticlePalette } from "../core/colors";
+import { ringParams } from "./ring";
 
 /** What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. */
 export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
@@ -21,7 +22,20 @@ export interface MorphSource { sample(dt: number): number; readonly revision: nu
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
  */
-export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource }
+export interface RuntimeInputs { presence: PresenceSignalSource; morph: MorphSource; body: BodySource; framing?: FramingSource; orbit?: OrbitSource; audio?: AudioVisualSource }
+
+/**
+ * Sound for the body (v0.4.2), already chosen and eased by the surface (see surface/audioVisual.ts): the active
+ * source's features, the ring layer's weight and layout (0 spectrum … 1 hybrid), the sphere audio field's weight, and
+ * the intensity's gain. Every weight 0: the body exactly as without sound.
+ */
+export interface AudioVisualFrame {
+  ring: number; layout: number; sphere: number; gain: number;
+  level: number; bass: number; mid: number; treble: number; beat: number;
+  /** RING_BANDS values, 0…1. */
+  bands: Float32Array;
+}
+export interface AudioVisualSource { sample(dt: number): AudioVisualFrame }
 
 /** How a formed 3D object is viewed (see interaction/orbit.ts). */
 export interface OrbitSource { sample(dt: number): OrbitView }
@@ -199,6 +213,15 @@ export async function createParticleRuntime(
     u.responding.value = presence.responding;
     u.warmth.value = presence.warmth;
     u.motion.value = calm() ? 0.15 : 1;
+    const sound = inputs.audio?.sample(dt);
+    if (sound) {
+      for (let i = 0; i < sound.bands.length && i < u.audioBands.array.length; i++) u.audioBands.array[i] = sound.bands[i];
+      u.audioLevel.value = sound.level; u.audioBass.value = sound.bass; u.audioMid.value = sound.mid; u.audioTreble.value = sound.treble;
+      u.audioBeat.value = sound.beat; u.audioGain.value = sound.gain * (calm() ? 0.3 : 1);
+      u.sphereAudio.value = sound.sphere; u.ringMorph.value = sound.ring;
+      const ring = ringParams(sound.layout);
+      u.ringRadius.value = ring.radius; u.ringHeight.value = ring.height; u.ringCore.value = ring.core; u.ringCoreScale.value = ring.coreScale; u.ringFlow.value = ring.flow * (calm() ? 0.2 : 1);
+    }
     const colors = palette.sample(dt);
     u.baseColor.value.setRGB(...colors.cool); u.warmColor.value.setRGB(...colors.warm); u.formedColor.value.setRGB(...colors.formed);
     try {

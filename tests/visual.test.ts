@@ -30,7 +30,7 @@ test("registry: every form has a well-formed, category-prefixed id and a label, 
   }
   for (const id of ["tao.yin-yang", "tao.qian", "tao.bagua", "astronomy.orion", "astronomy.pleiades",
     ...ZODIAC_SIGNS.map(sign => `astrology.${sign}`), ...PLANETS.map(p => `astrology.${p}`), ...SYMBOL_IDS]) assert.ok(visualForms.has(id), id);
-  assert.deepEqual(visualForms.categories().map(category => category.id), ["tao", "astronomy", "astrology", "symbol"]);
+  assert.deepEqual(visualForms.categories().map(category => category.id), ["tao", "astronomy", "astrology", "symbol", "music"]);
   assert.equal(new VisualFormRegistry(VISUAL_FORM_PACKS).size, visualForms.size, "the shipped packs register without collisions");
 });
 

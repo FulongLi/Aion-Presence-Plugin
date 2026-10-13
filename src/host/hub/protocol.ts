@@ -15,6 +15,10 @@ import { PRESENTATION_PREFERENCES, type PresentationPreference } from "../../cor
 import type { PresenceSnapshot } from "../../core/store";
 import { isHexColor } from "../../core/colors";
 import { MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
+import { checkHighlights, checkScore, SCORE_LIMITS, type MusicHighlight, type MusicScore, type PlaybackEvent } from "../../music/notation/score";
+import { MUSIC_FORM_IDS } from "../../music/visual/glyphForms";
+import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES, BRIDGE_SOURCES, type AudioSettings, type BridgeSource } from "../../audio/settings";
+import { TEMPO } from "../../music/theory/rhythm";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -45,7 +49,9 @@ export interface HubInfo {
    * What the companion windows report about themselves: is one of them focused, on screen (not covered or
    * minimized), or in true fullscreen? A window that has not reported yet counts as visible.
    */
-  surface: { focused: boolean; visible: boolean; fullscreen: boolean };
+  surface: { focused: boolean; visible: boolean; fullscreen: boolean; audio?: SurfaceAudio };
+  /** The companion window that plays music and opens captures (the newest); null when none is connected. */
+  audioWindow?: string | null;
 }
 
 export interface HubSnapshot extends Omit<PresenceSnapshot, "revision"> {
@@ -72,7 +78,16 @@ export type HubCommand =
   /** The places marked on the map or terrain on show (replaces them all; the map is not formed again). */
   | { type: "markers"; markers: GeoMarker[] }
   /** Aion's colours: a new base and/or accent (already validated colours), or back to the defaults. */
-  | { type: "appearance"; base?: { hex: string; name: string }; accent?: { hex: string; name: string }; reset?: "base" | "accent" | "all" };
+  | { type: "appearance"; base?: { hex: string; name: string }; accent?: { hex: string; name: string }; reset?: "base" | "accent" | "all" }
+  /**
+   * How Aion responds to sound (v0.4.2): settings to change, a bridge capture to start (Codex's voice, another app's sound;
+   * only ever asked for by the user), captures to stop.
+   */
+  | { type: "audio"; settings?: Partial<AudioSettings>; capture?: { source: BridgeSource; app?: string }; stop?: BridgeSource[] }
+  /** Music for the surfaces to play (validated events), highlighting the notes of a music card as they sound. */
+  | { type: "play"; events: PlaybackEvent[]; tempo: number; volume: number; presentation?: string }
+  /** Silences any music playing. */
+  | { type: "stop-music" };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -120,6 +135,19 @@ const presentationSchema = z.discriminatedUnion("kind", [
     preset: z.string().regex(/^[a-z][a-z0-9-]{0,30}$/).optional(),
   }).strict(),
   z.object({
+    kind: z.literal("music"), title: clean(cleanLine, LIMITS.title), score: z.custom<MusicScore>(value => checkScore(value).ok, "a valid score"),
+    highlight: z.array(z.custom<MusicHighlight>(value => typeof value === "object" && value !== null)).max(SCORE_LIMITS.highlights).optional(),
+    caption: clean(cleanLine, LIMITS.summary).optional(), symbol: z.enum(MUSIC_FORM_IDS as [string, ...string[]]).optional(),
+    tempo: z.number().min(TEMPO.min).max(TEMPO.max).optional(),
+    lesson: z.object({
+      id: z.number().int().min(1).max(99), step: z.number().int().min(1).max(99), steps: z.number().int().min(1).max(99), language: z.enum(["en", "zh"]),
+      title: clean(cleanLine, LIMITS.title), question: z.boolean().optional(),
+    }).strict().optional(),
+  }).strict().refine(value => {
+    const score = checkScore(value.score);
+    return score.ok && checkHighlights(value.highlight, score.value).ok;
+  }, "highlights must name notes, lines or spaces of the score"),
+  z.object({
     kind: z.literal("artifact"), type: z.enum(ARTIFACT_TYPES), title: clean(cleanLine, LIMITS.title),
     content: clean(cleanCode, LIMITS.artifact).optional(), language: z.string().regex(/^[a-z0-9+#.-]{1,24}$/i).optional(), media: mediaRef.optional(),
     items: z.array(clean(cleanLine, LIMITS.item)).max(LIMITS.items).optional(),
@@ -151,13 +179,42 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({ type: z.literal("markers"), markers }).strict(),
   z.object({ type: z.literal("appearance"), base: namedColor.optional(), accent: namedColor.optional(), reset: z.enum(["base", "accent", "all"]).optional() }).strict(),
+  z.object({
+    type: z.literal("audio"),
+    settings: z.object({
+      enabled: z.boolean().optional(), source: z.enum(AUDIO_SOURCE_PREFERENCES).optional(), mode: z.enum(AUDIO_MODES).optional(),
+      intensity: z.enum(AUDIO_INTENSITIES).optional(), sensitivity: z.number().min(0).max(1).optional(),
+    }).strict().optional(),
+    capture: z.object({ source: z.enum(BRIDGE_SOURCES), app: z.string().regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,59}$/u).optional() }).strict().optional(),
+    stop: z.array(z.enum(BRIDGE_SOURCES)).max(2).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("play"),
+    events: z.array(z.object({
+      index: z.number().int().min(0).max(SCORE_LIMITS.notes), midi: z.number().int().min(21).max(108).nullable(),
+      start: z.number().min(0).max(SCORE_LIMITS.notes * 6), length: z.number().positive().max(6),
+    }).strict()).min(1).max(SCORE_LIMITS.notes * 2),
+    tempo: z.number().min(TEMPO.min).max(TEMPO.max), volume: z.number().min(0).max(1), presentation: z.string().regex(/^p[a-z0-9]{2,30}$/).optional(),
+  }).strict(),
+  z.object({ type: z.literal("stop-music") }).strict(),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */
+export const SURFACE_CAPTURE_STATES = ["off", "requesting", "connected", "denied", "unavailable", "ended"] as const;
+export const PLAYBACK_STATES = ["playing", "blocked", "finished", "stopped", "failed"] as const;
 export const surfaceReportSchema = z.object({
   window: z.string().regex(/^[a-z0-9]{8,32}$/), focused: z.boolean(), fullscreen: z.boolean(), visible: z.boolean(),
+  /**
+   * v0.4.2: where this window's own audio stands — the microphone, a shared tab, and the latest playback (blocked: the
+   * browser waits for a click before it may sound). States only: never audio.
+   */
+  audio: z.object({
+    microphone: z.enum(SURFACE_CAPTURE_STATES), tab: z.enum(SURFACE_CAPTURE_STATES),
+    playback: z.object({ id: z.number().int().min(0), state: z.enum(PLAYBACK_STATES) }).strict().optional(),
+  }).strict().optional(),
 }).strict();
 export type SurfaceReport = z.infer<typeof surfaceReportSchema>;
+export type SurfaceAudio = NonNullable<SurfaceReport["audio"]>;
 
 /** A window's ?debug=1 diagnostics (short labelled lines of numbers and states), for `npm run diagnose`. */
 export const diagnosticsSchema = z.object({
