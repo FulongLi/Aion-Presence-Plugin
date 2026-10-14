@@ -4,14 +4,14 @@ import { z } from "zod";
 import { AION_BODIES, bodyLabel, PERSISTENT_BODIES } from "../../core/body";
 import { AION_IDENTITY, embodimentStatement } from "../../core/identity";
 import {
-  cleanCode, cleanText, describePresentation, LIMITS, type Presentation, type PresentationContent,
+  cleanCode, cleanText, describePresentation, LIMITS, type ImageMode, type Presentation, type PresentationContent,
 } from "../../core/presentation";
 import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
 import type { TerrainStyle } from "../../visual/types";
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
-import { portraitStyleFor } from "../../visual/types";
+import { fitForIntent, portraitStyleFor, type ImageFit, type PortraitStyle } from "../../visual/types";
 import { accentColor, contrastOnBlack, COLOR_PRESETS, hexToRgb, parseColor, type NamedColor } from "../../core/colors";
 import { markerWords, MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
 import { decodeMap } from "../../visual/geo/map";
@@ -31,7 +31,7 @@ import { VisualResolver } from "../resolver";
 import {
   expressInput, mediaInput, setSceneViewInput, showSceneInput, openPresenceInput, setBodyFormInput, setPresenceStateInput, showArtifactInput, showClockInput, showEmojiInput,
   showFormInput, showImageInput, showNumberInput, showPortraitInput, showResultInput, showSymbolInput, showTerrainInput, showMapInput, markMapInput, setColorsInput,
-  showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput,
+  showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
 } from "../schemas";
@@ -41,6 +41,12 @@ import { checkScore, type CheckedScore, type MusicHighlight } from "../../music/
 import { lessonById, LESSONS, type Language } from "../../music/lessons/lessons";
 import type { MusicLessonRef } from "../../core/presentation";
 import type { AudioSettings } from "../../audio/settings";
+import { lookupStroke, strokeCatalogText, strokeSequence } from "../../animation/stroke/registry";
+import type { Stroke, StrokeSequence } from "../../animation/stroke/types";
+import { compiledFor, controlAnimation, speedRate } from "../../animation/control";
+import { phaseAt } from "../../animation/timeline";
+import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
+import { DEMO_SEQUENCES } from "../../animation/scene/demos";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -66,7 +72,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact", "writing", "animation"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -107,10 +113,20 @@ export const presenceOutput = z.object({
   }).optional(),
   audio: z.object({
     enabled: z.boolean(), source: z.string(), mode: z.string(), intensity: z.string(), sensitivity: z.number(),
-    codex: z.string().describe("Codex voice capture: streaming (real audio drives the body), starting, off, unavailable (why) or failed (why)."),
+    codex: z.string().describe("Codex voice capture: streaming (real audio drives the body), starting, waiting (for Codex's audio), off, unavailable (why) or failed (why)."),
+    voice_sync: z.string().optional().describe("Codex Voice Sync (remembered): off, or on with where it stands (following Codex's voice, waiting, why not)."),
     system: z.string().describe("Other apps' sound: as codex."),
     microphone: z.string().optional(), tab: z.string().optional(),
   }).optional().describe("How Aion responds to sound, and which sources are really connected. Never claim a source is connected unless it says so."),
+  writing: z.object({
+    symbol: z.string(), title: z.string(), system: z.string(), convention: z.string(), note: z.string().optional(),
+    strokes: z.array(z.object({ n: z.number(), name: z.string().optional(), direction: z.string() })),
+    stroke: z.number().optional().describe("The stroke being written now (or repeated), from 1."),
+    playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
+  }).optional().describe("The symbol being written: its convention and every stroke in order (name, where the pen goes), for your explanation. One stroke or a small group at a time; let the animation finish."),
+  animation: z.object({
+    title: z.string(), seconds: z.number(), actions: z.array(z.string()), playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
+  }).optional().describe("The action sequence on show: what it does and its length. Do not narrate every movement."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -151,14 +167,16 @@ export const TOOL_DESCRIPTIONS = {
   show_image: `Form a picture of almost anything with Aion's particle body: a person, vehicle, product, object, animal, building, place, `
     + `artwork, logo, map or a reference image of an idea. With query, Aion first checks its curated local assets (such as the `
     + `${AION_IDENTITY.creatorCompany} company logo), then searches open image sources (Wikipedia, Wikimedia Commons, Openverse); no key is needed. `
-    + "With source, it shows an image on this machine instead: one Codex generated, a screenshot, a rendered diagram. Use when seeing it "
+    + "With source, it shows an image on this machine instead: one Codex generated, a screenshot, a rendered diagram — as it is, unless the user "
+    + "says it is a portrait (then intent portrait: a heritage portrait, like a looked-up one). Use when seeing it "
     + "materially helps, e.g. the user asks what something looks like or wants to see it. For a real person's face prefer show_portrait; "
     + "for Taoist symbols, constellations and zodiac signs always use show_form.",
   show_portrait: "Form a portrait of a real, recognizable person with Aion's particle body, from public photos (Wikipedia, then other open "
     + "image sources): by default a heritage portrait, an antique oval of particles with a silver outline, while the original photograph "
     + "stands beside it. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look like?\", \"Show me Albert "
-    + "Einstein\", \"展示一下牛顿的肖像\"), or when a portrait materially helps the answer. Leave style out unless the user asks for the "
-    + "classic head-and-shoulders portrait (style \"classic\"). Do not call just because a name appears in conversation.",
+    + "Einstein\", \"展示一下牛顿的肖像\"), or when a portrait materially helps the answer. A portrait photograph on this machine (\"show this "
+    + "photo as a portrait\") takes source instead of a lookup and is composed the same way. Leave style out unless the user asks for the "
+    + "classic head-and-shoulders portrait (style \"classic\", \"without the oval\"). Do not call just because a name appears in conversation.",
   show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
     + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
     + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
@@ -225,12 +243,27 @@ export const TOOL_DESCRIPTIONS = {
     + "Start one (\"I want to learn to read music\" → lesson 1), go on (step next, previous, repeat), switch language (language zh or en: the lesson and "
     + "step stay), or check the user's answer to a practice question (answer: \"E\"). Each result has the step's teaching point (music.lesson.text): "
     + "say it in your own words, in the user's language, then wait for them; never read the whole lesson at once.",
-  set_audio_visualizer: "How Aion moves with sound: which source (the user's microphone, your own spoken voice captured on this Mac, another app's "
+  set_audio_visualizer: "How Aion moves with sound: which source (the user's microphone, your own spoken voice captured on this Mac — Codex Voice "
+    + "Sync, remembered once the user asks: Aion then follows your voice whenever it is open —, another app's "
     + "music, a shared browser tab, Aion's own music), which form (auto, sphere, spectrum — a circular particle spectrum — or hybrid), how strongly "
     + "(subtle, balanced, expressive) and how sensitive. Use only when the user asks (\"React to your own voice\" → source codex; \"Visualize the music\" "
     + "→ mode spectrum (and source system with the app, or tab); \"Make the particles more responsive\" → intensity expressive or sensitivity up; "
     + "\"Go back to your normal appearance\" → mode sphere; \"Stop listening to system audio\" → stop [system]). Capturing your voice or another app "
     + "needs macOS and the user's permission; the result says what is really connected — never claim more. Colours stay set_colors.",
+  show_stroke_animation: () => "Show how a character or symbol is written, stroke by stroke, with Aion's particle body: it forms complete, clears to a faint "
+    + "ghost, then each stroke is written in order (a small light marks the pen) while a card shows the numbered stroke order. Use when the user wants "
+    + "to learn to write something (\"Teach me how to write the character for eternity\" → 永, \"Show me the stroke order of 水\", \"How do I write a "
+    + "treble clef?\", \"How do you write a lowercase g?\"). Only symbols with validated stroke data are offered, each in a named convention; "
+    + `never invent an order for anything else. Available — ${strokeCatalogText()}. Then use control_animation to pause, slow down, repeat a stroke or show it complete.`,
+  play_animation: "Play a short particle animation of Aion's own figure (rendered locally from Aion's particles, not a video): a curated demo or a short "
+    + "sequence you compose from approved actions — walk, jump (over a box), pick up and put down, point (at a panel), face, gesture (wave, nod, "
+    + "shrug, surprise, think, look-around), react (surprised), crouch, wait — with up to three simple objects (box, ball, panel). Use when the "
+    + "user asks to see an action (\"Show a stick figure jumping over a box\" → demo jump-over-obstacle, \"Animate a figure picking up a ball\", "
+    + "\"Make the figure walk toward the box\"). The body becomes the figure for it and returns afterwards. Keep it short (3–8 s of action); "
+    + "say one sentence before or after it, never a running commentary.",
+  control_animation: "Control the animation on show — a symbol being written or a figure's action sequence: pause, resume, replay, change speed "
+    + "(\"write it more slowly\" → replay with speed slow, \"faster\"), next or previous stroke, repeat a stroke (\"repeat the third stroke\" → "
+    + "repeat, stroke 3), complete (\"show the whole character again\"), stop. The result says which stroke is being written and how.",
   express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
     + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
     + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
@@ -244,7 +277,7 @@ function routeWords(presentation: Presentation): string {
   switch (presentation.route) {
     case "body": return `the body becomes it (${seconds(presentation.bodyHold)}; ${presentation.reason})`;
     case "card": return `a card beside the body (${seconds(presentation.cardHold)}; ${presentation.reason})`;
-    case "hybrid": return `the body forms it (${seconds(presentation.bodyHold)}) and a card shows the original (${seconds(presentation.cardHold)}; ${presentation.reason})`;
+    case "hybrid": return `the body forms it (${seconds(presentation.bodyHold)}) and a card shows ${presentation.kind === "writing" ? "the numbered stroke order" : presentation.kind === "music" ? "the notation" : "the original"} (${seconds(presentation.cardHold)}; ${presentation.reason})`;
   }
 }
 
@@ -315,7 +348,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     return result({ ...summarize(snapshot, modeFor(ctx), message(snapshot)), ...extra });
   };
   const present = (ctx: ServerContext, content: PresentationContent, hold?: number, extra: Partial<PresenceOutput> = {},
-    request: { presentation?: PresentationPreference; detail?: boolean } = {}) =>
+    request: { presentation?: PresentationPreference; detail?: boolean; rate?: number } = {}) =>
     run(ctx, backend => backend.apply({ type: "present", content, hold, ...request }),
       snapshot => `Shown: ${describePresentation(content)}${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}. `
         + "Answer in your own voice, in the first person; do not narrate this tool call.", extra);
@@ -329,6 +362,20 @@ export function createAionServer(options: AionServerOptions): McpServer {
     : `${{ wikipedia: "Wikipedia", commons: "Wikimedia Commons", openverse: "Openverse", web: "Web search" }[source.provider] ?? source.provider}${source.license ? ` · ${source.license}` : ""}`.slice(0, LIMITS.title);
   const label = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, LIMITS.title) || undefined;
   const size = (bytes: Uint8Array) => imageSize(bytes) ?? {};
+  /**
+   * A picture on this machine (a screenshot, a generated image, a photograph the user names). Its bytes are kept as
+   * they are, so the card shows the original; `fit` and `style` come from the request, never from the file.
+   */
+  const presentLocal = async (ctx: ServerContext, source: string, fit: ImageFit, style: PortraitStyle | undefined, alt: string | undefined,
+    args: { mode?: ImageMode; hold_seconds?: number }, request: { presentation?: PresentationPreference; detail?: boolean }) => {
+    try {
+      const { data, mime } = await loadImageSource(source);
+      const ref = await link.run(backend => backend.addMedia(data, mime));
+      return present(ctx, {
+        kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit, origin: "local", ...(style ? { style } : {}), ...size(data), ...(alt ? { alt } : {}),
+      }, args.hold_seconds, {}, request);
+    } catch (error) { return mediaFailure(error); }
+  };
 
   const showForm = (ctx: ServerContext, args: z.infer<typeof showFormInput>) => {
     const match = visualForms.lookup(args.form);
@@ -474,12 +521,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       return failure("invalid-arguments: give exactly one of query (something to look up, e.g. \"Eiffel Tower\") or source (an image file on this machine).");
     }
     if (args.source !== undefined) {
-      try {
-        const { data, mime } = await loadImageSource(args.source);
-        const ref = await link.run(backend => backend.addMedia(data, mime));
-        return present(ctx, { kind: "image", media: ref, ...(args.mode ? { mode: args.mode } : {}), fit: "object", origin: "local", ...size(data), ...(args.alt ? { alt: args.alt } : {}) },
-          args.hold_seconds, {}, { presentation: args.presentation, detail: args.detail });
-      } catch (error) { return mediaFailure(error); }
+      // A local picture is a portrait only when the request says so (intent portrait or celebrity); then it is
+      // composed exactly as a looked-up one (heritage unless classic was asked for). Anything else stays an object.
+      const fit = fitForIntent(args.intent ?? "general");
+      return presentLocal(ctx, args.source, fit, portraitStyleFor(fit, args.style), args.alt, args, { presentation: args.presentation, detail: args.detail });
     }
     try {
       const found = await resolver.image(args.query!, args.intent ?? "general");
@@ -502,15 +547,19 @@ export function createAionServer(options: AionServerOptions): McpServer {
     outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
+    if (args.person === undefined && args.source === undefined) return failure("invalid-arguments: give person (a name to look up) or source (a portrait photograph on this machine).");
+    // A photograph on this machine: no lookup, the same composition as a looked-up portrait.
+    if (args.source !== undefined) return presentLocal(ctx, args.source, "portrait", portraitStyleFor("portrait", args.style), args.alt ?? args.person, args, { presentation: args.presentation });
+    const person = args.person!;
     try {
-      const found = await resolver.portrait(args.person);
+      const found = await resolver.portrait(person);
       const ref = await hand(found.bytes, found.mime);
       const by = credit(found.source);
       return present(ctx, {
-        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? args.person, style: portraitStyleFor("portrait", args.style),
+        kind: "image", media: ref, fit: "portrait", origin: "lookup", alt: label(found.label) ?? person, style: portraitStyleFor("portrait", args.style),
         ...(found.width && found.height ? { width: found.width, height: found.height } : {}), ...(by ? { credit: by } : {}),
       }, args.hold_seconds, { shown: found.label, source: found.source }, { presentation: args.presentation });
-    } catch (error) { return failure(resolveFailure(errorCode(error), args.person)); }
+    } catch (error) { return failure(resolveFailure(errorCode(error), person)); }
   });
 
   // ── Geography: maps, terrain and the places marked on them ─────────────────────────────────────────────────
@@ -843,9 +892,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const { settings, bridge } = snapshot.audio;
     const describe = (source: "codex" | "system") => bridge.source !== source ? "off"
       : bridge.state === "streaming" ? (bridge.silentCapture ? "streaming, but every sample is silent: macOS has not granted System Audio Recording to Aion Audio Bridge" : `streaming${bridge.app ? ` (${bridge.app})` : ""}`)
-        : `${bridge.state}${bridge.reason ? ` (${bridge.reason})` : ""}`;
-    const audio = snapshot.hub.surface.audio;
-    return { ...settings, codex: describe("codex"), system: describe("system"), ...(audio ? { microphone: audio.microphone, tab: audio.tab } : {}) };
+        : bridge.waiting ? "waiting for Codex's audio (the bridge runs; Codex has no audio process yet)" : `${bridge.state}${bridge.reason ? ` (${bridge.reason})` : ""}`;
+    const audio = snapshot.hub.surface.audio, sync = snapshot.audio.voiceSync;
+    return { ...settings, codex: describe("codex"), system: describe("system"), ...(sync ? { voice_sync: sync.status } : {}), ...(audio ? { microphone: audio.microphone, tab: audio.tab } : {}) };
   };
   const bridgeWords = (reason?: string) => ({
     "not-macos": "it needs macOS (Core Audio process taps)",
@@ -864,29 +913,134 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, async (args, ctx) => {
     const settings = Object.fromEntries(Object.entries({ enabled: args.enabled, source: args.source, mode: args.mode, intensity: args.intensity, sensitivity: args.sensitivity })
       .filter(([, value]) => value !== undefined)) as Partial<AudioSettings>;
-    const capture = args.source === "codex" ? { source: "codex" as const } : args.source === "system" ? { source: "system" as const, ...(args.app ? { app: args.app } : {}) } : undefined;
+    // Codex's voice is Codex Voice Sync (v0.4.3): asking for it is remembered, unless voice_sync false keeps it to this session.
+    const before = (await link.run(backend => backend.state())).audio.voiceSync;
+    const voiceSync = args.voice_sync ?? (args.source === "codex" ? true : undefined);
+    const capture = args.source === "codex" && !voiceSync ? { source: "codex" as const }
+      : args.source === "system" ? { source: "system" as const, ...(args.app ? { app: args.app } : {}) } : undefined;
     const stop = (args.stop ?? []).filter((source): source is "codex" | "system" => source !== "tab");
-    // Choosing another source ends a capture that is no longer wanted.
-    if (args.source && args.source !== "auto" && !capture) stop.push("codex", "system");
-    let snapshot = await link.run(backend => backend.apply({ type: "audio", ...(Object.keys(settings).length ? { settings } : {}), ...(capture ? { capture } : {}), ...(stop.length ? { stop: [...new Set(stop)] } : {}) }));
+    // Choosing another source ends a capture that is no longer wanted (Codex Voice Sync resumes when it ends, if on).
+    if (args.source && args.source !== "auto" && args.source !== "codex" && !capture) stop.push("system");
+    if (voiceSync === false && args.source !== "codex") stop.push("codex");
+    let snapshot = await link.run(backend => backend.apply({
+      type: "audio", ...(Object.keys(settings).length ? { settings } : {}), ...(capture ? { capture } : {}), ...(stop.length ? { stop: [...new Set(stop)] } : {}),
+      ...(voiceSync !== undefined ? { voiceSync } : {}),
+    }));
+    const firstTime = voiceSync === true && !before?.enabled;
     if (args.stop?.includes("tab") || (args.source && args.source !== "tab" && args.source !== "auto")) snapshot = await link.run(backend => backend.apply({ type: "audio", settings: { source: args.source ?? "auto" } }));
     // A capture: wait for the bridge to stream (or say why not); the first start waits for the user's answer to macOS's prompt.
+    // Voice Sync connects only while Aion is open; with no window it is remembered and connects when Aion opens.
+    const waitsForCapture = capture || (voiceSync === true && snapshot.hub.viewers > 0);
     const deadline = Date.now() + 22_000;
-    while (capture && (snapshot.audio.bridge.state === "starting" || snapshot.audio.bridge.state === "off") && Date.now() < deadline) {
+    while (waitsForCapture && ((snapshot.audio.bridge.state === "starting" && !snapshot.audio.bridge.waiting) || snapshot.audio.bridge.state === "off") && Date.now() < deadline) {
       snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.max(50, deadline - Date.now())));
     }
     const audio = audioOutput(snapshot);
     const bridge = snapshot.audio.bridge;
     const notes: string[] = [];
-    if (capture) {
-      notes.push(bridge.state === "streaming" && !bridge.silentCapture ? `${capture.source === "codex" ? "Your own voice" : "The sound"} is now captured on this Mac and analysed locally; Aion moves with it.`
-        : bridge.state === "streaming" ? "The bridge runs, but macOS gives it only silence: System Audio Recording is not allowed for Aion Audio Bridge (System Settings → Privacy & Security → Screen & System Audio Recording)."
-          : `Not connected: ${bridgeWords(bridge.reason)}. Aion keeps its semantic response; do not claim it follows the real audio.`);
+    const connected = (source: "codex" | "system") => bridge.source === source && bridge.state === "streaming" && !bridge.silentCapture;
+    if (capture || voiceSync === true) {
+      const source = capture?.source ?? "codex";
+      notes.push(connected(source) ? `${source === "codex" ? "Your own voice" : "The sound"} is now captured on this Mac and analysed locally; Aion moves with it.`
+        : bridge.source === source && bridge.state === "streaming" ? "The bridge runs, but macOS gives it only silence: System Audio Recording is not allowed for Aion Audio Bridge (System Settings → Privacy & Security → Screen & System Audio Recording)."
+          : bridge.source === source && bridge.waiting ? "The bridge is ready and waits for Codex's audio; Aion follows your voice as soon as you speak."
+            : voiceSync && snapshot.audio.voiceSync?.unavailable ? `Not connected: ${bridgeWords(snapshot.audio.voiceSync.unavailable)}. Voice Sync is remembered for when it can run; Aion keeps its semantic response — do not claim it follows the real audio.`
+              : voiceSync && !snapshot.hub.viewers ? "Aion is not open: Voice Sync is on and connects as soon as Aion opens."
+              : `Not connected: ${bridgeWords(bridge.reason)}. Aion keeps its semantic response; do not claim it follows the real audio.`);
     }
+    if (voiceSync === true && firstTime) {
+      notes.push("First time: tell the user once, briefly, that from now on Aion follows your spoken voice whenever it is open — captured only from the "
+        + "Codex app on this Mac, analysed locally, never recorded or sent; macOS asks once to allow System Audio Recording for \"Aion Audio Bridge\"; "
+        + "\"stop reacting to your voice\" turns it off.");
+    }
+    if (voiceSync === false) notes.push("Codex Voice Sync is off: Aion keeps its semantic response to your voice.");
     if (args.source === "tab") notes.push(snapshot.hub.viewers ? "Ask the user to click \"Share tab audio\" in Aion's window and choose the tab (with \"Share tab audio\" on)." : "Aion's window is not open: open_presence first, then the user shares a tab there.");
     if (args.source === "microphone" && audio.microphone && audio.microphone !== "connected") notes.push(`The microphone is ${audio.microphone}.`);
     const message = `Sound: ${audio.enabled ? `${audio.source} · ${audio.mode} · ${audio.intensity}` : "off"}. ${notes.join(" ")} Say it in the first person if at all.`;
     return result({ ...summarize(snapshot, modeFor(ctx), message), audio });
+  });
+
+  // ── Stroke animation and action sequences (v0.4.3) ─────────────────────────────────────────────────────────────
+
+  const phase = (snapshot: HubSnapshot) => snapshot.animation ? phaseAt(snapshot.animation.playback, Date.now()) : "finished";
+  const strokeName = (stroke: Stroke) => stroke.name ? `${stroke.name.zh ? `${stroke.name.zh} ` : ""}(${stroke.name.en})` : undefined;
+  const writingOutput = (sequence: StrokeSequence, snapshot: HubSnapshot, stroke?: number): NonNullable<PresenceOutput["writing"]> => ({
+    symbol: sequence.symbol, title: sequence.title, system: sequence.writingSystem, convention: sequence.convention, ...(sequence.note ? { note: sequence.note } : {}),
+    strokes: sequence.strokes.map(item => ({ n: item.order, ...(strokeName(item) ? { name: strokeName(item) } : {}), direction: item.direction })),
+    ...(stroke ? { stroke } : {}), playback: phase(snapshot), speed: snapshot.animation?.playback.rate ?? 1,
+  });
+  const animationOutput = (spec: AnimationSpec, snapshot: HubSnapshot): NonNullable<PresenceOutput["animation"]> => ({
+    title: spec.title, seconds: Math.round(compiledFor(spec).duration * 10) / 10, actions: spec.actions.map(action => action.do),
+    playback: phase(snapshot), speed: snapshot.animation?.playback.rate ?? 1,
+  });
+
+  server.registerTool("show_stroke_animation", {
+    title: "Show how to write it",
+    description: TOOL_DESCRIPTIONS.show_stroke_animation(),
+    inputSchema: showStrokeAnimationInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const sequence = lookupStroke(args.symbol, args.system);
+    if (!sequence) {
+      return failure(`stroke-data-unavailable: Aion has no validated stroke data for "${args.symbol}"${args.system ? ` (${args.system})` : ""}, and it never guesses a `
+        + `stroke order from a font. Available — ${strokeCatalogText()}. Explain it in words, or offer one of these.`);
+    }
+    const content: PresentationContent = { kind: "writing", stroke: sequence.id, label: `${sequence.symbol} · ${sequence.title}` };
+    const snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds ?? 0, presentation: args.presentation, rate: speedRate(args.speed) }));
+    const message = `Writing ${sequence.symbol} (${sequence.title}), ${sequence.strokes.length} stroke${sequence.strokes.length > 1 ? "s" : ""}; convention: ${sequence.convention}`
+      + `${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}. It forms complete first, then writes each stroke. Explain one stroke or a small group at a time `
+      + "from writing.strokes, calmly, and let the animation finish; do not narrate this tool call.";
+    return result({ ...summarize(snapshot, modeFor(ctx), message), shown: `${sequence.symbol} (${sequence.title})`, writing: writingOutput(sequence, snapshot) });
+  });
+
+  server.registerTool("play_animation", {
+    title: "Play an animation",
+    description: TOOL_DESCRIPTIONS.play_animation,
+    inputSchema: playAnimationInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    if ((args.demo === undefined) === (args.sequence === undefined)) return failure("invalid-arguments: give exactly one of demo or sequence.");
+    // Plain data, checked again strictly (bounds, references, the compiled length): nothing is ever executed.
+    const spec = JSON.parse(JSON.stringify(args.demo ? DEMO_SEQUENCES[args.demo] : args.sequence)) as unknown;
+    const check = validateSequence(spec);
+    if (!check.ok) return failure(`animation-invalid: ${check.problem}. Fix it and try again, or describe it in words.`);
+    const content: PresentationContent = { kind: "animation", sequence: check.spec, label: check.spec.title, ...(args.demo ? { demo: args.demo } : {}) };
+    const snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds, rate: speedRate(args.speed) }));
+    const output = animationOutput(check.spec, snapshot);
+    const message = `Playing "${check.spec.title}" (${output.seconds} s, the body becomes the figure for it and returns). Say one short sentence about it `
+      + "if anything; do not narrate each movement or this tool call.";
+    return result({ ...summarize(snapshot, modeFor(ctx), message), shown: check.spec.title, animation: output });
+  });
+
+  server.registerTool("control_animation", {
+    title: "Control the animation",
+    description: TOOL_DESCRIPTIONS.control_animation,
+    inputSchema: controlAnimationInput,
+    outputSchema: presenceOutput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const before = await link.run(backend => backend.state());
+    const shown = before.presentation;
+    if (!shown || (shown.kind !== "writing" && shown.kind !== "animation") || before.animation?.presentation !== shown.id) {
+      return failure("no-animation: nothing is being written or animated now. Use show_stroke_animation or play_animation first.");
+    }
+    const command = { action: args.action, ...(args.stroke !== undefined ? { stroke: args.stroke } : {}), ...(args.speed ? { speed: args.speed } : {}) };
+    // The same pure rules the hub applies, so a command that cannot apply is explained instead of silently ignored.
+    const check = args.action === "stop" ? null : controlAnimation(shown, before.animation.playback, command, Date.now());
+    if (check && !check.ok) return failure(`animation-control: ${check.problem}.`);
+    const snapshot = await link.run(backend => backend.apply({ type: "animation", ...command }));
+    if (args.action === "stop") return result(summarize(snapshot, modeFor(ctx), "Stopped: back to the persistent body."));
+    const stroke = check?.ok ? check.stroke : undefined;
+    if (shown.kind === "writing") {
+      const sequence = strokeSequence(shown.stroke)!;
+      const item = stroke ? sequence.strokes[stroke - 1] : undefined;
+      const message = item ? `Writing stroke ${stroke} of ${sequence.strokes.length}${strokeName(item) ? `, ${strokeName(item)}` : ""}: ${item.direction}. Explain just this stroke, then wait.`
+        : `Writing ${sequence.symbol}: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`;
+      return result({ ...summarize(snapshot, modeFor(ctx), message), writing: writingOutput(sequence, snapshot, stroke) });
+    }
+    return result({ ...summarize(snapshot, modeFor(ctx), `Animation: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`), animation: animationOutput(shown.sequence, snapshot) });
   });
 
   server.registerTool("show_form", {

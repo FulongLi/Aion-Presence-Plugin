@@ -5,6 +5,13 @@ import { ORBIT, OrbitController, type OrbitView } from "../render/interaction/or
 import { GreetingGate } from "../core/guidance";
 import { planPresentation, type BodyVisual, type Presentation } from "../core/presentation";
 import { PresenceEngine } from "../core/signal";
+import { WritingDriver, strokesTarget } from "./writing";
+import type { StrokeCard } from "./strokeCard";
+import { SceneLayer } from "./scene";
+import { strokeSequence } from "../animation/stroke/registry";
+import { compiledFor } from "../animation/control";
+import { evaluateSequence, STAGE, type CompiledSequence } from "../animation/scene/sequence";
+import { phaseAt, positionAt, type PlaybackState as AnimationPlaybackState } from "../animation/timeline";
 import type { ActivityState } from "../core/state";
 import type { HubSnapshot } from "../host/hub/protocol";
 import type { Framing, RuntimeHandle, RuntimeInputs } from "../render";
@@ -43,6 +50,8 @@ export interface ViewElements {
   markers?: HTMLCanvasElement;
   /** v0.4.2: the quiet indicator of a connected sound source, its label and its one button (share a tab). */
   sound?: { root: HTMLElement; label: HTMLElement; action: HTMLButtonElement };
+  /** v0.4.3: the overlay an action sequence's objects are drawn on (optional: absent, no props are drawn). */
+  scene?: HTMLCanvasElement;
 }
 
 /** A body visual with the seconds it stays formed (Infinity: until the presentation ends). */
@@ -110,6 +119,12 @@ export class PresenceView {
   /** The music card on show: its engraved score, its presentation and the note sounding now. */
   private music: { rendered: RenderedScore; presentation: Extract<Presentation, { kind: "music" }>; sounding: number | null } | null = null;
   private orbitRevision = -1;
+  /** v0.4.3: a symbol being written (the renderer's writing uniforms) and its stroke-order card. */
+  readonly writing = new WritingDriver();
+  private strokeCard: StrokeCard | null = null;
+  /** v0.4.3: the action sequence the figure performs, its playback, and the layer its objects are drawn on. */
+  private performance: { presentation: string; sequence: CompiledSequence; playback: AnimationPlaybackState } | null = null;
+  readonly sceneLayer: SceneLayer | null;
   private cardImages: string[] = [];
   private statusTimer?: ReturnType<typeof setTimeout>;
   private lastStatus = "";
@@ -126,6 +141,15 @@ export class PresenceView {
     // the microphone from taking the speakers for the user.
     this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity, audio: this.audio.hostAudio, playback: () => this.audio.playbackAudible });
     this.immersive = new ImmersiveController({ entry: elements.entry, enter: elements.enter }, transport, () => this.userGesture());
+    this.sceneLayer = elements.scene ? new SceneLayer(elements.scene, {
+      frame: () => {
+        const performance = this.performance, visible = this.aion.figure.performing;
+        if (!performance || visible <= 0) return null;
+        return { objects: evaluateSequence(performance.sequence, positionAt(performance.playback, Date.now())).objects, visible: visible * this.aion.body.level };
+      },
+      project: point => this.runtime?.project(point) ?? null,
+      colors: () => ({ base: this.appearance?.base.hex ?? "#a8bed1", accent: accentColor(this.appearance?.accent.hex ?? "#e2725b") }),
+    }) : null;
     this.markerLayer = elements.markers ? new MarkerLayer(elements.markers, {
       target: () => this.visual.phase === "sphere" ? null : this.visual.target,
       level: () => this.visual.level,
@@ -157,8 +181,17 @@ export class PresenceView {
   inputs(): RuntimeInputs {
     return {
       presence: this.presence, morph: this.visual, body: this.aion, framing: { sample: dt => this.frame(dt) }, orbit: { sample: dt => this.orbitFrame(dt) },
-      audio: { sample: dt => this.soundFrame(dt) },
+      audio: { sample: dt => this.soundFrame(dt) }, writing: { sample: dt => this.writingFrame(dt) },
     };
+  }
+
+  /** The writing uniforms (v0.4.3), while the formed target is the writing on show; the card follows the same moment. */
+  private writingFrame(dt: number) {
+    const target = this.visual.target, presentation = this.snapshot?.presentation;
+    const active = target?.visual.kind === "strokes" && this.visual.phase !== "sphere" && presentation?.kind === "writing";
+    const frame = this.writing.sample(dt, active);
+    this.strokeCard?.update(active ? this.writing.frame : null);
+    return frame;
   }
 
   /**
@@ -253,6 +286,10 @@ export class PresenceView {
         if (this.cardState === "shown" && presentation.kind === "map") void this.showCard(presentation);
       }
     }
+    // v0.4.3: the playhead of the animation on show (writing or an action sequence), on every change of it.
+    const playback = snapshot.animation && snapshot.animation.presentation === presentation?.id ? snapshot.animation.playback : null;
+    this.writing.set(presentation?.kind === "writing" ? presentation : null, playback);
+    if (this.performance && presentation?.id === this.performance.presentation && playback) this.performance.playback = playback;
     if ((presentation?.id ?? null) !== this.presentationId) {
       this.presentationId = presentation?.id ?? null;
       void this.present(presentation);
@@ -275,12 +312,25 @@ export class PresenceView {
   };
 
   private async present(presentation: Presentation | null) {
+    // An action sequence ends with its presentation: the figure eases back and the body returns to its own form.
+    if (this.performance && this.performance.presentation !== presentation?.id) { this.performance = null; this.aion.perform(null); }
     if (!presentation) {
       void this.visual.submit(null);
       this.closeCard();
       return;
     }
     const plan = planPresentation(presentation, presentation.route);
+    if (plan.body.type === "performance" && presentation.kind === "animation") {
+      // The body itself performs: nothing forms, the figure is borrowed for it (v0.4.3).
+      void this.visual.submit(null);
+      this.closeCard();
+      const playback = this.snapshot?.animation?.presentation === presentation.id ? this.snapshot.animation.playback : null;
+      if (!playback) return;
+      const performance = { presentation: presentation.id, sequence: compiledFor(presentation.sequence), playback };
+      this.performance = performance;
+      this.aion.perform({ frame: () => this.performance === performance ? evaluateSequence(performance.sequence, positionAt(performance.playback, Date.now())).channels : null, stage: STAGE });
+      return;
+    }
     const hold = presentation.bodyHold > 0 ? presentation.bodyHold : Infinity;
     void this.visual.submit(plan.body.type === "none" ? null : { ...plan.body, hold });
     if (!plan.card) { this.closeCard(); return; }
@@ -306,6 +356,7 @@ export class PresenceView {
       dismiss.addEventListener("click", () => this.dismiss());
       card.replaceChildren(dismiss, content.root);
       this.music = content.music && presentation.kind === "music" ? { rendered: content.music, presentation, sounding: null } : null;
+      this.strokeCard = content.writing ?? null;
       // The card's own play button plays it here, at once (the click is also what lets a browser sound).
       content.play?.addEventListener("click", () => this.playCard());
       card.classList.toggle("wide", content.wide);
@@ -351,6 +402,7 @@ export class PresenceView {
 
   private closeCard() {
     this.music = null;
+    this.strokeCard = null;
     if (this.cardState === "none") return;
     this.cardState = "leaving";
     this.elements.root.classList.remove("with-card");
@@ -399,6 +451,14 @@ export class PresenceView {
           visual: { kind: "mesh3d", scene: request.scene }, hold, label: request.scene.title, transition: { form: 2, return: 1.5 },
           motion: { orbit: request.scene.rotation === "none" ? 0 : ORBIT.spin, tilt: (request.scene.tilt ?? 15) * Math.PI / 180 },
         };
+      case "writing": {
+        // A symbol to write (v0.4.3): sampled once with each grain's reveal key; the writing uniforms do the rest.
+        const sequence = strokeSequence(request.stroke);
+        if (!sequence) throw new Error("stroke-symbol-unknown");
+        return { visual: strokesTarget(sequence), hold, label: sequence.symbol };
+      }
+      case "performance":
+        throw new Error("not-a-visual");
     }
   }
 
@@ -597,6 +657,7 @@ export class PresenceView {
     if (!audio.settings.enabled) label = "";
     else if (bridge.state === "streaming" && !bridge.silentCapture) label = bridge.source === "codex" ? "Codex voice" : `Sound · ${bridge.app ?? "this Mac"}`;
     else if (bridge.state === "streaming") label = "Sound capture silent · allow System Audio Recording";
+    else if (bridge.state === "starting" && bridge.waiting) label = bridge.source === "codex" ? "Codex voice · ready" : "Sound · waiting";
     else if (bridge.state === "starting") label = "Connecting sound…";
     if (audio.settings.enabled && audio.settings.source === "tab") {
       if (this.tab.state === "connected") label = label ? `${label} · Tab audio` : "Tab audio";
@@ -626,6 +687,15 @@ export class PresenceView {
       activity: `host ${this.activity} → effective ${this.presence.activity}`,
       state: `${this.aion.currentState} · body ${this.aion.currentBody} · userAmplitude ${signal.userAmplitude.toFixed(2)} · responding ${signal.responding.toFixed(2)} · speaking ${signal.mode === "speaking" ? "yes" : "no"} · hostAudio ${this.presence.hostAudio}`,
       visual: `${this.visual.phase} · card ${this.cardState}${presentation ? ` · route ${presentation.route} (${presentation.reason})` : ""} · revision ${this.snapshot?.revision ?? "-"}`,
+      animation: (() => {
+        const animation = this.snapshot?.animation;
+        if (!animation) return "none";
+        const at = positionAt(animation.playback, Date.now()), phase = phaseAt(animation.playback, Date.now());
+        const writing = this.writing.frame, performance = this.performance;
+        const detail = writing ? `writing ${writing.phase} · stroke ${writing.stroke + 1} · progress ${writing.progress.toFixed(2)} · pen ${writing.pen.toFixed(2)}`
+          : performance ? `figure ${evaluateSequence(performance.sequence, at).action} · performing ${this.aion.figure.performing.toFixed(2)}` : "-";
+        return `${phase} · ${at.toFixed(2)}/${animation.playback.duration.toFixed(2)} s · rate ${animation.playback.rate} · ${detail}`;
+      })(),
       hooks: this.snapshot?.hub.hooksActive ? "active" : "not detected",
       audio: (() => {
         const settings = this.audio.settings, route = this.audio.route, bridge = this.snapshot?.audio?.bridge;
@@ -635,7 +705,8 @@ export class PresenceView {
         }).filter(Boolean).join(" ");
         const detector = this.audio.detectors.tab.evidence.confidence || this.audio.detectors.system.evidence.confidence;
         return `${settings.enabled ? `${settings.source}/${settings.mode}/${settings.intensity}` : "off"} · route ${route.reason} (sphere ${route.sphere ?? "-"}, ring ${route.ring ?? "-"})`
-          + ` · sources ${sources || "none"} · bridge ${bridge?.state ?? "-"}${bridge?.reason ? ` (${bridge.reason})` : ""} · music ${detector.toFixed(2)}`;
+          + ` · sources ${sources || "none"} · bridge ${bridge?.state ?? "-"}${bridge?.waiting ? " (waiting)" : ""}${bridge?.reason ? ` (${bridge.reason})` : ""} · music ${detector.toFixed(2)}`
+          + ` · voice sync ${this.snapshot?.audio?.voiceSync?.status ?? "-"}`;
       })(),
     };
   }

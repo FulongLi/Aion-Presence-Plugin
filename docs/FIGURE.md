@@ -66,6 +66,20 @@ emphasis `"c²"`) gives a card that marks the term. About a second later the fig
 The term's position comes from the card's layout. Both renderers map a screen point to the body's plane
 (`RuntimeHandle.toWorld`). Not an animation editor: a reusable cue that later lessons can build on.
 
+## Action sequences (v0.4.3)
+
+The figure performs short scenes ([ANIMATION.md](ANIMATION.md)) with the same skeleton, solver and particles — no second
+skeleton or renderer:
+
+- Two pose channels: `rootX` (where it stands on the stage) and `heading` (which way it faces: the whole skeleton turns
+  about its vertical axis, so walking is seen in profile, local forward becoming screen right or left). Both are 0 for
+  every state pose, which is therefore unchanged.
+- A deep `lean` pitches the torso keeping its length (to bend over and pick something up); leans up to 0.06 — all the
+  state poses — are exactly as before.
+- `FigureAnimator.perform(channels)`: a sequence drives the whole pose, eased in over 0.8 s and out over 1.1 s from the
+  state's own motion (out of the last performed pose, so an interruption never snaps), on a smaller, lower stage.
+- Easing comes from the Animation Core (one implementation for clips, writing and scenes).
+
 ## Proof
 
 - Real renderer: `npm run showcase -- figure-idle figure-listening figure-explain figure-gestures`.

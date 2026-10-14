@@ -37,6 +37,9 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 follows the audio clock, a clef formed by the body; sound: the hub's real bridge socket fed by a
  *                 stand-in for the macOS app (scripts/lib/fakeBridge.ts) → analysis → surface → the circular spectrum
  *                 (detected music, bass vs treble, back to the sphere) and Codex's voice moving the speaking body
+ *   v0.4.3        through the real MCP tools: 永 written stroke by stroke (the card in step, a stroke repeated, slower,
+ *                 complete); the figure jumping over a box (its props drawn) and returning; a local photograph as a
+ *                 heritage oval; Codex Voice Sync reconnecting by itself when Aion is opened again (stand-in bridge)
  *
  * Screenshots land in .e2e/smoke/. Needs a local Chrome (CHROME_PATH overrides); skips with a message when there
  * is none. `-- --offline` skips the public portrait and terrain lookups. `-- --only=v42,listening` runs only those sections.
@@ -129,6 +132,7 @@ try {
   if (section("v4")) for (const renderer of ["auto", "canvas"] as const) await v4(renderer);
   if (section("v41")) for (const renderer of ["auto", "canvas"] as const) await v41(renderer);
   if (section("v42")) { await music(); for (const renderer of ["auto", "canvas"] as const) await sound(renderer); }
+  if (section("v43")) { for (const renderer of ["auto", "canvas"] as const) await v43(renderer); await voiceSync(); }
   if (section("listening")) await listening();
   if (section("responding")) await responding();
   if (section("immersive")) await immersive();
@@ -809,6 +813,111 @@ async function embedded() {
     await aion.close();
   }
 }
+/**
+ * v0.4.3 on the real surface, through the real MCP tools: writing (the body writes 永 stroke by stroke while the card
+ * follows; a stroke repeated, slower, the finished symbol), a short action sequence of the figure with its props,
+ * and a local photograph composed as a heritage portrait.
+ */
+async function v43(renderer: "auto" | "canvas") {
+  console.log(`v0.4.3: stroke animation, action sequences, local portraits (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const name = (moment: string) => join(OUT, `v43-${renderer}-${moment}.png`);
+  const aion = await connectAion({ home });
+  try {
+    const frame = () => view<{ phase: string; stroke: number; progress: number; pen: number } | null>("v.writing.frame && { phase: v.writing.frame.phase, stroke: v.writing.frame.stroke, progress: v.writing.frame.progress, pen: v.writing.frame.pen }");
+    await aion.call("show_stroke_animation", { symbol: "永" });
+    check((await until(page, s => s.phase === "holding" && s.card === "shown", 6_000)).phase === "holding", "永 forms, with its stroke-order card");
+    check(await view<string>("v.visual.target.visual.kind") === "strokes", "the body's target is the writing (sampled once, revealed by key)");
+    const seen = new Set<number>();
+    let last = -1, monotonic = true;
+    for (let waited = 0; waited < 14_000 && (await frame())?.phase !== "done"; waited += 120) {
+      const f = await frame();
+      // From the moment the writing begins (the preview shows the symbol complete, then it clears to its ghost).
+      if (f && ["ready", "stroke", "gap", "done"].includes(f.phase)) { if (f.progress < last - 1e-6) monotonic = false; last = f.progress; if (f.phase === "stroke") seen.add(f.stroke); }
+      await pause(120);
+    }
+    check([0, 1, 2, 3, 4].every(k => seen.has(k)), `all five strokes are written, in order (${[...seen].join(",")})`);
+    check(monotonic, "the writing never goes backwards");
+    check((await frame())?.phase === "done", "the finished symbol stays");
+    await page.screenshot({ path: name("written") });
+    await aion.call("control_animation", { action: "repeat", stroke: 3 });
+    await pause(800);
+    const repeat = await frame();
+    check(repeat?.stroke === 2 && Math.floor(repeat.progress) === 2, "repeat the third stroke: strokes 1–2 written, the third being written");
+    check(await page.locator("#card .stroke-list li.current").textContent().then(text => /横撇/.test(text ?? "")), "the card lights the same stroke");
+    await page.screenshot({ path: name("repeat-third") });
+    await aion.call("control_animation", { action: "replay", speed: "slow" });
+    await pause(300);
+    check(await view<number>("v.snapshot.animation.playback.rate") === 0.5, "write it more slowly: half speed");
+    await aion.call("control_animation", { action: "complete" });
+    await pause(600);
+    check((await frame())?.phase === "done", "show the whole character again");
+    await aion.call("clear_presentation");
+    check((await until(page, s => s.phase === "sphere", 6_000)).phase === "sphere", "writing → back to the persistent body");
+
+    await aion.call("play_animation", { demo: "jump-over-obstacle" });
+    await pause(2_600);
+    check(await view<number>("v.aion.figure.performing") > 0.9, "the body becomes the figure for the sequence");
+    check(await view<boolean>("v.sceneLayer.drawn.has('box')"), "its box is drawn where the stage puts it");
+    let jumped = false;
+    for (let waited = 0; waited < 6_000 && !jumped; waited += 100) { jumped = /figure jump/.test((await diag(page)).animation ?? ""); await pause(100); }
+    check(jumped, "it jumps");
+    await page.screenshot({ path: name("jump") });
+    let returned = false;
+    for (let i = 0; i < 80 && !returned; i++) { returned = await view<number>("v.aion.figure.performing") === 0; await pause(150); }
+    check(returned, "and returns to the persistent body afterwards");
+
+    // A photograph on this machine, as a portrait: the heritage oval (the original stays on its card).
+    const photo = join(home, `portrait-${renderer}.png`);
+    writeFileSync(photo, await page.screenshot({ clip: { x: 300, y: 120, width: 300, height: 400 } }));
+    await aion.call("show_portrait", { source: photo, person: "A local photograph" });
+    check((await until(page, s => s.phase === "holding" && s.card === "shown", 8_000)).route === "hybrid", "a local portrait is a hybrid, like a looked-up one");
+    check(await view<string>("v.visual.target.visual.frame") === "oval", "the body forms the heritage oval");
+    check(await page.locator("#card img.picture").count() === 1, "the card shows the original file");
+    await page.screenshot({ path: name("local-portrait") });
+    await aion.call("clear_presentation");
+    await until(page, s => s.phase === "sphere", 6_000);
+  } finally { await aion.close(); }
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
+/**
+ * Codex Voice Sync (v0.4.3), with the stand-in for the macOS app (a speech-like signal over the real socket): once
+ * opted in, it connects while Aion is open, stops when Aion closes, and reconnects by itself when Aion is opened again —
+ * with no tool call. This is the mechanism; real Codex Voice needs a person speaking (npm run audio:verify -- --codex).
+ */
+async function voiceSync() {
+  console.log("v0.4.3: Codex Voice Sync (stand-in bridge)");
+  bridgeSignal = "speech";
+  let { page, errors } = await open(browser, "&mic=0");
+  const aion = await connectAion({ home });
+  try {
+    await aion.call("set_audio_visualizer", { voice_sync: true });
+    let state = hub.snapshot().audio;
+    for (let i = 0; i < 40 && state.bridge.state !== "streaming"; i++) { await pause(150); state = hub.snapshot().audio; }
+    check(state.bridge.state === "streaming" && state.bridge.source === "codex", "voice sync connects while Aion is open");
+    let speaking = false;
+    for (let i = 0; i < 40 && !speaking; i++) { speaking = /speaking yes/.test((await diag(page)).state); await pause(150); }
+    check(speaking, "Codex's (stand-in) voice drives the speaking body");
+    await page.close();
+    let stopped = false;
+    for (let i = 0; i < 80 && !stopped; i++) { stopped = hub.snapshot().audio.bridge.state === "off"; await pause(200); }
+    check(stopped, "closing Aion stops the capture (after a short grace)");
+    ({ page, errors } = await open(browser, "&mic=0"));
+    let back = false;
+    for (let i = 0; i < 40 && !back; i++) { back = hub.snapshot().audio.bridge.state === "streaming"; await pause(150); }
+    check(back, "opening Aion again reconnects by itself, with no tool call");
+    check(/voice sync on/.test((await diag(page)).audio), "the diagnostics say so");
+    await aion.call("set_audio_visualizer", { voice_sync: false });
+    await pause(400);
+    check(hub.snapshot().audio.bridge.state === "off", "turning it off stops the capture");
+  } finally { await aion.close(); bridgeSignal = "music"; }
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
 writeFileSync(join(OUT, "result.txt"), failures.length ? failures.join("\n") : "ok");
 console.log(failures.length ? `\n${failures.length} smoke check(s) failed` : `\n✓ the Presence surface renders and follows the presence state (screenshots in ${OUT})`);
 process.exit(failures.length ? 1 : 0);

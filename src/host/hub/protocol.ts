@@ -19,6 +19,12 @@ import { checkHighlights, checkScore, SCORE_LIMITS, type MusicHighlight, type Mu
 import { MUSIC_FORM_IDS } from "../../music/visual/glyphForms";
 import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES, BRIDGE_SOURCES, type AudioSettings, type BridgeSource } from "../../audio/settings";
 import { TEMPO } from "../../music/theory/rhythm";
+import { ANIMATION_ACTIONS, ANIMATION_SPEEDS, type AnimationCommand } from "../../animation/control";
+import { RATE_LIMITS } from "../../animation/timeline";
+import { strokeSequence } from "../../animation/stroke/registry";
+import { STROKE_LIMITS } from "../../animation/stroke/types";
+import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
+import { DEMO_NAMES, type DemoName } from "../../animation/scene/demos";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -63,7 +69,7 @@ export interface HubSnapshot extends Omit<PresenceSnapshot, "revision"> {
 export type HubCommand =
   | { type: "activity"; state: (typeof ACTIVITY_STATES)[number]; label?: string }
   | { type: "body"; body: (typeof AION_BODIES)[number] }
-  | { type: "present"; content: PresentationContent; hold?: number; presentation?: PresentationPreference; detail?: boolean }
+  | { type: "present"; content: PresentationContent; hold?: number; presentation?: PresentationPreference; detail?: boolean; rate?: number }
   | { type: "clear" }
   /** `greet`: a newly opened Presence waves once (default: when no companion window is connected). */
   | { type: "open"; display?: DisplayPreference; greet?: boolean; introduce?: boolean }
@@ -83,11 +89,13 @@ export type HubCommand =
    * How Aion responds to sound (v0.4.2): settings to change, a bridge capture to start (Codex's voice, another app's sound;
    * only ever asked for by the user), captures to stop.
    */
-  | { type: "audio"; settings?: Partial<AudioSettings>; capture?: { source: BridgeSource; app?: string }; stop?: BridgeSource[] }
+  | { type: "audio"; settings?: Partial<AudioSettings>; capture?: { source: BridgeSource; app?: string }; stop?: BridgeSource[]; /** v0.4.3: Codex Voice Sync on or off (remembered). */ voiceSync?: boolean }
   /** Music for the surfaces to play (validated events), highlighting the notes of a music card as they sound. */
   | { type: "play"; events: PlaybackEvent[]; tempo: number; volume: number; presentation?: string }
   /** Silences any music playing. */
-  | { type: "stop-music" };
+  | { type: "stop-music" }
+  /** v0.4.3: controls the animation on show (a symbol being written, a figure's action sequence). */
+  | ({ type: "animation" } & AnimationCommand);
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -147,6 +155,11 @@ const presentationSchema = z.discriminatedUnion("kind", [
     const score = checkScore(value.score);
     return score.ok && checkHighlights(value.highlight, score.value).ok;
   }, "highlights must name notes, lines or spaces of the score"),
+  z.object({ kind: z.literal("writing"), stroke: z.string().max(40).refine(id => strokeSequence(id) !== null, "a known writing sequence"), label: clean(cleanLine, LIMITS.title) }).strict(),
+  z.object({
+    kind: z.literal("animation"), sequence: z.custom<AnimationSpec>(value => validateSequence(value).ok, "a valid action sequence"), label: clean(cleanLine, LIMITS.title),
+    demo: z.enum(DEMO_NAMES as [DemoName, ...DemoName[]]).optional(),
+  }).strict(),
   z.object({
     kind: z.literal("artifact"), type: z.enum(ARTIFACT_TYPES), title: clean(cleanLine, LIMITS.title),
     content: clean(cleanCode, LIMITS.artifact).optional(), language: z.string().regex(/^[a-z0-9+#.-]{1,24}$/i).optional(), media: mediaRef.optional(),
@@ -163,7 +176,7 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("body"), body: z.enum(AION_BODIES) }).strict(),
   z.object({
     type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional(),
-    presentation: z.enum(PRESENTATION_PREFERENCES).optional(), detail: z.boolean().optional(),
+    presentation: z.enum(PRESENTATION_PREFERENCES).optional(), detail: z.boolean().optional(), rate: z.number().min(RATE_LIMITS.min).max(RATE_LIMITS.max).optional(),
   }).strict(),
   z.object({ type: z.literal("clear") }).strict(),
   z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional() }).strict(),
@@ -187,6 +200,7 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     }).strict().optional(),
     capture: z.object({ source: z.enum(BRIDGE_SOURCES), app: z.string().regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,59}$/u).optional() }).strict().optional(),
     stop: z.array(z.enum(BRIDGE_SOURCES)).max(2).optional(),
+    voiceSync: z.boolean().optional(),
   }).strict(),
   z.object({
     type: z.literal("play"),
@@ -197,6 +211,10 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     tempo: z.number().min(TEMPO.min).max(TEMPO.max), volume: z.number().min(0).max(1), presentation: z.string().regex(/^p[a-z0-9]{2,30}$/).optional(),
   }).strict(),
   z.object({ type: z.literal("stop-music") }).strict(),
+  z.object({
+    type: z.literal("animation"), action: z.enum(ANIMATION_ACTIONS), stroke: z.number().int().min(1).max(STROKE_LIMITS.strokes).optional(),
+    speed: z.enum(ANIMATION_SPEEDS).optional(),
+  }).strict(),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */

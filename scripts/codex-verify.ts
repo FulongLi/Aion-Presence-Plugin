@@ -156,6 +156,15 @@ try {
         for (let t = 0; t < 8_000 && engraved < 8; t += 250) { engraved = await page.locator("#card .music-note").count(); await new Promise(r => setTimeout(r, 250)); }
         check(engraved === 8, `the installed runtime engraves its eight notes (${engraved})`);
         await page.screenshot({ path: join(E2E, "verify-music.png") });
+        // v0.4.3: stroke animation and an action sequence from the installed runtime.
+        const writing = await call("show_stroke_animation", { symbol: "永" });
+        check(!writing.isError && (writing.structuredContent as { writing?: { strokes: unknown[] } } | undefined)?.writing?.strokes.length === 5, "show_stroke_animation: 永, five strokes in order");
+        check(await until(/writing stroke · stroke [1-5]/, 12_000), "the installed runtime writes it stroke by stroke");
+        await page.screenshot({ path: join(E2E, "verify-writing.png") });
+        const scene = await call("play_animation", { demo: "jump-over-obstacle" });
+        check(!scene.isError && (scene.structuredContent as { animation?: { title: string } } | undefined)?.animation?.title === "Jump over a box", "play_animation: jump over a box");
+        check(await until(/figure jump/, 10_000), "the figure performs the jump");
+        await page.screenshot({ path: join(E2E, "verify-animation.png") });
         await call("clear_presentation");
         await call("set_presence_state", { state: "responding" });
         check(await until(/state responding/), "responding: the body answers with Codex");

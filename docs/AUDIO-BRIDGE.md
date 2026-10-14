@@ -9,7 +9,8 @@
 > | | v0.4.2 |
 > | --- | --- |
 > | Build and install | `npm run audio-bridge:install` → `~/.aion-presence/audio-bridge/Aion Audio Bridge.app` (or `AION_AUDIO_BRIDGE`) |
-> | Commands | `list` · `stream --socket PATH --nonce HEX (--bundle ID \| --name APP \| --pid N \| --system)` · `probe (…) [--seconds S]` |
+> | Commands | `list` · `stream --socket PATH --nonce HEX (--bundle ID \| --name APP \| --pid N \| --system) [--follow]` · `probe (…) [--seconds S]` |
+> | Follow mode (v0.4.3) | `--follow`: no matching process yet → `AION-WAIT1 <nonce>\n`, then wait (a Core Audio property listener, no polling); streaming → exit when the tapped processes or the default output device change, so the hub reconnects (Codex Voice Sync, [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md)). Older bridges ignore the flag |
 > | Protocol | Once the tap really runs (macOS may first ask for permission): `AION-PCM1 <nonce> <rate>\n`, then `[UInt32 LE count][count × Float32 LE]` mono frames; count 0 is a keep-alive every 0.5 s. The hub never writes; a watchdog sees the socket close and the app exits at once, even while it waits for permission |
 > | Who starts it | The hub, only when the user asks (`set_audio_visualizer`), through LaunchServices (`open -g -n`) so macOS asks this app for permission |
 > | Verified | A real process tap (`afplay`): real samples, 10.7 ms buffers, 21.3 ms device latency, 0.4 % CPU. The socket → hub → surface path with a stand-in app (smoke) |

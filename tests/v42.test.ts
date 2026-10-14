@@ -507,10 +507,11 @@ test("the bridge: why it cannot run, which processes it taps, the macOS version 
   assert.equal(new NativeAudioBridge({ ...options, isMac: true, macosVersion: 14.1, locate: () => "x" }).unavailable(), "macos-too-old");
   assert.equal(new NativeAudioBridge({ ...options, isMac: true, macosVersion: 15, locate: () => null }).unavailable(), "not-installed");
   assert.equal(new NativeAudioBridge({ ...options, isMac: true, macosVersion: 15, locate: () => "x" }).unavailable(), null);
-  assert.deepEqual(bridgeArgs({ source: "codex" }), ["--bundle", "com.openai.codex"]);
-  assert.deepEqual(bridgeArgs({ source: "system" }), ["--system"]);
-  assert.deepEqual(bridgeArgs({ source: "system", app: "Spotify" }), ["--name", "Spotify"]);
-  assert.deepEqual(bridgeArgs({ source: "system", app: "com.spotify.client" }), ["--bundle", "com.spotify.client"]);
+  // v0.4.3: --follow (wait for the app's audio processes; end when they change, so the hub reconnects).
+  assert.deepEqual(bridgeArgs({ source: "codex" }), ["--bundle", "com.openai.codex", "--follow"]);
+  assert.deepEqual(bridgeArgs({ source: "system" }), ["--system", "--follow"]);
+  assert.deepEqual(bridgeArgs({ source: "system", app: "Spotify" }), ["--name", "Spotify", "--follow"]);
+  assert.deepEqual(bridgeArgs({ source: "system", app: "com.spotify.client" }), ["--bundle", "com.spotify.client", "--follow"]);
   assert.equal(macosFromDarwin("25.6.0"), 16.6);
   assert.equal(macosFromDarwin("23.2.0"), 14.2);
 });
@@ -603,10 +604,11 @@ test("MCP: show_music, play_music, music_lesson and set_audio_visualizer — exa
     assert.equal((out.structuredContent!.music as { lesson: { step: number; title: string } }).lesson.step, 1, "switching language keeps the step");
     out = await call("music_lesson", {});
     assert.equal((out.structuredContent!.music as { lesson: { step: number } }).lesson.step, 2);
+    // v0.4.3: asking for Codex's voice turns Codex Voice Sync on (remembered); with the bridge unavailable the result says so.
     out = await call("set_audio_visualizer", { source: "codex" });
     const audio = out.structuredContent!.audio as Record<string, string>;
-    assert.match(audio.codex, /^(unavailable|failed)/, "the bridge is not available in tests, and the result says so");
-    assert.match(out.content[0].text, /Not connected/);
+    assert.match(audio.voice_sync, /^on/, "the choice is remembered");
+    assert.match(out.content[0].text, /Not connected: (?:the Aion Audio Bridge is not installed|it needs macOS)/, "the bridge is not available in tests, and the result says so");
     assert.doesNotMatch(out.content[0].text, /now captured/);
     out = await call("set_audio_visualizer", { mode: "spectrum", intensity: "subtle" });
     assert.deepEqual([(out.structuredContent!.audio as Record<string, string>).mode, (out.structuredContent!.audio as Record<string, string>).intensity], ["spectrum", "subtle"]);

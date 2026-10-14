@@ -6,8 +6,10 @@ import { holdsFor, HOLD_SECONDS, legacyPreference, type GeoMarker, type Presenta
 import { DEFAULT_APPEARANCE, type Appearance } from "./colors";
 import { routePresentation } from "./presentationRouter";
 import { isActivityState, type ActivityState } from "./state";
-import { DEFAULT_AUDIO_PRESENCE, type AudioPresence, type AudioSettings, type BridgeStatus } from "../audio/settings";
+import { DEFAULT_AUDIO_PRESENCE, type AudioPresence, type AudioSettings, type BridgeStatus, type VoiceSyncState } from "../audio/settings";
 import type { PlaybackEvent } from "../music/notation/score";
+import { endOf, positionAt, type PlaybackState } from "../animation/timeline";
+import { controlAnimation, playbackFor, type AnimationCommand, type ControlResult } from "../animation/control";
 
 /**
  * The presence state shared by every surface: the host's activity, the persistent body, the one temporary
@@ -36,7 +38,15 @@ export interface PresenceSnapshot {
   audio: AudioPresence;
   /** The latest music playback request (v0.4.2); a new id starts it, `stop` silences any. */
   playback: PlaybackRequest | null;
+  /**
+   * v0.4.3: the playback of the animation on show (a symbol being written, a figure's action sequence), anchored to the
+   * wall clock so every surface draws the same frame (see animation/timeline.ts). Null when nothing animates.
+   */
+  animation: AnimationPlayback | null;
 }
+
+/** The animation on show and where its playhead is. */
+export interface AnimationPlayback { presentation: string; playback: PlaybackState }
 
 /**
  * Music for the surfaces to play, already validated: events in quarter notes, a tempo, a volume. `presentation`: the
@@ -74,6 +84,9 @@ export const systemClock: StoreClock = {
  * the presentation that much longer before releasing it.
  */
 export const FORMING_SECONDS = 1.6;
+/** An action sequence stays this long after it finishes, and this long while paused (v0.4.3). */
+export const ANIMATION_TAIL_SECONDS = 1.5;
+export const ANIMATION_PAUSED_SECONDS = 60;
 
 let presentationCounter = 0;
 const presentationId = (now: number) => `p${now.toString(36)}${(++presentationCounter).toString(36)}`;
@@ -85,7 +98,7 @@ export class PresenceStore {
   private cancelActivity: (() => void) | null = null;
 
   constructor(private readonly clock: StoreClock = systemClock) {
-    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null };
+    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null, animation: null };
   }
 
   snapshot(): PresenceSnapshot { return this.state; }
@@ -115,7 +128,7 @@ export class PresenceStore {
   setBody(body: AionBodyId): boolean {
     if (!isBodyId(body) || body === this.state.body) return false;
     this.cancelPresentation?.();
-    this.commit({ body, presentation: null });
+    this.commit({ body, presentation: null, animation: null });
     return true;
   }
 
@@ -131,9 +144,38 @@ export class PresenceStore {
     const presentation = { ...content, id: presentationId(now), at: now, hold: holds.total, route: decision.route, reason: decision.reason, bodyHold: holds.body, cardHold: holds.card } as Presentation;
     this.cancelPresentation?.();
     this.cancelPresentation = null;
-    this.commit({ presentation });
-    if (holds.total > 0) this.expire(presentation.id, holds.total + FORMING_SECONDS);
+    // An animation starts playing with it (a sequence's lifetime follows its speed).
+    const animated = content.kind === "writing" || content.kind === "animation";
+    const animation = animated ? { presentation: presentation.id, playback: playbackFor(content, now, request.rate ?? 1) } : null;
+    this.commit({ presentation, animation });
+    if (animation && content.kind === "animation" && holds.total > 0) this.expire(presentation.id, this.playbackLeft(animation.playback) + ANIMATION_TAIL_SECONDS);
+    else if (holds.total > 0) this.expire(presentation.id, holds.total + FORMING_SECONDS);
     return presentation;
+  }
+
+  /** Wall-clock seconds until a playback reaches where it stops. */
+  private playbackLeft(playback: PlaybackState) {
+    return playback.playing ? Math.max(0, endOf(playback) - positionAt(playback, this.clock.now())) / playback.rate : 0;
+  }
+
+  /**
+   * Controls the animation on show (v0.4.3): pause, resume, replay, speed, a stroke (next, previous, repeat), the
+   * finished symbol, stop (it ends). An action sequence then lasts as long as it still plays; a paused one stays a
+   * while. Fails (with why) when nothing animates or the command does not apply.
+   */
+  controlAnimation(command: AnimationCommand): ControlResult {
+    const presentation = this.state.presentation, current = this.state.animation;
+    if (!presentation || (presentation.kind !== "writing" && presentation.kind !== "animation") || current?.presentation !== presentation.id) {
+      return { ok: false, problem: "no animation is on show" };
+    }
+    if (command.action === "stop") { this.clearPresentation(); return { ok: true, playback: current.playback }; }
+    const result = controlAnimation(presentation, current.playback, command, this.clock.now());
+    if (!result.ok) return result;
+    this.commit({ animation: { presentation: presentation.id, playback: result.playback } });
+    if (presentation.kind === "animation" && presentation.hold !== 0) {
+      this.expire(presentation.id, result.playback.playing ? this.playbackLeft(result.playback) + ANIMATION_TAIL_SECONDS : ANIMATION_PAUSED_SECONDS);
+    }
+    return result;
   }
 
   /**
@@ -150,7 +192,7 @@ export class PresenceStore {
   private expire(id: string, seconds: number) {
     this.cancelPresentation?.();
     this.cancelPresentation = this.clock.schedule(() => {
-      if (this.state.presentation?.id === id) this.commit({ presentation: null });
+      if (this.state.presentation?.id === id) this.commit({ presentation: null, animation: null });
     }, seconds * 1000);
   }
 
@@ -159,7 +201,7 @@ export class PresenceStore {
     this.cancelPresentation?.();
     this.cancelPresentation = null;
     if (!this.state.presentation) return false;
-    this.commit({ presentation: null });
+    this.commit({ presentation: null, animation: null });
     return true;
   }
 
@@ -191,6 +233,13 @@ export class PresenceStore {
   setAudioSettings(settings: AudioSettings) {
     if (JSON.stringify(settings) === JSON.stringify(this.state.audio.settings)) return false;
     this.commit({ audio: { ...this.state.audio, settings } });
+    return true;
+  }
+
+  /** Where Codex Voice Sync stands (v0.4.3). */
+  setVoiceSync(voiceSync: VoiceSyncState) {
+    if (JSON.stringify(voiceSync) === JSON.stringify(this.state.audio.voiceSync)) return false;
+    this.commit({ audio: { ...this.state.audio, voiceSync } });
     return true;
   }
 

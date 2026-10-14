@@ -13,8 +13,10 @@
  * from a fixed seed, so motion is varied without being random from frame to frame.
  */
 import type { AionState } from "../state";
+import { ease, type Ease } from "../../animation/timeline";
 
-export type Ease = "linear" | "in" | "out" | "inOut" | "back" | "hold";
+/** Easing is the Animation Core's (animation/timeline.ts); re-exported for the clips here and their users. */
+export { ease, type Ease };
 export type Channels = Record<string, number>;
 export interface Key { at: number; v: Channels; ease?: Ease }
 export interface Clip {
@@ -29,17 +31,6 @@ export interface Clip {
 /** Arm channels are absolute (an angle, an IK weight or target); everything else is added to the pose underneath. */
 export const isAbsolute = (channel: string) => channel.startsWith("left.") || channel.startsWith("right.");
 
-export function ease(kind: Ease | undefined, x: number): number {
-  const t = Math.max(0, Math.min(1, x));
-  switch (kind) {
-    case "linear": return t;
-    case "in": return t * t * t;
-    case "out": return 1 - Math.pow(1 - t, 3);
-    case "back": { const c = 1.7; return 1 + (c + 1) * Math.pow(t - 1, 3) + c * Math.pow(t - 1, 2); }
-    case "hold": return t < 1 ? 0 : 1;
-    default: return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-}
 const smooth = (x: number) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
 
 /** How much of a clip is in effect at `t`: eased in at its start, eased out at its end. */

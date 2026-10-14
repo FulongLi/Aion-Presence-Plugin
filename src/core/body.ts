@@ -74,6 +74,13 @@ const ease = (x: number) => Math.min(1, Math.max(0, x * x * x * (x * (x * 6 - 15
  */
 export class AionBody {
   form: AionBodyId = DEFAULT_BODY;
+  /**
+   * v0.4.3: a body taken for a moment without changing the persistent one — the figure while it performs an action
+   * sequence. The particles re-form into it and, when it ends (null), back into `form`.
+   */
+  override: AionBodyId | null = null;
+  /** The body the particles are forming now: the override while there is one, else the persistent body. */
+  get shown(): AionBodyId { return this.override ?? this.form; }
   private readonly progress = { figure: 0, eyes: 0 };
   /** Eased weight of the figure layer. */
   level = 0;
@@ -88,13 +95,13 @@ export class AionBody {
   }
 
   /** Whether the particles are still moving between bodies. */
-  get transitioning() { return this.progress.figure !== (this.form === "figure" ? 1 : 0) || this.progress.eyes !== (this.form === "eyes" ? 1 : 0); }
+  get transitioning() { return this.progress.figure !== (this.shown === "figure" ? 1 : 0) || this.progress.eyes !== (this.shown === "eyes" ? 1 : 0); }
 
   sample(elapsed: number) {
     const dt = Number.isFinite(elapsed) ? Math.max(0, Math.min(0.1, elapsed)) : 0;
     const step = dt / bodyTransition.seconds;
     for (const layer of ["figure", "eyes"] as const) {
-      const goal = this.form === layer ? 1 : 0, value = this.progress[layer];
+      const goal = this.shown === layer ? 1 : 0, value = this.progress[layer];
       this.progress[layer] = goal > value ? Math.min(goal, value + step) : Math.max(goal, value - step);
     }
     this.level = ease(this.progress.figure);

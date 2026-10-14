@@ -11,6 +11,7 @@ import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_A
 import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
 import { NativeAudioBridge, type BridgeOptions } from "../audio/bridge";
+import { VoiceSyncController } from "../audio/voiceSync";
 import { encodeFeatures } from "../../audio/wire";
 import { AUDIO_INTENSITIES, AUDIO_MODES, DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "../../audio/settings";
 
@@ -88,6 +89,8 @@ export class PresenceHub {
   private heartbeat?: ReturnType<typeof setInterval>;
   /** The macOS capture bridge for Codex's voice and other apps' sound (started only when the user asks). */
   readonly bridge: NativeAudioBridge;
+  /** Codex Voice Sync (v0.4.3): once the user opted in, Codex's voice is followed whenever a window is open. */
+  readonly voiceSync: VoiceSyncController;
 
   constructor(private readonly options: HubOptions) {
     this.home = options.home ?? presenceHome();
@@ -101,8 +104,16 @@ export class PresenceHub {
     this.bridge = new NativeAudioBridge({
       ...options.bridge,
       onFeatures: (source, features) => this.broadcast("audio", encodeFeatures(source, features)),
-      onStatus: status => this.store.setBridge(status),
+      onStatus: status => { this.store.setBridge(status); this.voiceSync?.bridgeChanged(status); },
+      onHeard: source => { if (source === "codex") this.voiceSync.heard(); },
     });
+    this.voiceSync = new VoiceSyncController({
+      bridge: this.bridge, clock: this.clock, home: this.home,
+      audioEnabled: () => this.store.snapshot().audio.settings.enabled,
+      viewers: () => this.viewers.size,
+      changed: state => this.store.setVoiceSync(state),
+    });
+    this.store.setVoiceSync(this.voiceSync.state);
   }
 
   get url() { return `http://127.0.0.1:${this.port}/`; }
@@ -136,6 +147,7 @@ export class PresenceHub {
 
   async stop(): Promise<void> {
     clearInterval(this.heartbeat);
+    this.voiceSync.dispose();
     this.bridge.stop(false);
     this.cancelSettle?.();
     for (const viewer of this.viewers.keys()) viewer.end();
@@ -179,7 +191,7 @@ export class PresenceHub {
         this.store.setActivity(command.state, { label: command.label, source: "model" });
         break;
       case "body": this.store.setBody(command.body); break;
-      case "present": this.store.present(command.content, command.hold, { preference: command.presentation, detail: command.detail }); break;
+      case "present": this.store.present(command.content, command.hold, { preference: command.presentation, detail: command.detail, rate: command.rate }); break;
       case "clear": this.store.clearPresentation(); break;
       case "open":
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
@@ -211,14 +223,21 @@ export class PresenceHub {
           const next: AudioSettings = { ...this.store.snapshot().audio.settings, ...command.settings };
           if (this.store.setAudioSettings(next)) saveAudioSettings(this.home, next);
         }
+        // "Stop reacting to your voice" also ends Codex Voice Sync, or it would simply reconnect.
+        if (command.stop?.includes("codex") && this.voiceSync.preference.enabled) this.voiceSync.set(false);
         const running = this.bridge.status.source;
         if (command.stop?.length && running && command.stop.includes(running)) this.bridge.stop();
+        // Codex Voice Sync on or off (v0.4.3): remembered; while on, Codex's voice is followed whenever Aion is open.
+        if (command.voiceSync !== undefined) this.voiceSync.set(command.voiceSync);
         // Capture starts in the background; the caller reads its outcome from the snapshot (starting → streaming, or why not).
         if (command.capture) void this.bridge.start(command.capture);
+        // Sound turned on or off, a capture stopped: Voice Sync reconsiders (it resumes once another app's sound ends).
+        if (command.settings || command.stop?.length) this.voiceSync.evaluate();
         break;
       }
       case "play": this.store.play({ events: command.events, tempo: command.tempo, volume: command.volume, ...(command.presentation ? { presentation: command.presentation } : {}) }); break;
       case "stop-music": if (this.store.snapshot().playback && !this.store.snapshot().playback!.stop) this.store.play({ events: [], tempo: 60, volume: 0, stop: true }); break;
+      case "animation": { const { type: _type, ...control } = command; this.store.controlAnimation(control); break; }
     }
     return this.snapshot();
   }
@@ -420,8 +439,10 @@ export class PresenceHub {
     req.on("close", () => {
       this.viewers.delete(res);
       if (![...this.viewers.values()].includes(window)) { this.reports.delete(window); this.diagnostics.delete(window); }
+      this.voiceSync.viewersChanged();
       this.changed();
     });
+    this.voiceSync.viewersChanged();
     // The window that was brought forward has arrived: the ones it replaces retire (they close themselves).
     if (this.retiring && !this.retiring.has(window)) {
       for (const [viewer, id] of this.viewers) if (this.retiring.has(id)) viewer.write("event: superseded\ndata: {}\n\n");

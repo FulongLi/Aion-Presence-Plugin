@@ -49,6 +49,12 @@ export interface PoseParams {
   lift: number;
   /** The whole figure rises (a jump or a hop). */
   jump: number;
+  /**
+   * v0.4.3, for action sequences: where the figure stands on the stage (normalized x) and which way it faces (radians
+   * about the vertical: 0 the viewer, +π/2 the viewer's right, −π/2 the left). Both 0 for every state pose.
+   */
+  rootX: number;
+  heading: number;
   left: ArmPose;
   right: ArmPose;
   footLeft: FootOffset;
@@ -60,11 +66,11 @@ export const arm = (raise: number, bend: number, forward: number, extra: Partial
 const REST = arm(REST_ARM.raise, REST_ARM.bend, REST_ARM.forward);
 const FOOT: FootOffset = { x: 0, y: 0, z: 0 };
 export const NEUTRAL_POSE: PoseParams = {
-  sway: 0, crouch: 0, lean: 0, bend: 0, twist: 0, hipTilt: 0, tilt: 0, nod: 0, turn: 0, lift: 0, jump: 0,
+  sway: 0, crouch: 0, lean: 0, bend: 0, twist: 0, hipTilt: 0, tilt: 0, nod: 0, turn: 0, lift: 0, jump: 0, rootX: 0, heading: 0,
   left: REST, right: REST, footLeft: FOOT, footRight: FOOT,
 };
 
-const SCALARS = ["sway", "crouch", "lean", "bend", "twist", "hipTilt", "tilt", "nod", "turn", "lift", "jump"] as const;
+const SCALARS = ["sway", "crouch", "lean", "bend", "twist", "hipTilt", "tilt", "nod", "turn", "lift", "jump", "rootX", "heading"] as const;
 const ARM_KEYS = ["raise", "bend", "forward", "reach", "reachX", "reachY", "reachZ", "chin"] as const;
 const FOOT_KEYS = ["x", "y", "z"] as const;
 
@@ -185,7 +191,11 @@ export function solvePose(pose: PoseParams, out = new Float32Array(ANCHOR_COUNT 
   const pelvis: Vec = [f(pose.sway), P.pelvisY - f(pose.crouch) + f(pose.jump), 0];
   const hipTilt = f(pose.hipTilt), twist = f(pose.twist), bend = f(pose.bend);
   // The torso rises from the pelvis, a touch opposite the weight shift, bending to the side and toward the viewer.
-  const neck: Vec = [pelvis[0] - f(pose.sway) * 0.5 + Math.sin(bend) * P.torso, pelvis[1] + Math.cos(bend) * P.torso + f(pose.lift) * 0.5, f(pose.lean)];
+  // A deep lean (bending over to pick something up, v0.4.3) pitches the torso, keeping its length; the small leans of the
+  // state poses (≤ 0.06) are unchanged.
+  const lean = f(pose.lean), pitch = (x: number) => P.torso - Math.sqrt(Math.max(0, P.torso * P.torso - Math.min(x * x, P.torso * P.torso * 0.9)));
+  const stoop = Math.max(0, pitch(lean) - pitch(0.06));
+  const neck: Vec = [pelvis[0] - f(pose.sway) * 0.5 + Math.sin(bend) * P.torso, pelvis[1] + Math.cos(bend) * P.torso - stoop + f(pose.lift) * 0.5, lean];
   set(ANCHOR.spine, pelvis);
   set(ANCHOR.neck, neck);
   // Head: rolls about the neck with the torso, turns (leads) toward what it looks at, dips forward in a nod.
@@ -238,6 +248,16 @@ export function solvePose(pose: PoseParams, out = new Float32Array(ANCHOR_COUNT 
     set(ANCHOR[`knee${side}`], knee);
     set(ANCHOR[`foot${side}`], ankle);
   }
+  // The whole figure turns about its own vertical axis (its local +z, forward, becomes the heading) and stands at rootX.
+  const heading = f(pose.heading), rootX = f(pose.rootX);
+  if (heading !== 0 || rootX !== 0) {
+    const c = Math.cos(heading), s = Math.sin(heading);
+    for (let i = 0; i < ANCHOR_COUNT; i++) {
+      const x = out[i * 3], z = out[i * 3 + 2];
+      out[i * 3] = x * c + z * s + rootX;
+      out[i * 3 + 2] = -x * s + z * c;
+    }
+  }
   return out;
 }
 
@@ -284,6 +304,17 @@ export class FigureAnimator {
   private outgoing: { state: AionState; t: number; age: number } | null = null;
   /** The pose most recently solved (flat channels), for diagnostics and tests. */
   pose: Channels = flattenPose(NEUTRAL_POSE);
+  /**
+   * v0.4.3: an action sequence driving the whole pose (channels at this frame, or null), its eased weight, and the stage
+   * it is drawn on (the figure smaller and lower, so it can travel and jump). Weight 0: the state's own motion only.
+   */
+  private performance: Channels | null = null;
+  private lastPerformance: Channels | null = null;
+  performing = 0;
+  private stage: { scale: number; y: number } = { scale: 1, y: 0 };
+
+  /** Drives the pose from a performance this frame (null: back to the state's own motion, eased). */
+  perform(channels: Channels | null, stage: { scale: number; y: number } = { scale: 1, y: 0 }) { this.performance = channels; if (channels) this.stage = stage; }
 
   /** Plays a one-shot clip above the state's own motion (it fades the state's clips while it runs). */
   cue(clip: Clip) { this.cueClip = { clip, t: 0 }; }
@@ -318,14 +349,24 @@ export class FigureAnimator {
       cue.t += step;
       if (cue.t > cue.clip.duration) this.cueClip = null;
     }
+    // A performance (v0.4.3) takes the pose over, eased in and out so the change never snaps.
+    this.performing = this.performance ? Math.min(1, this.performing + step / 0.8) : Math.max(0, this.performing - step / 1.1);
+    const w = this.performing * this.performing * (3 - 2 * this.performing);
+    // Leaving, the pose the performance ended in fades back into the state's own.
+    if (this.performance) this.lastPerformance = this.performance;
+    const performed = this.performance ?? this.lastPerformance;
+    if (w > 0 && performed) {
+      for (const [name, value] of Object.entries(performed)) pose[name] = (pose[name] ?? 0) + (value - (pose[name] ?? 0)) * w;
+    } else this.lastPerformance = null;
     // Breathing, about every 4.5 s: tiny.
     pose.lift = (pose.lift ?? 0) + Math.sin(this.clock * Math.PI * 2 * 0.22) * 0.006 * quiet;
-    this.pose = this.final.follow(pose, step, () => 18);
+    this.pose = this.final.follow(pose, step, channel => channel === "rootX" || channel === "heading" ? 40 : 18);
     solvePose(unflattenPose(this.pose), this.normalized);
+    const scale = FIGURE_SCALE * (1 + (this.stage.scale - 1) * w), lift = this.stage.y * w;
     for (let i = 0; i < ANCHOR_COUNT; i++) {
-      this.anchors[i * 4] = this.normalized[i * 3] * FIGURE_SCALE;
-      this.anchors[i * 4 + 1] = this.normalized[i * 3 + 1] * FIGURE_SCALE;
-      this.anchors[i * 4 + 2] = this.normalized[i * 3 + 2] * FIGURE_SCALE;
+      this.anchors[i * 4] = this.normalized[i * 3] * scale;
+      this.anchors[i * 4 + 1] = this.normalized[i * 3 + 1] * scale + lift;
+      this.anchors[i * 4 + 2] = this.normalized[i * 3 + 2] * scale;
       this.anchors[i * 4 + 3] = 0;
     }
     return this.anchors;

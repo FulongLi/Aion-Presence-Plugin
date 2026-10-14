@@ -35,6 +35,8 @@ export interface BridgeOptions {
   onFeatures: (source: BridgeSource, features: AudioFeatures) => void;
   /** Called whenever the status changes. */
   onStatus: (status: BridgeStatus) => void;
+  /** Called once per capture, at its first real (non-zero) sample: proof that macOS lets the audio through (v0.4.3). */
+  onHeard?: (source: BridgeSource) => void;
   /** Seconds to wait for the tap to run. Default 20: the first start waits for the user to answer macOS's permission prompt. */
   connectTimeout?: number;
   env?: NodeJS.ProcessEnv;
@@ -59,9 +61,11 @@ export function defaultBridgeLocation(env: NodeJS.ProcessEnv = process.env, repo
 
 /** Codex, or another application named by the user (a bundle id or a plain name), or the whole system mix. */
 export function bridgeArgs(target: BridgeTarget): string[] {
-  if (target.source === "codex") return ["--bundle", CODEX_BUNDLE];
-  if (!target.app) return ["--system"];
-  return /^[a-zA-Z][\w-]*(\.[\w-]+)+$/.test(target.app) ? ["--bundle", target.app] : ["--name", target.app];
+  // --follow (v0.4.3): the bridge waits for the app's audio processes and ends when they (or the output device) change,
+  // so the hub reconnects to the new ones. A bridge built before v0.4.3 ignores it.
+  if (target.source === "codex") return ["--bundle", CODEX_BUNDLE, "--follow"];
+  if (!target.app) return ["--system", "--follow"];
+  return [...(/^[a-zA-Z][\w-]*(\.[\w-]+)+$/.test(target.app) ? ["--bundle", target.app] : ["--name", target.app]), "--follow"];
 }
 
 export class NativeAudioBridge {
@@ -80,6 +84,9 @@ export class NativeAudioBridge {
   private generation = 0;
 
   constructor(private readonly options: BridgeOptions) {}
+
+  /** Whether any real (non-zero) sample has arrived in this capture. */
+  get heard() { return this.realSamples > 0; }
 
   /** Why the bridge cannot run here at all (null: it can). */
   unavailable(): string | null {
@@ -133,16 +140,29 @@ export class NativeAudioBridge {
       if (generation !== this.generation) return;
       if (!this.analyzer) {
         header += chunk.toString("latin1");
-        const end = header.indexOf("\n");
+        let end = header.indexOf("\n");
         if (end < 0) { if (header.length > 200) socket.destroy(); return; }
+        // v0.4.3: "AION-WAIT1 <nonce>": the app has no audio process yet (Codex not open, or not yet playing); the bridge
+        // waits for one without a time limit — this is not a permission prompt.
+        const waiting = /^AION-WAIT1 ([a-f0-9]{16,64})$/.exec(header.slice(0, end));
+        if (waiting) {
+          if (waiting[1] !== nonce) { socket.destroy(); settle(this.fail("handshake")); return; }
+          if (this.connectTimer) clearTimeout(this.connectTimer);
+          this.connectTimer = null;
+          header = header.slice(end + 1);
+          settle(this.set({ ...this.status, state: "starting", waiting: true }));
+          end = header.indexOf("\n");
+          if (end < 0) return;
+        }
         const match = /^AION-PCM1 ([a-f0-9]{16,64}) (\d{4,6})$/.exec(header.slice(0, end));
         if (!match || match[1] !== nonce) { socket.destroy(); settle(this.fail("handshake")); return; }
         this.analyzer = new AudioAnalyzer(Number(match[2]), DIGITAL_SOURCE);
         if (this.connectTimer) clearTimeout(this.connectTimer);
-        buffer = Buffer.from(chunk.subarray(Buffer.byteLength(header.slice(0, end + 1), "latin1")));
+        buffer = Buffer.from(header.slice(end + 1), "latin1");
         this.timer = setInterval(() => this.tick(), 1000 / 60);
         this.timer.unref?.();
-        settle(this.set({ ...this.status, state: "streaming" }));
+        const { waiting: _waiting, ...status } = this.status;
+        settle(this.set({ ...status, state: "streaming" }));
       } else buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
       // Frames: [UInt32 LE count][count × Float32 LE]. A count of 0 is the bridge's keep-alive.
       let offset = 0;
@@ -154,7 +174,8 @@ export class NativeAudioBridge {
           const samples = new Float32Array(count);
           let zero = true;
           for (let i = 0; i < count; i++) { const v = buffer.readFloatLE(offset + 4 + i * 4); samples[i] = v; if (v !== 0) zero = false; }
-          if (zero) this.zeroSamples += count; else this.realSamples += count;
+          if (zero) this.zeroSamples += count;
+          else { if (this.realSamples === 0) this.options.onHeard?.(this.target!.source); this.realSamples += count; }
           this.analyzer!.push(samples);
           samples.fill(0);
         }

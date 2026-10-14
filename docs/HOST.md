@@ -31,6 +31,18 @@ no audio from the host. The Core Audio bridge is integrated as the capture adapt
 `HostAudioSource` and Aion speaks with it. Not yet verified against a real Codex voice session; until a capture is
 streaming, `responding` stays semantic. See [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md).
 
+**v0.4.3** (codex-cli 0.162.0-alpha.17.2): Codex Voice Sync makes the bridge path a remembered choice that reconnects by
+itself whenever Aion is open (see [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md)). Still not verified against a real voice session.
+
+## Speech output controls (v0.4.3)
+
+| Question | Answer |
+| --- | --- |
+| Can a plugin set Codex's speech rate, prosody, pause length or volume? | **No.** The app-server protocol of codex-cli 0.162.0-alpha.17.2 (generated schema, checked for this release) has no rate, speed, prosody, pause or volume parameter for realtime voice. |
+| Voice selection? | The protocol lists realtime voices (`RealtimeVoice`, `RealtimeVoicesList`: alloy, ash, ballad, cedar, coral, marin, sage, shimmer, verse …) for **app-server clients** — the desktop app's own UI. MCP servers, hooks and Skills cannot set it. |
+| What does Aion do? | Narration guidance in the Skill: calmer, shorter, unhurried replies with natural pauses, per context (conversation, storytelling, music teaching, writing, animations). It changes what is said and its pacing, not the synthesis. The Skill tells Codex never to claim it changed the voice's speed or the voice itself; those are Codex's own voice settings. |
+| Slowing the audio down? | Not done: stretching playback would distort the voice, and the audio is not Aion's to alter. |
+
 ## Echo without host audio
 
 Without the host's audio, Aion cannot tell Codex's voice from the user's when both come from the room. It is

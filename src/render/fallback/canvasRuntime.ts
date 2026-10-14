@@ -8,6 +8,7 @@ import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from
 import { PaletteEase } from "../palette";
 import { SILVER_PALETTE } from "../../core/colors";
 import { RING_STAGGER, ringHash, ringParams, ringPoint, sphereAudioOffset, type RingPoint } from "../ring";
+import { NO_WRITING, writingLight, writingPoint, writingSize } from "../writing";
 
 /**
  * The fallback body for browsers or embedded hosts without WebGPU: the same particles (the same sphere
@@ -43,7 +44,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
     ringStagger[i] = ringHash(x, y, z, ...RING_STAGGER);
   }
-  let target: { positions: Float32Array; tones: Float32Array } | null = null;
+  let target: { positions: Float32Array; tones: Float32Array; keys?: Float32Array } | null = null;
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   let centre = { x: 0, y: 0, zoom: 1 };
@@ -91,6 +92,7 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const ring = sound ? ringParams(sound.layout) : null;
     if (ring && calm()) ring.flow *= 0.2;
     const point: RingPoint = { position: [0, 0, 0], energy: 0, core: false };
+    const writing = inputs.writing?.sample(dt) ?? NO_WRITING;
     const colors = palette.sample(dt);
     const base = colors.cool.map((value, k) => (value + (colors.warm[k] - value) * warm) * 255);
     // Formed visuals take the palette's formed tint relative to its body colour (Aion Silver: unchanged from v0.4).
@@ -136,18 +138,23 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
         grain += (0.86 - grain) * rw;
       }
       const mw = morph > 0 && target ? smooth(morph * 1.3 - morphStagger[i] * 0.3) : 0;
+      let written = 1;
       if (mw > 0 && target) {
-        const [tx, ty, tz] = formedPoint(target.positions[i * 3], target.positions[i * 3 + 1], target.positions[i * 3 + 2], formedView);
+        // Writing (v0.4.3): the pen's grains ride the tip; strokes are lit as they are written (render/writing.ts).
+        const key = target.keys ? target.keys[i] : -1;
+        const [wx, wy, wz] = writingPoint(target.positions[i * 3], target.positions[i * 3 + 1], target.positions[i * 3 + 2], key, writing);
+        const [tx, ty, tz] = formedPoint(wx, wy, wz, formedView);
         x += (tx - x) * mw; y += (ty - y) * mw; z += (tz - z) * mw;
         // A 3D object is lit by depth (nearer is brighter), as on the GPU.
         const near = view.depth ? 0.5 + 0.62 * smooth((tz + 1.9) / 3.8) : 1;
-        tone += (target.tones[i] * 0.95 * near - tone) * mw;
+        tone += (target.tones[i] * 0.95 * near * writingLight(key, writing) - tone) * mw;
+        written = 1 + (writingSize(key, writing) - 1) * mw;
       }
       const perspective = 7.4 / (7.4 - z);
       xs[i] = centreX + x * zoom * perspective;
       ys[i] = centreY - y * zoom * perspective;
       light[i] = Math.max(0, Math.min(1, tone));
-      sizes[i] = grain + (1 - grain) * mw;
+      sizes[i] = (grain + (1 - grain) * mw) * written;
     }
     context.clearRect(0, 0, width, height);
     context.globalCompositeOperation = "lighter";
