@@ -63,9 +63,14 @@ Codex answers                →  Aion visibly answers, for as long as the answe
 "Show me the treble clef."   →  Aion's particles form a treble clef beside the notation
 "Visualize the music."       →  the music you play (another app, a tab) turns Aion into a circular particle spectrum
 "React to your own voice."   →  on macOS, with your permission, Aion moves with Codex's real voice — every time it opens
-"Teach me how to write 永."   →  the body writes the character stroke by stroke beside its numbered stroke order
-"Repeat the third stroke."   →  strokes 1–2 stay written while the third is written again
-"Show a stick figure jumping over a box."  →  Aion's figure runs up, jumps the box and lands, then returns
+"Teach me how to write 永."   →  the body writes 永's true stroke shapes in order, beside a card writing the same stroke
+"Show the traditional form of 国." →  國, from about 9,500 characters bundled offline (simplified and traditional)
+"Repeat the third stroke."   →  strokes 1–2 stay written while the third is written again, on the card too
+"Write HELLO." · "Write my name." →  manuscript letters, one after another, on one baseline
+"Teach me how to draw a treble clef." →  the hand-drawn clef, beside the engraved clef on a staff
+"Show me a 4/4 measure with four quarter notes." →  engraved, played, each note lighting up
+"Show a stick figure jumping over a box."  →  Aion's flexible figure gathers, jumps the box, lands soft, returns
+"Animate the figure thinking." →  it pauses, hand to chin, and gets it — the "?" above it becomes "!"
 "Tell me the story of Nikola Tesla."  →  a heritage portrait and a calm story, told in parts as you ask
 ```
 
@@ -95,6 +100,18 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   narration style ([docs/STORYTELLING.md](docs/STORYTELLING.md)); **local photographs** as heritage portraits; and
   **Codex Voice Sync**, a remembered opt-in that reconnects Aion to Codex's voice whenever it opens
   ([docs/AUDIO-REACTIVE.md](docs/AUDIO-REACTIVE.md)).
+- **v0.4.4 — Intelligent Writing & Living Figure**: the **Chinese Writing Pack** — all 9,574 characters of Hanzi Writer's
+  dataset (7,465 for simplified writing, 7,260 for traditional), offline, written into their true stroke outlines with a
+  synchronized reference card, words, simplified ↔ traditional, radicals, structure and tracing practice
+  ([docs/CHINESE-WRITING.md](docs/CHINESE-WRITING.md)); one **Writing Education Core** for Chinese, English (letters, words,
+  names) and music handwriting measured against engraved Bravura ([docs/STROKE-ANIMATION.md](docs/STROKE-ANIMATION.md));
+  the **Music Education Pack** — alto clef, key signatures, ties, slurs, dynamics, bar lines and a 40-concept notation
+  glossary ([docs/MUSIC.md](docs/MUSIC.md)); **Figure 3.0**, a flexible character with continuous limbs, no joint beads,
+  restrained secondary motion and new behaviours (thinking, exploring) ([docs/FIGURE.md](docs/FIGURE.md),
+  [docs/ANIMATION.md](docs/ANIMATION.md)); and **reliable tool discovery** — Aion's tool metadata cut from 302 KB to 62 KB, so
+  hosts that budget it (Codex dropped 8 tools in v0.4.3) see every tool ([docs/MCP-TOOLS.md](docs/MCP-TOOLS.md)).
+
+  ![Figure 2.0 and Figure 3.0](docs/media/v0.4.4/walk-figure2-vs-figure3.gif)
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -165,6 +182,10 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
 | `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
 | `set_scene_view` | Turn, tilt or zoom the 3D object on show, stop its turn, or reset the view. |
+| `show_stroke_animation` | Handwriting: a Chinese character or word (true outlines, `form` simplified/traditional, `highlight: "radical"`, `practice`), English letters, words and names, digits, music and maths symbols — written stroke by stroke beside a synchronized reference card. Never a guessed order. |
+| `play_animation` · `control_animation` | Short scenes of Aion's flexible figure (walk, think, notice, examine, touch, jump, point …; demos `thinking`, `exploring` …) and control of any animation: pause, resume, replay, speed, next/previous stroke, repeat a stroke or a character, complete. |
+| `show_music` · `play_music` · `music_lesson` | Engraved notation (clefs incl. alto, keys, ties, slurs, dynamics, bar lines; a glossary of 40 concepts), playback that lights each note, lessons in English and Chinese. |
+| `set_audio_visualizer` | How Aion moves with sound (microphone, Codex Voice Sync, another app, a tab, Aion's own music). |
 | `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
 | `clear_presentation` | Return to the persistent body now. |
@@ -226,14 +247,18 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, and v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync — in both renderers (`-- --offline` skips lookups; `-- --only=v43` one section) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync, and v0.4.4's Chinese pack, words, practice, music handwriting and Figure 3.0 behaviours — in both renderers (`-- --offline` skips lookups; `-- --only=v44` one section) |
 | `npm run audio:eval` | Measures the music detector on real recordings on this Mac (Apple Loops, system voices); nothing is kept |
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` (Xcode command-line tools) |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge: a real app's sound, or Codex's voice while you talk to it |
 | `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`.e2e/showcase/*.webm`, screenshots, filmed frames for `scripts/media/gif.py`); `-- --list`, `-- map-usa eyes-motion`, `-- --headed`, `-- --canvas` |
 | `npm run geo:coverage` | Geography against the live services (continents, the largest and smallest countries, high latitudes, the date line, OSM regions, markers, terrain); writes [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md) |
 | `npm run geo:build -- <dir>` | Rebuilds the bundled world from the Natural Earth GeoJSON files (see [docs/MAPS.md](docs/MAPS.md)) |
-| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes |
+| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes (v0.4.4: the pack installed, every tool reaching Codex within the metadata budget, Chinese writing offline) |
+| `npm run mcp:budget` · `npm run codex:tools` | Aion's tool metadata against its budget · what your Codex receives from every MCP server (see [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md)) |
+| `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild the Chinese Writing Pack from pinned upstream releases · write the original JSON back (lossless) · re-verify all characters and measure the particle letterforms |
+| `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol (start points, directions) |
+| `npm run notices` | Regenerate `plugins/aion-presence/THIRD-PARTY-NOTICES.md` |
 | `npm run release` | The reproducible installable archive in `dist/` |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |
 
@@ -253,6 +278,13 @@ SCF's AI transport — Realtime/GPT-Live sessions, keys and WebRTC — with the 
 [docs/PARITY.md](docs/PARITY.md).
 
 ## Credits
+
+Chinese characters: [Hanzi Writer](https://github.com/chanind/hanzi-writer) and [hanzi-writer-data](https://github.com/chanind/hanzi-writer-data)
+by David Chanin, from [Make Me a Hanzi](https://github.com/skishore/makemeahanzi) by Shaunak Kishore (graphics derived
+from Arphic Technology's AR PL KaitiM GB and AR PL UKai fonts, Arphic Public License; dictionary from Unihan and CJKlib,
+LGPL-3.0-or-later); simplified ↔ traditional tables from [OpenCC](https://github.com/BYVoid/OpenCC) (Apache-2.0). The data
+keeps its own licenses in `plugins/aion-presence/packs/chinese-writing` ([docs/CHINESE-WRITING.md](docs/CHINESE-WRITING.md));
+bundled libraries are listed in `plugins/aion-presence/THIRD-PARTY-NOTICES.md`.
 
 Country outlines, continents and the city gazetteer: [Natural Earth](https://www.naturalearthdata.com) (public domain).
 Places beyond it: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, via Nominatim and Photon.

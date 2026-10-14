@@ -76,3 +76,11 @@ A v0.1 development install (`aion-presence@aion-presence-dev`) is replaced autom
 The first Codex session after installation opens Aion's window once. To change that, create
 `settings.json` in the plugin's data directory with `{ "autoOpen": "first-run" | "always" | "never" }`, or set
 `AION_PRESENCE_AUTO_OPEN`.
+
+## Offline teaching (v0.4.4)
+
+The Chinese Writing Pack (9,574 characters, 7.5 MB, `packs/chinese-writing`) installs with the plugin — nothing is
+downloaded when Aion teaches, and no CDN is used. English and music writing and the notation glossary are part of the
+runtime. Only portraits, images, terrain and places beyond the bundled world map use the network.
+
+After updating Aion, start a new conversation (or restart Codex): a conversation keeps the tools it started with.

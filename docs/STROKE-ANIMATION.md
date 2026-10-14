@@ -1,34 +1,66 @@
-# Stroke animation (v0.4.3)
+# Writing Education Core (v0.4.3; v0.4.4)
 
-Aion can show **how** a symbol is written, not only what it looks like: the particle body forms the symbol, clears it
-to a faint ghost, then writes it stroke by stroke in order while a card beside it shows the numbered stroke order.
-"Teach me how to write the character for eternity" → 永, five strokes, each one written where and in the direction a
-hand writes it.
+Aion shows **how** something is written, not only what it looks like: the particle body forms it, clears it to a faint
+ghost, then writes it stroke by stroke in order while a reference card writes the same stroke at the same moment.
 
-![永 written stroke by stroke, with its stroke-order card](media/v0.4.3/stroke-yong.gif)
+v0.4.4 makes this one Writing Education Core with three packs on a shared animation foundation:
 
-![Finished 永; the third stroke repeated; lowercase g; the sharp](media/v0.4.3/stroke-moments.png)
+```text
+Writing Education Core   lookup (host/writing/resolve.ts) · composition (animation/stroke/compose.ts) · timeline · controls
+   ├── Chinese Pack      9,574 characters with true outlines (Chinese Writing Pack, see CHINESE-WRITING.md)
+   ├── English Pack      A–Z, a–z, 0–9 in print manuscript; words and names
+   └── Music Pack        handwriting of the common symbols, beside their engraving (MUSIC.md)
+          ▼
+Shared Animation Controller   the writing plan and frame, control_animation (pause, resume, replay, speed, next,
+                              previous, repeat a stroke or a character, complete)
+          ▼
+Aion Particle Renderer        one sampler (true outlines, or round pen lines), one reveal (keys + uniforms)
+```
+
+The packs keep their own data and conventions; nothing else is duplicated. A word is several symbols laid side by side on
+one scale, each keeping its own strokes in its own order (never one symbol's strokes merged into another's).
+
+![Hello](media/v0.4.4/en-word-hello.gif)
 
 ## What is supported
 
-| Pack | Symbols | Convention (`variant`) |
+| Pack | Symbols | Convention |
 | --- | --- | --- |
-| A — Chinese | 一 二 三 十 人 大 天 口 日 月 中 木 山 水 火 永 上 下 小 (19) | Mainland China standard stroke order, 现代汉语通用字笔顺规范 (`zh-Hans`) |
-| B — English letters | A–Z, a–z (52) | Print manuscript, "ball and stick": start at the top, pull down, circles anticlockwise from two o'clock (`manuscript`) |
-| C — Numbers | 0–9 | The same manuscript convention (`manuscript`) |
-| D — Music | 𝄞 treble clef, 𝄢 bass clef, ♩ quarter note, ♪ eighth note, ♯ sharp, ♭ flat, ♮ natural | Common hand-copying practice (`hand-copying`) |
-| E — Mathematics | + − = × ÷ π ∫ √ | School handwriting (`school`) |
+| Chinese | 9,574 characters (7,465 for simplified writing, 7,260 for traditional; see [CHINESE-WRITING.md](CHINESE-WRITING.md)); words up to 4 | the data's order (Make Me a Hanzi; mainland order for simplified forms) |
+| English letters | A–Z, a–z (52); words and names up to 16 letters | print manuscript, "ball and stick": start at the top, pull down, circles anticlockwise from two o'clock |
+| Digits | 0–9 | the same manuscript convention |
+| Music | 𝄞 𝄢 𝄡 clefs; 𝅝 𝅗𝅥 ♩ ♪ 𝅘𝅥𝅯 notes; 𝄻 𝄼 𝄽 𝄾 rests; ♯ ♭ ♮; 𝄴 common time; 𝄁 𝄂 bar lines (18) | common hand-copying practice, each symbol's convention stated |
+| Mathematics | + − = × ÷ π ∫ √ | school handwriting |
 
-Where hands genuinely differ, the symbol carries a note that names the demonstrated way, and the tool result passes it
-to Codex: the stem of T before its bar (some schools teach the bar first); an open 4; the treble clef drawn in one
-stroke from the G line (some teachers start from the hook at the bottom); the sharp's verticals before its bars; the
-plus sign's horizontal first (both orders are common).
+**A font outline is not a stroke order.** Chinese stroke shapes come from a dataset that records the order and each
+stroke's centre line; letters and music symbols are curated pen paths. Nothing derives an order from a font, and a symbol
+without data is refused (`stroke-data-unavailable`, `character-not-in-pack`).
 
-Anything else is refused with `stroke-data-unavailable` and the list of what exists. **A font outline is not a stroke
-order**: it is a filled shape that says nothing about which stroke comes first, where it starts or which way the pen
-moves, so Aion never derives an order from a font and never guesses one.
+## English (v0.4.4)
 
-## Data: why hand-authored, and which datasets were evaluated
+Every letter and digit was reviewed on a contact sheet drawn from the composer's own output (`npm run writing:sheet`:
+start points, direction arrows, stroke colours by order). The paths were kept — they are one consistent manuscript
+standard with correct start points, directions and proportions (cap height 100, x-height 50, descender −40) — and the
+drawing improved: round pen ends filled evenly by the same outline sampler as Chinese, words laid out on one baseline and
+scale with even spacing, the four-line guide under the whole word, and direction words that describe curves properly
+("up-left, curving anticlockwise to up-right" for c, "left, curving anticlockwise, then clockwise" for S). Uppercase and
+lowercase are distinct letters.
+
+![ABC](media/v0.4.4/en-uppercase.gif) ![abg](media/v0.4.4/en-lowercase.gif)
+
+## Music (v0.4.4)
+
+Eleven symbols were added (alto clef, whole, half and sixteenth notes, the four rests, common time, double and final bar
+lines), and each curated path is now **measured against its engraving**: on the staff, a SMuFL glyph is 250 font units to a
+staff space and sits on its reference line, so the handwriting and Bravura's outline meet in the same coordinates
+(`music/visual/compare.ts`). Every symbol's centre lines lie within a mean of 0.04 staff spaces of the engraved shape, ≥ 94 %
+within 0.15, at 0.89–1.04 of its height. The measurement found that v0.4.3's sharp, flat and natural were drawn about twice
+their engraved height and the bass clef 29 % too tall; they were redrawn. The card shows the engraved symbol on a staff
+above the handwriting order.
+
+![Treble clef](media/v0.4.4/treble-clef-writing.gif)
+
+## History: v0.4.3's hand-authored data
 
 | Dataset | What it offers | License | Decision |
 | --- | --- | --- | --- |
@@ -36,7 +68,7 @@ moves, so Aion never derives an order from a font and never guesses one.
 | KanjiVG | Japanese kanji, ordered SVG strokes | CC BY-SA 3.0 | Not bundled: share-alike, and Japanese conventions differ from the mainland standard in places |
 | AnimCJK | Chinese and Japanese, ordered strokes | Arphic Public License / LGPL | Not bundled, for the same reason as Make Me a Hanzi |
 
-For this release the curated set is drawn by hand: each stroke is a centre line in a 100 × 100 practice square,
+In v0.4.3 the curated set was drawn by hand: each stroke is a centre line in a 100 × 100 practice square,
 written in the standard order and direction (`src/animation/stroke/packs/`). Nothing third-party is bundled. A vetted
 dataset can be added later as one more pack, with its own `variant`, once its license is reviewed. Regional
 conventions that differ (Taiwan's 國字標準字體, Japan's 筆順指導の手びき) belong in such packs; **none is bundled yet**,
