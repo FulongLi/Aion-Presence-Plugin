@@ -41,9 +41,12 @@ import { checkScore, type CheckedScore, type MusicHighlight } from "../../music/
 import { lessonById, LESSONS, type Language } from "../../music/lessons/lessons";
 import type { MusicLessonRef } from "../../core/presentation";
 import type { AudioSettings } from "../../audio/settings";
-import { lookupStroke, strokeCatalogText, strokeSequence } from "../../animation/stroke/registry";
-import type { Stroke, StrokeSequence } from "../../animation/stroke/types";
-import { compiledFor, controlAnimation, speedRate } from "../../animation/control";
+import { packSymbol, strokeCatalogText } from "../../animation/stroke/registry";
+import { lookupConcept, MUSIC_CONCEPTS } from "../../music/glossary";
+import type { StrokeSequence } from "../../animation/stroke/types";
+import { compiledFor, controlAnimation, sequenceFor, speedRate } from "../../animation/control";
+import { chinesePack, type ChinesePack } from "../writing/chinesePack";
+import { resolveWriting, type WritingFacts } from "../writing/resolve";
 import { phaseAt } from "../../animation/timeline";
 import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
 import { DEMO_SEQUENCES } from "../../animation/scene/demos";
@@ -110,6 +113,7 @@ export const presenceOutput = z.object({
     lesson: z.object({ id: z.number(), title: z.string(), step: z.number(), steps: z.number(), language: z.string(), text: z.string(), question: z.boolean().optional() }).optional()
       .describe("The lesson step on show. text is the teaching point: say it in your own words, in the user's language."),
     answer: z.object({ correct: z.boolean(), expected: z.string(), heard: z.string().nullable() }).optional(),
+    concept: z.object({ id: z.string(), title: z.string(), title_zh: z.string(), point: z.string(), point_zh: z.string(), handwriting: z.string().optional() }).optional(),
   }).optional(),
   audio: z.object({
     enabled: z.boolean(), source: z.string(), mode: z.string(), intensity: z.string(), sensitivity: z.number(),
@@ -119,11 +123,17 @@ export const presenceOutput = z.object({
     microphone: z.string().optional(), tab: z.string().optional(),
   }).optional().describe("How Aion responds to sound, and which sources are really connected. Never claim a source is connected unless it says so."),
   writing: z.object({
-    symbol: z.string(), title: z.string(), system: z.string(), convention: z.string(), note: z.string().optional(),
-    strokes: z.array(z.object({ n: z.number(), name: z.string().optional(), direction: z.string() })),
-    stroke: z.number().optional().describe("The stroke being written now (or repeated), from 1."),
+    text: z.string(), title: z.string(), system: z.string(), convention: z.string(), note: z.string().optional(), notes: z.array(z.string()).optional(),
+    symbols: z.array(z.object({
+      symbol: z.string(), strokes: z.array(z.string()).describe("Where the pen goes in each stroke, in order (stroke 1 first)."),
+      names: z.array(z.string()).optional(), form: z.string().optional(), pinyin: z.array(z.string()).optional(), definition: z.string().optional(),
+      radical: z.string().optional(), radical_strokes: z.array(z.number()).optional(), decomposition: z.string().optional(),
+      etymology: z.record(z.string(), z.unknown()).optional(), traditional: z.array(z.string()).optional(), simplified: z.array(z.string()).optional(),
+      converted_from: z.string().optional(),
+    })),
+    stroke: z.object({ symbol: z.number(), n: z.number(), direction: z.string() }).optional().describe("The stroke being written now (or repeated): which symbol (from 1) and which of its strokes."),
     playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
-  }).optional().describe("The symbol being written: its convention and every stroke in order (name, where the pen goes), for your explanation. One stroke or a small group at a time; let the animation finish."),
+  }).optional().describe("What is being written: its convention, each symbol's strokes in order, and (Chinese) its dictionary facts, for your explanation."),
   animation: z.object({
     title: z.string(), seconds: z.number(), actions: z.array(z.string()), playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
   }).optional().describe("The action sequence on show: what it does and its length. Do not narrate every movement."),
@@ -229,12 +239,10 @@ export const TOOL_DESCRIPTIONS = {
   set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
     + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
     + "show_scene object is on show; to leave it, use clear_presentation.",
-  show_music: "Show music notation exactly, on a staff beside Aion (the notation engine places every note where theory says): single notes, a scale, "
-    + "a short melody or rhythm, or an empty staff (staff: true) to explain lines and spaces. Use it whenever the user is learning or asking about "
-    + "notes, clefs, rhythms or scales (\"What does middle C look like?\", \"Show me the C major scale\", \"How do I read music?\"). Pitches are scientific "
-    + "(C4 is middle C); highlight lights up notes, a line, a space, the clef or the time signature while you explain; symbol makes the body form "
-    + "that symbol beside it (a clef, a note value); play: true also plays it with each note lighting up. The result lists every note's name, "
-    + "solfège, frequency and staff position, for your explanation. Never draw notation with show_image or show_artifact.",
+  show_music: "Show music notation exactly, engraved on a staff beside Aion (VexFlow, Bravura): notes, a scale, a melody or rhythm, an empty staff "
+    + "(staff: true), or a glossary concept with its example (concept: \"alto clef\", \"half rest\", \"tie\", \"repeat sign\", \"6/8\"). Use it whenever "
+    + "the user learns notes, clefs, rhythms or symbols (\"Show me a 4/4 measure with four quarter notes\"). C4 is middle C. highlight lights notes, a line, "
+    + "space, the clef, time or key; symbol makes the body form it; play: true plays it. How a symbol is drawn by hand: show_stroke_animation.",
   play_music: "Play music on this device (A4 = 440 Hz, a soft piano-like tone, nothing generated by a model): the music on show (optionally only some "
     + "notes, by index), or notes or a scale you give (they are shown as they play). Each note lights up the moment it sounds, and Aion's body moves "
     + "with the sound. Use when the user asks to hear something (\"Can you play it?\", \"Play the C major scale\", \"Play it slower\" → tempo). "
@@ -250,11 +258,11 @@ export const TOOL_DESCRIPTIONS = {
     + "→ mode spectrum (and source system with the app, or tab); \"Make the particles more responsive\" → intensity expressive or sensitivity up; "
     + "\"Go back to your normal appearance\" → mode sphere; \"Stop listening to system audio\" → stop [system]). Capturing your voice or another app "
     + "needs macOS and the user's permission; the result says what is really connected — never claim more. Colours stay set_colors.",
-  show_stroke_animation: () => "Show how a character or symbol is written, stroke by stroke, with Aion's particle body: it forms complete, clears to a faint "
-    + "ghost, then each stroke is written in order (a small light marks the pen) while a card shows the numbered stroke order. Use when the user wants "
-    + "to learn to write something (\"Teach me how to write the character for eternity\" → 永, \"Show me the stroke order of 水\", \"How do I write a "
-    + "treble clef?\", \"How do you write a lowercase g?\"). Only symbols with validated stroke data are offered, each in a named convention; "
-    + `never invent an order for anything else. Available — ${strokeCatalogText()}. Then use control_animation to pause, slow down, repeat a stroke or show it complete.`,
+  show_stroke_animation: () => "Teach handwriting: Aion's particle body writes a Chinese character or short word, an English letter, word or name, "
+    + "a digit, or a music or maths symbol stroke by stroke in the right order, beside a reference card. Chinese: about 9,500 characters, "
+    + "simplified and traditional, with their true stroke shapes; the result adds pinyin, meaning, radical and structure. Use when the user wants to "
+    + "learn to write something (\"Teach me how to write 永\", \"How do you write 国?\", \"Write HELLO\", \"Write my name\", \"How do I draw a treble clef?\"). "
+    + "Pass the character itself (you know which one \"eternity\" is). Never invent an order: if the data is missing, say so. Then control_animation.",
   play_animation: "Play a short particle animation of Aion's own figure (rendered locally from Aion's particles, not a video): a curated demo or a short "
     + "sequence you compose from approved actions — walk, jump (over a box), pick up and put down, point (at a panel), face, gesture (wave, nod, "
     + "shrug, surprise, think, look-around), react (surprised), crouch, wait — with up to three simple objects (box, ball, panel). Use when the "
@@ -407,7 +415,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
       "not open a second window. Do not call it every turn.",
     ].join(" "),
     inputSchema: openPresenceInput,
-    outputSchema: presenceOutput,
     annotations: { title: "Open Aion", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _meta: { ui: { resourceUri: PRESENCE_RESOURCE_URI } },
   }, async (args, ctx) => {
@@ -459,7 +466,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
       "meaningful phase. Never call it for every small step, and never claim a state that is not true.",
     ].join(" "),
     inputSchema: setPresenceStateInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (args, ctx) => run(ctx, backend => backend.apply({ type: "activity", state: args.state, label: args.label }), () => `State: ${args.state}. Nothing to tell the user about it.`));
 
@@ -467,7 +473,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Set Aion's body",
     description: TOOL_DESCRIPTIONS.set_body_form,
     inputSchema: setBodyFormInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (args, ctx) => run(ctx, backend => backend.apply({ type: "body", body: args.body }), snapshot => `Body: ${bodyLabel(snapshot.body)}. Say it in the first person if at all (e.g. "Here I am in human form").`,
     { shown: bodyLabel(args.body) }));
@@ -476,7 +481,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Express",
     description: TOOL_DESCRIPTIONS.express,
     inputSchema: expressInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => {
     if (!args.expression && !args.gesture) return failure("invalid-arguments: give an expression (e.g. \"happy\") or a gesture (e.g. \"wave\").");
@@ -488,7 +492,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a 3D object",
     description: TOOL_DESCRIPTIONS.show_scene,
     inputSchema: showSceneInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => {
     if ((args.preset === undefined) === (args.scene === undefined)) return failure("invalid-arguments: give exactly one of preset or scene.");
@@ -502,7 +505,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Turn the 3D object",
     description: TOOL_DESCRIPTIONS.set_scene_view,
     inputSchema: setSceneViewInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     const before = await link.run(backend => backend.state());
@@ -514,7 +516,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show an image",
     description: TOOL_DESCRIPTIONS.show_image,
     inputSchema: showImageInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, async (args, ctx) => {
     if ((args.query === undefined) === (args.source === undefined)) {
@@ -544,7 +545,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a portrait",
     description: TOOL_DESCRIPTIONS.show_portrait,
     inputSchema: showPortraitInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
     if (args.person === undefined && args.source === undefined) return failure("invalid-arguments: give person (a name to look up) or source (a portrait photograph on this machine).");
@@ -636,7 +636,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show terrain",
     description: TOOL_DESCRIPTIONS.show_terrain,
     inputSchema: showTerrainInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
     try {
@@ -655,7 +654,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a map",
     description: TOOL_DESCRIPTIONS.show_map,
     inputSchema: showMapInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   }, async (args, ctx) => {
     try {
@@ -689,7 +687,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Mark places on the map",
     description: TOOL_DESCRIPTIONS.mark_map,
     inputSchema: markMapInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   }, async (args, ctx) => {
     if (!args.add && !args.change && !args.remove && !args.clear) return failure("invalid-arguments: give add, change, remove or clear.");
@@ -736,7 +733,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Set Aion's colours",
     description: TOOL_DESCRIPTIONS.set_colors,
     inputSchema: setColorsInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (args, ctx) => {
     if (!args.base && !args.accent && !args.reset) return failure("invalid-arguments: give base, accent or reset.");
@@ -807,9 +803,28 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show music notation",
     description: TOOL_DESCRIPTIONS.show_music,
     inputSchema: showMusicInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
+    if (args.concept) {
+      // A concept of the glossary: its curated, validated example, engraved exactly (v0.4.4).
+      const concept = lookupConcept(args.concept);
+      if (!concept) return musicFailure(`"${args.concept}" is not in the notation glossary (${MUSIC_CONCEPTS.map(c => c.title.en).join(", ")}); write it with notes instead`);
+      const checked = checkScore(concept.score);
+      if (!checked.ok) return musicFailure(checked.problem);
+      const language = args.language ?? "en";
+      const writing = concept.writing ? packSymbol(concept.writing)?.spec : undefined;
+      const shown = await showScore(ctx, checked.value, concept.title[language], {
+        highlight: concept.highlight, caption: args.caption ?? concept.caption[language], symbol: args.symbol ?? concept.form, hold: args.hold_seconds,
+        preference: args.presentation, play: args.play, tempo: args.tempo ?? concept.tempo, language,
+      });
+      const structured = shown.structuredContent as PresenceOutput | undefined;
+      if (structured?.music) structured.music.concept = {
+        id: concept.id, title: concept.title.en, title_zh: concept.title.zh, point: concept.caption.en, point_zh: concept.caption.zh,
+        ...(writing ? { handwriting: writing.symbol } : {}),
+      };
+      if (writing && structured) structured.message += ` A validated handwriting demonstration exists: show_stroke_animation {text: "${writing.symbol}"}.`;
+      return shown;
+    }
     const built = buildScore(args, args.title);
     if (!built.ok) return musicFailure(built.problem);
     const lit = highlights(args.highlight, built.score);
@@ -823,7 +838,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Play music",
     description: TOOL_DESCRIPTIONS.play_music,
     inputSchema: playMusicInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     if (args.stop) return run(ctx, backend => backend.apply({ type: "stop-music" }), () => "Music stopped.");
@@ -853,7 +867,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Music lesson",
     description: TOOL_DESCRIPTIONS.music_lesson,
     inputSchema: musicLessonInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     // The lesson on show (any Aion process may have shown it), else the one this server remembers.
@@ -908,7 +921,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Set Aion's response to sound",
     description: TOOL_DESCRIPTIONS.set_audio_visualizer,
     inputSchema: setAudioVisualizerInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (args, ctx) => {
     const settings = Object.fromEntries(Object.entries({ enabled: args.enabled, source: args.source, mode: args.mode, intensity: args.intensity, sensitivity: args.sensitivity })
@@ -963,12 +975,37 @@ export function createAionServer(options: AionServerOptions): McpServer {
   // ── Stroke animation and action sequences (v0.4.3) ─────────────────────────────────────────────────────────────
 
   const phase = (snapshot: HubSnapshot) => snapshot.animation ? phaseAt(snapshot.animation.playback, Date.now()) : "finished";
-  const strokeName = (stroke: Stroke) => stroke.name ? `${stroke.name.zh ? `${stroke.name.zh} ` : ""}(${stroke.name.en})` : undefined;
-  const writingOutput = (sequence: StrokeSequence, snapshot: HubSnapshot, stroke?: number): NonNullable<PresenceOutput["writing"]> => ({
-    symbol: sequence.symbol, title: sequence.title, system: sequence.writingSystem, convention: sequence.convention, ...(sequence.note ? { note: sequence.note } : {}),
-    strokes: sequence.strokes.map(item => ({ n: item.order, ...(strokeName(item) ? { name: strokeName(item) } : {}), direction: item.direction })),
-    ...(stroke ? { stroke } : {}), playback: phase(snapshot), speed: snapshot.animation?.playback.rate ?? 1,
-  });
+  const strokeName = (stroke: StrokeSequence["strokes"][number]) => stroke.name ? `${stroke.name.zh ? `${stroke.name.zh} ` : ""}(${stroke.name.en})` : undefined;
+  /** The writing for Codex: per symbol, every stroke in order (where the pen goes) and, for Chinese, the dictionary's facts. */
+  const writingOutput = (sequence: StrokeSequence, snapshot: HubSnapshot, facts: WritingFacts[] = [], notes: string[] = [], stroke?: number): NonNullable<PresenceOutput["writing"]> => {
+    const at = stroke ? sequence.strokes[stroke - 1] : undefined;
+    return {
+      text: sequence.symbol, title: sequence.title, system: sequence.writingSystem, convention: sequence.convention,
+      ...(sequence.note ? { note: sequence.note } : {}), ...(notes.length ? { notes } : {}),
+      symbols: sequence.items.map((item, i) => {
+        const strokes = sequence.strokes.slice(item.first, item.first + item.count);
+        const fact = facts.find(f => f.symbol === item.symbol) ?? facts[i];
+        const names = strokes.map(strokeName);
+        return {
+          symbol: item.symbol, strokes: strokes.map(s => s.direction), ...(names.some(Boolean) ? { names: names.map(name => name ?? "") } : {}),
+          ...(fact?.form ? { form: fact.form } : {}), ...(fact?.pinyin ? { pinyin: fact.pinyin } : {}), ...(fact?.definition ? { definition: fact.definition } : {}),
+          ...(fact?.radical ? { radical: fact.radical } : {}), ...(fact?.radicalStrokes ? { radical_strokes: fact.radicalStrokes } : {}),
+          ...(fact?.decomposition ? { decomposition: fact.decomposition } : {}), ...(fact?.etymology ? { etymology: fact.etymology } : {}),
+          ...(fact?.traditional ? { traditional: fact.traditional } : {}), ...(fact?.simplified ? { simplified: fact.simplified } : {}),
+          ...(fact?.convertedFrom ? { converted_from: fact.convertedFrom } : {}),
+        };
+      }),
+      ...(at ? { stroke: { symbol: at.item + 1, n: at.local, direction: at.direction } } : {}),
+      playback: phase(snapshot), speed: snapshot.animation?.playback.rate ?? 1,
+    };
+  };
+  const pack = (): ChinesePack | null => chinesePack(env);
+  /** Facts for a writing already on show (re-read from the pack; cheap and cached). */
+  const factsFor = (sequence: StrokeSequence): WritingFacts[] => {
+    if (sequence.writingSystem !== "chinese") return [];
+    const again = resolveWriting({ text: sequence.symbol, system: "chinese" }, pack());
+    return again.ok ? again.facts : [];
+  };
   const animationOutput = (spec: AnimationSpec, snapshot: HubSnapshot): NonNullable<PresenceOutput["animation"]> => ({
     title: spec.title, seconds: Math.round(compiledFor(spec).duration * 10) / 10, actions: spec.actions.map(action => action.do),
     playback: phase(snapshot), speed: snapshot.animation?.playback.rate ?? 1,
@@ -978,27 +1015,37 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show how to write it",
     description: TOOL_DESCRIPTIONS.show_stroke_animation(),
     inputSchema: showStrokeAnimationInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
-    const sequence = lookupStroke(args.symbol, args.system);
-    if (!sequence) {
-      return failure(`stroke-data-unavailable: Aion has no validated stroke data for "${args.symbol}"${args.system ? ` (${args.system})` : ""}, and it never guesses a `
-        + `stroke order from a font. Available — ${strokeCatalogText()}. Explain it in words, or offer one of these.`);
+    const text = args.text ?? args.symbol;
+    if (!text) return failure("invalid-arguments: give text (the character, word, letter or symbol to write).");
+    const found = resolveWriting({ text, system: args.system, form: args.form }, pack());
+    if (!found.ok) {
+      const how = found.code === "character-not-in-pack" || found.code === "stroke-data-unavailable"
+        ? ` Aion never guesses a stroke order. It has ${pack()?.size ?? 0} Chinese characters (simplified and traditional), letters A–Z and a–z, digits and these symbols — ${strokeCatalogText()}.`
+        : "";
+      return failure(`${found.code}: ${found.problem}.${how} Explain it in words, or offer something Aion can write.`);
     }
-    const content: PresentationContent = { kind: "writing", stroke: sequence.id, label: `${sequence.symbol} · ${sequence.title}` };
-    const snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds ?? 0, presentation: args.presentation, rate: speedRate(args.speed) }));
-    const message = `Writing ${sequence.symbol} (${sequence.title}), ${sequence.strokes.length} stroke${sequence.strokes.length > 1 ? "s" : ""}; convention: ${sequence.convention}`
-      + `${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}. It forms complete first, then writes each stroke. Explain one stroke or a small group at a time `
-      + "from writing.strokes, calmly, and let the animation finish; do not narrate this tool call.";
-    return result({ ...summarize(snapshot, modeFor(ctx), message), shown: `${sequence.symbol} (${sequence.title})`, writing: writingOutput(sequence, snapshot) });
+    const { source, sequence } = found;
+    const highlight = args.highlight === "radical" && sequence.items.some(item => item.radical?.length) ? "radical" as const : undefined;
+    const content: PresentationContent = {
+      kind: "writing", stroke: sequence.id, label: `${sequence.symbol} · ${sequence.title}`.slice(0, LIMITS.title), source,
+      ...(highlight ? { highlight } : {}), ...(args.practice ? { practice: true } : {}),
+    };
+    const preference = args.practice && (args.presentation === undefined || args.presentation === "auto") ? "card" as const : args.presentation;
+    const snapshot = await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds ?? 0, presentation: preference, rate: speedRate(args.speed) }));
+    const count = sequence.items.length;
+    const notes = [...found.notes, ...(args.highlight === "radical" && !highlight ? ["The data marks no radical strokes for this character."] : [])];
+    const message = `Writing ${sequence.symbol} (${count > 1 ? `${count} symbols, ` : ""}${sequence.strokes.length} stroke${sequence.strokes.length > 1 ? "s" : ""}); convention: ${sequence.convention}`
+      + `${snapshot.presentation ? ` — ${routeWords(snapshot.presentation)}` : ""}. It forms complete first, then writes each stroke in order${count > 1 ? ", one symbol after another" : ""}. `
+      + `${args.practice ? "The reference card is set for tracing: invite the user to write it there. " : ""}Explain one stroke or a small group at a time from writing.symbols, calmly, and let the animation finish; do not narrate this tool call.`;
+    return result({ ...summarize(snapshot, modeFor(ctx), message), shown: `${sequence.symbol} (${sequence.title})`, writing: writingOutput(sequence, snapshot, found.facts, notes) });
   });
 
   server.registerTool("play_animation", {
     title: "Play an animation",
     description: TOOL_DESCRIPTIONS.play_animation,
     inputSchema: playAnimationInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     if ((args.demo === undefined) === (args.sequence === undefined)) return failure("invalid-arguments: give exactly one of demo or sequence.");
@@ -1018,7 +1065,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Control the animation",
     description: TOOL_DESCRIPTIONS.control_animation,
     inputSchema: controlAnimationInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     const before = await link.run(backend => backend.state());
@@ -1026,7 +1072,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (!shown || (shown.kind !== "writing" && shown.kind !== "animation") || before.animation?.presentation !== shown.id) {
       return failure("no-animation: nothing is being written or animated now. Use show_stroke_animation or play_animation first.");
     }
-    const command = { action: args.action, ...(args.stroke !== undefined ? { stroke: args.stroke } : {}), ...(args.speed ? { speed: args.speed } : {}) };
+    const command = {
+      action: args.action, ...(args.stroke !== undefined ? { stroke: args.stroke } : {}), ...(args.character !== undefined ? { character: args.character } : {}),
+      ...(args.speed ? { speed: args.speed } : {}),
+    };
     // The same pure rules the hub applies, so a command that cannot apply is explained instead of silently ignored.
     const check = args.action === "stop" ? null : controlAnimation(shown, before.animation.playback, command, Date.now());
     if (check && !check.ok) return failure(`animation-control: ${check.problem}.`);
@@ -1034,11 +1083,14 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (args.action === "stop") return result(summarize(snapshot, modeFor(ctx), "Stopped: back to the persistent body."));
     const stroke = check?.ok ? check.stroke : undefined;
     if (shown.kind === "writing") {
-      const sequence = strokeSequence(shown.stroke)!;
-      const item = stroke ? sequence.strokes[stroke - 1] : undefined;
-      const message = item ? `Writing stroke ${stroke} of ${sequence.strokes.length}${strokeName(item) ? `, ${strokeName(item)}` : ""}: ${item.direction}. Explain just this stroke, then wait.`
-        : `Writing ${sequence.symbol}: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`;
-      return result({ ...summarize(snapshot, modeFor(ctx), message), writing: writingOutput(sequence, snapshot, stroke) });
+      const sequence = sequenceFor(shown)!;
+      const at = stroke ? sequence.strokes[stroke - 1] : undefined;
+      const item = at ? sequence.items[at.item] : undefined;
+      const whole = args.action === "repeat" && args.character !== undefined && args.stroke === undefined && sequence.items.length > 1;
+      const message = whole && item ? `Writing ${item.symbol} again (symbol ${at!.item + 1} of ${sequence.items.length}, ${item.count} strokes). Let it finish.`
+        : at && item ? `Writing stroke ${at.local} of ${item.count}${sequence.items.length > 1 ? ` of ${item.symbol}` : ""}${strokeName(at) ? `, ${strokeName(at)}` : ""}: ${at.direction}. Explain just this stroke, then wait.`
+          : `Writing ${sequence.symbol}: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`;
+      return result({ ...summarize(snapshot, modeFor(ctx), message), writing: writingOutput(sequence, snapshot, factsFor(sequence), [], stroke) });
     }
     return result({ ...summarize(snapshot, modeFor(ctx), `Animation: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`), animation: animationOutput(shown.sequence, snapshot) });
   });
@@ -1047,7 +1099,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a visual form",
     description: TOOL_DESCRIPTIONS.show_form(),
     inputSchema: showFormInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => showForm(ctx, args));
 
@@ -1055,7 +1106,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a clock",
     description: TOOL_DESCRIPTIONS.show_clock,
     inputSchema: showClockInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => {
     const time = args.time ?? clockText(now());
@@ -1067,7 +1117,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a number",
     description: TOOL_DESCRIPTIONS.show_number,
     inputSchema: showNumberInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => present(ctx, { kind: "number", value: args.value }, args.hold_seconds));
 
@@ -1075,7 +1124,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show text",
     description: TOOL_DESCRIPTIONS.show_text,
     inputSchema: showTextInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => {
     if (args.emphasis && !args.text.includes(args.emphasis)) return failure(`emphasis-not-in-text: "${args.emphasis}" must appear in the text exactly.`);
@@ -1087,7 +1135,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a symbol",
     description: TOOL_DESCRIPTIONS.show_symbol,
     inputSchema: showSymbolInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => present(ctx, { kind: "symbol", symbol: args.symbol }, args.hold_seconds));
 
@@ -1095,7 +1142,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show an emoji",
     description: TOOL_DESCRIPTIONS.show_emoji,
     inputSchema: showEmojiInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => present(ctx, { kind: "emoji", emoji: args.emoji }, args.hold_seconds));
 
@@ -1103,7 +1149,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a result",
     description: "Present the outcome of a task concisely: a title, a one- or two-line summary, a status (success ✓, failure ✕, partial !, info) and up to 8 short detail lines — e.g. title \"Done\", summary \"48 / 48 tests passed\", details [\"8 files changed\", \"Build successful\"]. Use once when meaningful work finishes (tests, a build, a refactor). Never paste logs: the full detail stays in Codex.",
     inputSchema: showResultInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => present(ctx, { kind: "result", title: args.title, summary: args.summary, status: args.status ?? "info", details: args.details ?? [] },
     args.hold_seconds, {}, { presentation: args.presentation }));
@@ -1112,7 +1157,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show an artifact",
     description: `Show a concise artifact beside Aion: a code excerpt, short text, a list, a file-change summary, an SVG diagram (e.g. an architecture sketch) or a local image. Use when seeing it helps more than describing it. Keep it short (≤ ${LIMITS.artifact} characters — an excerpt, not a whole file). Required fields by type: text/code/svg → content; list → items; changes → changes; image → source.`,
     inputSchema: showArtifactInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     const base = { kind: "artifact" as const, type: args.type, title: args.title };
@@ -1148,7 +1192,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Return to the body",
     description: TOOL_DESCRIPTIONS.clear_presentation,
     inputSchema: z.object({}).strict(),
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, (_args, ctx) => run(ctx, backend => backend.apply({ type: "clear" }), () => "Cleared: back to the persistent body."));
 
@@ -1156,7 +1199,6 @@ export function createAionServer(options: AionServerOptions): McpServer {
     title: "Show a visual form (older name)",
     description: "Older name of show_form, kept so earlier clients keep working. Prefer show_form; it behaves identically.",
     inputSchema: showVisualFormInput,
-    outputSchema: presenceOutput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, (args, ctx) => showForm(ctx, args));
 

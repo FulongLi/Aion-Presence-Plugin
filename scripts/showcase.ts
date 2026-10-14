@@ -506,6 +506,167 @@ DEMOS.push(
 );
 
 DEMOS.push(
+  // ── v0.4.4: the visual deliverables ─────────────────────────────────────────────────────────────────────────────
+  {
+    name: "compare-yong", title: "v0.4.4 Demo 1: 永 written by the particle body (the same scene runs on v0.4.3 for the comparison)", seconds: 18,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { symbol: "永", presentation: "body" });
+      await ctx.film("writing", 14);
+      await ctx.shot("written");
+    },
+  },
+  {
+    name: "zh-ai", title: "v0.4.4 Demo 2: 爱 — the full writing animation, with the reference card", seconds: 18,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "爱" });
+      await ctx.film("writing", 15);
+      await ctx.shot("written");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "zh-guo", title: "v0.4.4 Demo 3: 国 — an enclosing structure; then the third stroke repeated, in step with the card", seconds: 24,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "国" });
+      await ctx.film("writing", 13);
+      await ctx.tool("control_animation", { action: "repeat", stroke: 3 });
+      await ctx.film("third-stroke", 3);
+      await ctx.shot("third-stroke");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "zh-complex", title: "v0.4.4 Demo 4: 鬱 — 29 strokes, complex intersections, at the fast speed", seconds: 24,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "鬱", speed: "fast", presentation: "body" });
+      await ctx.film("writing", 20);
+      await ctx.shot("written");
+    },
+  },
+  {
+    name: "zh-traditional", title: "v0.4.4 Demo 5: a traditional character — 国 asked in its traditional form, written as 國", seconds: 18,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "国", form: "traditional" });
+      await ctx.film("writing", 15);
+      await ctx.shot("written");
+      await ctx.tool("show_stroke_animation", { text: "永", highlight: "radical" });
+      await ctx.wait(9); await ctx.shot("radical");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "en-upper", title: "v0.4.4 Demo 6: uppercase manuscript letters (A B C)", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "ABC", presentation: "body" });
+      await ctx.film("writing", 12.5);
+      await ctx.shot("written");
+    },
+  },
+  {
+    name: "en-lower", title: "v0.4.4 Demo 7: lowercase manuscript letters (a b g)", seconds: 16,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "abg", presentation: "body" });
+      await ctx.film("writing", 12.5);
+      await ctx.shot("written");
+    },
+  },
+  {
+    name: "en-word", title: "v0.4.4 Demo 8: a word — Hello — letter by letter, with the reference card", seconds: 20,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "Hello" });
+      await ctx.film("writing", 16);
+      await ctx.shot("written");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "clef-writing", title: "v0.4.4 Demo 9: how to draw a treble clef — the handwriting, beside the engraved clef", seconds: 14,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_stroke_animation", { text: "treble clef" });
+      await ctx.film("writing", 10);
+      await ctx.shot("written");
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "notation", title: "v0.4.4 Demo 10: introductory notation — a 4/4 bar of four quarter notes, played; a tie; a G major key signature; dynamics", seconds: 26,
+    async run(ctx) {
+      await ctx.wait(1.2);
+      await ctx.tool("show_music", { title: "A 4/4 measure", time: "4/4", notes: [{ pitch: "C5", label: "1" }, { pitch: "B4", label: "2" }, { pitch: "A4", label: "3" }, { pitch: "G4", label: "4" }], highlight: [{ time: true }], play: true, tempo: 72 });
+      await ctx.film("measure", 5);
+      await ctx.shot("measure");
+      for (const concept of ["tie", "key signature", "dynamics", "repeat sign", "alto clef"]) {
+        await ctx.tool("show_music", { concept });
+        await ctx.wait(2.6); await ctx.shot(concept.replace(/ /g, "-"));
+      }
+      await ctx.tool("clear_presentation");
+      await ctx.wait(1);
+    },
+  },
+  {
+    name: "compare-walk", title: "v0.4.4 Demo 11: walking (the same scene runs on v0.4.3's Figure 2.0 for the comparison)", seconds: 12,
+    async run(ctx) {
+      await ctx.wait(1);
+      await ctx.tool("play_animation", { demo: "walk-and-stop" });
+      await ctx.film("walk", 8.2);
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "figure-thinking", title: "v0.4.4 Demo 12: thinking — notices a question, pauses, hand to chin, gets it", seconds: 14,
+    async run(ctx) {
+      await ctx.wait(1);
+      await ctx.tool("play_animation", { demo: "thinking" });
+      await ctx.film("thinking", 11.5);
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "figure-exploring", title: "v0.4.4 Demo 13: exploring — notices a box, approaches, examines it, touches it, watches it react", seconds: 19,
+    async run(ctx) {
+      await ctx.wait(1);
+      await ctx.tool("play_animation", { demo: "exploring" });
+      await ctx.film("exploring", 16);
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "compare-jump", title: "v0.4.4 Demo 14: jump over a box (the same scene runs on v0.4.3's Figure 2.0 for the comparison)", seconds: 12,
+    async run(ctx) {
+      await ctx.wait(1);
+      await ctx.tool("play_animation", { demo: "jump-over-obstacle" });
+      await ctx.film("jump", 8);
+      await ctx.wait(2);
+    },
+  },
+  {
+    name: "v44-transitions", title: "v0.4.4 Demo 15: transitions — the sphere writes, becomes the figure, and is Aion again", seconds: 30,
+    async run(ctx) {
+      await ctx.wait(1.5);
+      await ctx.tool("show_stroke_animation", { text: "永", presentation: "body", speed: "fast" });
+      await ctx.film("writing", 9);
+      await ctx.tool("clear_presentation");
+      await ctx.film("to-sphere", 2.5);
+      await ctx.tool("play_animation", { demo: "explain-diagram" });
+      await ctx.film("explaining", 12);
+      await ctx.film("back", 3);
+      await ctx.shot("sphere-again");
+    },
+  },
   {
     name: "stroke-yong", title: "v0.4.3 Demo 4: 永 (eternity) written stroke by stroke; repeat the third stroke; slower; complete", seconds: 40,
     async run(ctx) {

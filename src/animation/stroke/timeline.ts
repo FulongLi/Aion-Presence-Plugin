@@ -1,5 +1,5 @@
 import { ease, smooth } from "../timeline";
-import { arcLengths, gapSeconds, pointAlong } from "./path";
+import { arcLengths, pointAlong } from "./path";
 import type { StrokeSequence } from "./types";
 
 /**
@@ -29,8 +29,8 @@ export function writingPlan(sequence: StrokeSequence): WritingPlan {
   const clearStart = WRITING_TIMING.lead + WRITING_TIMING.preview;
   let at = clearStart + WRITING_TIMING.clear + WRITING_TIMING.ready;
   const writeStart = at;
-  const strokes = sequence.strokes.map((stroke, i) => {
-    if (i) at += gapSeconds(sequence.strokes[i - 1].endPoint, stroke.startPoint);
+  const strokes = sequence.strokes.map(stroke => {
+    at += stroke.pause;
     const slot = { start: at, end: at + stroke.duration };
     at = slot.end;
     return slot;
@@ -121,4 +121,11 @@ export function strokeWindow(plan: WritingPlan, k: number): { from: number; unti
   const slot = plan.strokes[k];
   if (!slot) return null;
   return { from: Math.max(plan.writeStart - WRITING_TIMING.ready, slot.start - STROKE_LEAD), until: Math.min(plan.duration, slot.end + 0.3) };
+}
+
+/** Where to seek to write only strokes first … first + count − 1 (one character of a word), and stop after them. */
+export function itemWindow(plan: WritingPlan, first: number, count: number): { from: number; until: number } | null {
+  const start = plan.strokes[first], end = plan.strokes[first + count - 1];
+  if (!start || !end) return null;
+  return { from: Math.max(plan.writeStart - WRITING_TIMING.ready, start.start - STROKE_LEAD), until: Math.min(plan.duration, end.end + 0.4) };
 }

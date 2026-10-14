@@ -144,7 +144,12 @@ export interface MapTarget {
  */
 export interface StrokesTarget {
   kind: "strokes";
-  strokes: { path: number[]; width: [number, number] }[];
+  /**
+   * v0.4.4: `outline` — the stroke's true filled shape (rings), which the grains fill exactly (`path` is then its median
+   * and only orders the reveal); without it, a pen line of `width` with round ends. `emphasis` < 1 dims a stroke (a
+   * highlighted radical keeps 1, the rest less).
+   */
+  strokes: { path: number[]; width: [number, number]; outline?: number[][]; emphasis?: number }[];
   guides: number[][];
 }
 

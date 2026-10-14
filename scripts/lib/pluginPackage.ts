@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -175,6 +176,23 @@ export function validatePluginPackage(options: { root?: string; marketplace?: st
   // Built runtime.
   if (options.requireRuntime) {
     for (const file of RUNTIME_FILES) if (!existsSync(join(root, file))) error(file, "missing (run npm run build)");
+  }
+
+  // v0.4.4: the Chinese Writing Pack ships inside the plugin (offline). Every file listed in its manifest must be there,
+  // byte for byte, and its license files must stay with it.
+  const packDir = join(root, "packs", "chinese-writing");
+  if (!existsSync(join(packDir, "manifest.json"))) error("packs/chinese-writing", "missing (npm run chinese:build)");
+  else {
+    const manifest = readJson(join(packDir, "manifest.json")) as { version?: string; files?: Record<string, string> };
+    const files = isRecord(manifest.files) ? manifest.files : {};
+    for (const required of ["strokes.ahpk", "dictionary.ahpk", "variants.json", "ARPHICPL.TXT", "LGPL-MakeMeAHanzi.txt", "GPL-3.0.txt", "LICENSE-OpenCC.txt", "NOTICE.md", "coverage.json"]) {
+      if (!(required in files)) error("packs/chinese-writing/manifest.json", `does not list ${required}`);
+    }
+    for (const [file, sha] of Object.entries(files)) {
+      const path = join(packDir, file);
+      if (!existsSync(path)) { error(`packs/chinese-writing/${file}`, "missing"); continue; }
+      if (createHash("sha256").update(readFileSync(path)).digest("hex") !== sha) error(`packs/chinese-writing/${file}`, "differs from its checksum in manifest.json (rebuild with npm run chinese:build)");
+    }
   }
 
   // Repo marketplace.

@@ -1,10 +1,10 @@
-import { Accidental, Annotation, AnnotationVerticalJustify, Beam, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, Voice, VoiceMode, VexFlow, BarlineType } from "vexflow/core";
+import { Accidental, Annotation, AnnotationVerticalJustify, Beam, Curve, Dot, Formatter, Fraction, Renderer, Stave, StaveNote, StaveTie, Stem, Voice, VoiceMode, VexFlow, BarlineType } from "vexflow/core";
 // The Bravura music font (SIL OFL 1.1), as VexFlow ships it. Loaded from its bytes (never a URL), so no font request is made.
 // @ts-expect-error -- VexFlow publishes this module's types elsewhere (build/types); it exports one data: URL string.
 import { Bravura as BravuraFont } from "../../../node_modules/vexflow/build/esm/src/fonts/bravura.js";
 
 const Bravura = BravuraFont as string;
-import { checkScore, type CheckedNote, type CheckedScore, type MusicHighlight, type MusicScore } from "../../music/notation/score";
+import { checkScore, displayedAccidentals, type Barline, type CheckedNote, type CheckedScore, type Dynamic, type MusicHighlight, type MusicScore } from "../../music/notation/score";
 import { VEXFLOW_DURATION, beatQuarters } from "../../music/theory/rhythm";
 
 /**
@@ -40,9 +40,13 @@ export interface RenderedScore {
 
 const LABEL_FONT = { family: "-apple-system, 'Segoe UI', 'PingFang SC', system-ui, sans-serif", size: 13 };
 
+/** Dynamics in Bravura's SMuFL glyphs (dynamicPiano U+E520, dynamicMezzo U+E521, dynamicForte U+E522): engraved, not typed. */
+const DYNAMIC_GLYPHS: Record<Dynamic, string> = { pp: "\uE520\uE520", p: "\uE520", mp: "\uE521\uE520", mf: "\uE521\uE522", f: "\uE522", ff: "\uE522\uE522" };
+const END_BARS: Record<Barline, BarlineType> = { single: BarlineType.SINGLE, double: BarlineType.DOUBLE, final: BarlineType.END, repeat: BarlineType.REPEAT_END };
+
 /** "c#/4" from "C#4"; a rest sits where VexFlow's rests belong in the clef. */
 const vexKey = (note: CheckedNote, clef: string) => {
-  if (!note.pitchValue) return clef === "bass" ? "d/3" : "b/4";
+  if (!note.pitchValue) return clef === "bass" ? "d/3" : clef === "alto" ? "c/4" : "b/4";
   const { letter, accidental, octave } = note.pitchValue;
   return `${letter.toLowerCase()}${["bb", "b", "", "#", "##"][accidental + 2]}/${octave}`;
 };
@@ -80,6 +84,7 @@ export async function renderScore(host: HTMLElement, input: MusicScore, width: n
   context.setFillStyle("currentColor"); context.setStrokeStyle("currentColor");
   const notes: (SVGElement | null)[] = score.notes.map(() => null);
   const drawn: { note: StaveNote; index: number }[] = [];
+  const accidentals = displayedAccidentals(score);
   const staves: RenderedScore["staves"] = [];
   lines.forEach((line, row) => {
     let x = 8;
@@ -92,18 +97,26 @@ export async function renderScore(host: HTMLElement, input: MusicScore, width: n
       const stave = new Stave(x, top + row * lineHeight, staveWidth);
       if (first) {
         stave.addClef(score.clef);
+        // The key signature on every line (as engravers do), the time signature on the first.
+        if (score.score.key) stave.addKeySignature(score.score.key);
         if (row === 0 && score.score.time) stave.addTimeSignature(score.score.time);
       }
+      if (row === 0 && column === 0 && score.score.repeatStart) stave.setBegBarType(BarlineType.REPEAT_BEGIN);
       const last = row === lines.length - 1 && column === line.length - 1;
-      if (!score.time) stave.setEndBarType(last && group.length ? BarlineType.END : BarlineType.NONE);
-      else if (last) stave.setEndBarType(BarlineType.END);
+      const end = score.score.end ? END_BARS[score.score.end] : BarlineType.END;
+      if (!score.time) stave.setEndBarType(last && (group.length || score.score.end) ? end : BarlineType.NONE);
+      else if (last) stave.setEndBarType(end);
       stave.setContext(context).draw();
       staves.push({ x: stave.getX(), width: stave.getWidth(), lines: [4, 3, 2, 1, 0].map(line => stave.getYForLine(line)) });
       if (group.length) {
         const staveNotes = group.map(note => {
-          const staveNote = new StaveNote({ clef: score.clef, keys: [vexKey(note, score.clef)], duration: `${VEXFLOW_DURATION[note.duration]}${note.pitchValue ? "" : "r"}`, autoStem: true });
+          const stem = note.stem ? { stemDirection: note.stem === "up" ? Stem.UP : Stem.DOWN } : { autoStem: true };
+          const staveNote = new StaveNote({ clef: score.clef, keys: [vexKey(note, score.clef)], duration: `${VEXFLOW_DURATION[note.duration]}${note.pitchValue ? "" : "r"}`, ...stem });
           if (note.dotted) Dot.buildAndAttach([staveNote], { all: true });
-          if (note.pitchValue && note.pitchValue.accidental !== 0) staveNote.addModifier(new Accidental(["bb", "b", "n", "#", "##"][note.pitchValue.accidental + 2]), 0);
+          // Accidentals as engraving shows them: the key signature's are not repeated; one lasts to the end of its bar.
+          const sign = accidentals[note.index];
+          if (sign) staveNote.addModifier(new Accidental(sign), 0);
+          if (note.dynamic) staveNote.addModifier(new Annotation(DYNAMIC_GLYPHS[note.dynamic]).setFont("Bravura", 30).setVerticalJustification(AnnotationVerticalJustify.BOTTOM), 0);
           if (note.label) staveNote.addModifier(new Annotation(note.label).setFont(LABEL_FONT.family, LABEL_FONT.size).setVerticalJustification(AnnotationVerticalJustify.BOTTOM), 0);
           drawn.push({ note: staveNote, index: note.index });
           return staveNote;
@@ -118,6 +131,22 @@ export async function renderScore(host: HTMLElement, input: MusicScore, width: n
       x += staveWidth;
     });
   });
+  // Ties and slurs, once every note has its place (across bar lines and lines alike).
+  const byIndex = new Map(drawn.map(item => [item.index, item.note]));
+  for (const note of score.notes) {
+    if (note.tie && byIndex.has(note.index + 1)) {
+      new StaveTie({ firstNote: byIndex.get(note.index)!, lastNote: byIndex.get(note.index + 1)!, firstIndexes: [0], lastIndexes: [0] }).setContext(context).draw();
+    }
+  }
+  let slurFrom = -1;
+  for (const note of score.notes) {
+    if (note.slur === "start") slurFrom = note.index;
+    if (note.slur === "end" && slurFrom >= 0) {
+      const from = byIndex.get(slurFrom)!, to = byIndex.get(note.index)!;
+      new Curve(from, to, { cps: [{ x: 0, y: 14 }, { x: 0, y: 14 }] }).setContext(context).draw();
+      slurFrom = -1;
+    }
+  }
   // VexFlow names each note's group by id: classes go on afterwards, so the card can find and light them.
   for (const { note, index } of drawn) {
     const group = host.querySelector<SVGElement>(`[id="vf-${note.getAttribute("id")}"]`);
@@ -126,6 +155,7 @@ export async function renderScore(host: HTMLElement, input: MusicScore, width: n
   }
   host.querySelectorAll(".vf-clef").forEach(node => node.classList.add("music-clef"));
   host.querySelectorAll(".vf-timesignature").forEach(node => node.classList.add("music-time"));
+  host.querySelectorAll(".vf-keysignature").forEach(node => node.classList.add("music-key"));
   const svg = host.querySelector("svg") as SVGSVGElement;
   svg.setAttribute("role", "img");
   // Scales with the card: the drawing's own units through a viewBox, no fixed pixel size.
@@ -154,6 +184,7 @@ export function highlight(rendered: RenderedScore, items: readonly MusicHighligh
     if ("note" in item) rendered.notes[item.note]?.classList.add("lit");
     if ("clef" in item) svg.querySelectorAll(".music-clef").forEach(node => node.classList.add("lit"));
     if ("time" in item) svg.querySelectorAll(".music-time").forEach(node => node.classList.add("lit"));
+    if ("key" in item) svg.querySelectorAll(".music-key").forEach(node => node.classList.add("lit"));
     if ("line" in item || "space" in item) markStaff(rendered, "line" in item ? { line: item.line } : { space: (item as { space: number }).space });
   }
   if (playing !== null) rendered.notes[playing]?.classList.add("sounding");

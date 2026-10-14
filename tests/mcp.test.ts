@@ -11,7 +11,7 @@ type Result = { isError?: boolean; content: { type: string; text?: string }[]; s
 const text = (result: unknown) => (result as Result).content.map(item => item.text ?? "").join("");
 const structured = (result: unknown) => presenceOutput.parse((result as Result).structuredContent);
 
-test("a host without MCP Apps sees exactly the Aion tools, each with schemas and honest annotations", async () => {
+test("a host without MCP Apps sees exactly the Aion tools, each with an input schema and honest annotations", async () => {
   const aion = await connectAion();
   try {
     const { tools } = await aion.client.listTools();
@@ -20,7 +20,9 @@ test("a host without MCP Apps sees exactly the Aion tools, each with schemas and
       assert.ok(tool.description && tool.description.length > 80, `${tool.name} has a precise description`);
       assert.equal(tool.inputSchema.type, "object");
       assert.equal((tool.inputSchema as { additionalProperties?: boolean }).additionalProperties, false, `${tool.name} rejects unknown fields`);
-      assert.ok(tool.outputSchema, `${tool.name} declares its structured output`);
+      // v0.4.4: no output schema (it repeated 7.9 KB on every tool and pushed Aion past Codex's tool-metadata budget);
+      // the structured result is still returned and checked below with presenceOutput.
+      assert.equal(tool.outputSchema, undefined, `${tool.name} keeps its metadata small`);
       // Only the lookups (a public picture, portrait, terrain, map or place to mark) reach outside this machine, and they say so.
       assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain", "show_map", "mark_map"].includes(tool.name), `${tool.name} openWorldHint`);
       assert.equal(tool.annotations?.destructiveHint, false);

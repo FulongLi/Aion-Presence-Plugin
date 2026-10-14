@@ -61,11 +61,11 @@ export class Aion implements BodySource {
    * v0.4.3: performs an action sequence — `frame()` gives this moment's pose channels (null when it has ended). The body
    * becomes the figure for it (on a smaller, lower stage) and returns to the persistent body afterwards.
    */
-  perform(performance: { frame(): Channels | null; stage: { scale: number; y: number } } | null) {
+  perform(performance: { frame(): Channels | null; stage: { scale: number; y: number }; past?(secondsAgo: number): Channels | null } | null) {
     this.performance = performance;
     this.body.override = performance ? "figure" : null;
   }
-  private performance: { frame(): Channels | null; stage: { scale: number; y: number } } | null = null;
+  private performance: { frame(): Channels | null; stage: { scale: number; y: number }; past?(secondsAgo: number): Channels | null } | null = null;
 
   /** Changes the persistent body; false when it already is that body. */
   setBody(form: AionBodyId) { return this.body.set(form); }
@@ -109,7 +109,8 @@ export class Aion implements BodySource {
     this.frame.eyes = this.body.eyes;
     // Each body's motion is only computed while any of it is visible.
     if (this.frame.level > 0 || this.body.shown === "figure") {
-      this.figure.perform(this.performance?.frame() ?? null, this.performance?.stage);
+      const performance = this.performance;
+      this.figure.perform(performance?.frame() ?? null, performance?.stage, performance?.past ? seconds => performance.past!(seconds) : undefined);
       this.figure.sample(step, state, now - this.state.since, signal.assistantAmplitude, calm, signal.userAmplitude);
     }
     if (this.look && this.clock > this.look.until) this.look = null;

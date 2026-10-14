@@ -142,7 +142,7 @@ const finite = (values: ArrayLike<number>) => Array.from(values).every(Number.is
 
 test("the skeleton has every required anchor", () => {
   const required = ["head", "neck", "shoulderLeft", "shoulderRight", "elbowLeft", "elbowRight", "handLeft", "handRight",
-    "spine", "hipLeft", "hipRight", "kneeLeft", "kneeRight", "footLeft", "footRight"];
+    "spine", "hipLeft", "hipRight", "kneeLeft", "kneeRight", "footLeft", "footRight", "chest"];
   assert.deepEqual([...ANCHORS].sort(), required.sort());
   assert.ok(ANCHOR_COUNT <= 16, "anchor indices fit the 4-bit packing");
 });
@@ -206,7 +206,8 @@ test("the particle layout is a valid, bounded figure at every quality tier", () 
       assert.ok(Math.abs(position[0]) < 2 && Math.abs(position[1]) < 2 && Math.abs(position[2]) < 2);
     }
   }
-  const active = Object.entries(FIGURE_SHARES).filter(([, share]) => share > 0).map(([kind]) => FIGURE_KINDS[kind as keyof typeof FIGURE_KINDS]);
+  // The glow (aura) is drawn along the limb curves, as limb grains (v0.4.4).
+  const active = [...new Set(Object.entries(FIGURE_SHARES).filter(([, share]) => share > 0).map(([kind]) => FIGURE_KINDS[(kind === "aura" ? "limb" : kind) as keyof typeof FIGURE_KINDS]))];
   assert.deepEqual([...kinds].sort(), active.sort(), "every component of the clean figure is present, and nothing else");
   const prefix = new Set<number>();
   for (let i = 0; i < 6000; i++) prefix.add(unpackAnchors(layout.bind[i * 4]).kind);

@@ -1,5 +1,6 @@
 import { Path } from "../../visual/forms/geometry/path";
-import { STROKE_LIMITS, STROKE_SPACE, type Stroke, type StrokePack, type StrokeSequence, type SymbolSpec } from "./types";
+import { composeWriting } from "./compose";
+import { STROKE_LIMITS, STROKE_SPACE, type StrokePack, type StrokeSequence, type SymbolSpec } from "./types";
 
 /**
  * The Stroke Path Processor: authored stroke paths → normalized, ordered, measured strokes. Lines and quadratic and
@@ -94,9 +95,9 @@ export function pointAlong(points: readonly number[], u: number, lengths = arcLe
   return { x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k, tx: (x1 - x0) / len, ty: (y1 - y0) / len };
 }
 
-/** A direction in words: straight right, up, left or down within 15°, otherwise the diagonal it leans toward. */
+/** A direction in words, by eight sectors: right, up, left or down within 22.5°, otherwise the diagonal it leans toward. */
 function compass(dx: number, dy: number): string {
-  const angle = Math.atan2(dy, dx) * 180 / Math.PI, near = (a: number) => Math.abs(((angle - a + 540) % 360) - 180) <= 15;
+  const angle = Math.atan2(dy, dx) * 180 / Math.PI, near = (a: number) => Math.abs(((angle - a + 540) % 360) - 180) <= 22.5;
   if (near(0)) return "right";
   if (near(90)) return "up";
   if (near(180)) return "left";
@@ -104,85 +105,136 @@ function compass(dx: number, dy: number): string {
   return `${dy > 0 ? "up" : "down"}-${dx > 0 ? "right" : "left"}`;
 }
 
+/** A polyline resampled at an even spacing (its ends kept). */
+function resample(points: readonly number[], step: number): number[] {
+  const lengths = arcLengths(points), total = lengths[lengths.length - 1];
+  const n = Math.max(2, Math.ceil(total / step) + 1);
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) { const p = pointAlong(points, i / (n - 1), lengths); out.push(p.x, p.y); }
+  return out;
+}
+
+const wrap = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+const DEG = Math.PI / 180;
+
 /**
- * Where the pen goes, in words, from the stroke's own geometry: its straight runs between sharp turns ("right, then
- * down, then a hook left"), or a loop and its sense for a stroke that turns all the way round.
+ * Where the pen goes, in words, from the stroke's own geometry (v0.4.4): the stroke is split at its sharp corners;
+ * each piece is straight ("right"), a curve with its sense ("up-left, curving anticlockwise"), an S ("left, curving
+ * anticlockwise, then clockwise") or a loop; a short last piece after a corner is a hook ("a hook up-left"). The
+ * small wobbles of a measured centre line (a Chinese character's median) are not movements of the pen.
  */
-export function describeDirection(points: readonly number[]): string {
-  const n = points.length / 2;
-  if (n < 2) return "a dot";
-  // Total turning tells a loop and its sense.
-  let turning = 0;
-  for (let i = 1; i < n - 1; i++) {
-    const a = Math.atan2(points[i * 2 + 1] - points[i * 2 - 1], points[i * 2] - points[i * 2 - 2]);
-    const b = Math.atan2(points[i * 2 + 3] - points[i * 2 + 1], points[i * 2 + 2] - points[i * 2]);
-    let d = b - a; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-    turning += d;
-  }
-  const length = flatLength(points);
+export function describeDirection(input: readonly number[]): string {
+  if (input.length < 4) return "a dot";
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-  for (let i = 0; i < n; i++) { x0 = Math.min(x0, points[i * 2]); x1 = Math.max(x1, points[i * 2]); y0 = Math.min(y0, points[i * 2 + 1]); y1 = Math.max(y1, points[i * 2 + 1]); }
-  if (Math.max(x1 - x0, y1 - y0) < 0.07) return "a dot";
-  if (Math.abs(turning) > Math.PI * 1.6) return `a loop, ${turning > 0 ? "anticlockwise" : "clockwise"}`;
-  // Runs: split where the direction turns sharply (more than 50°) over a short distance.
-  const runs: { dx: number; dy: number; length: number }[] = [];
-  let run = { dx: 0, dy: 0, length: 0 };
-  let heading: number | null = null;
-  for (let i = 1; i < n; i++) {
-    const dx = points[i * 2] - points[i * 2 - 2], dy = points[i * 2 + 1] - points[i * 2 - 1], len = Math.hypot(dx, dy);
-    if (len < 1e-9) continue;
-    const angle = Math.atan2(dy, dx);
-    if (heading !== null) {
-      let d = angle - heading; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
-      if (Math.abs(d) > 50 * Math.PI / 180 && run.length > 0) { runs.push(run); run = { dx: 0, dy: 0, length: 0 }; }
+  for (let i = 0; i < input.length; i += 2) { x0 = Math.min(x0, input[i]); x1 = Math.max(x1, input[i]); y0 = Math.min(y0, input[i + 1]); y1 = Math.max(y1, input[i + 1]); }
+  const length = flatLength(input);
+  if (Math.max(x1 - x0, y1 - y0) < 0.07 || length < 0.08) return "a dot";
+  const step = Math.max(0.004, length / 160);
+  const pts = resample(simplifyPolyline(input, 0.012), step);
+  const n = pts.length / 2;
+  const heading: number[] = [];
+  for (let i = 1; i < n; i++) heading.push(Math.atan2(pts[i * 2 + 1] - pts[i * 2 - 1], pts[i * 2] - pts[i * 2 - 2]));
+  const turn = heading.slice(1).map((h, i) => wrap(h - heading[i]));
+  // Corners: a sharp change of heading (over 60°) within a short distance (≈ 0.12: a brush turns a corner in a moment).
+  const window = Math.max(1, Math.round(Math.max(0.04, Math.min(0.12, length * 0.1)) / step));
+  const corners: number[] = [];
+  for (let i = 0; i < turn.length; i++) {
+    let sum = 0;
+    for (let k = i; k < Math.min(turn.length, i + window); k++) sum += turn[k];
+    if (Math.abs(sum) > 60 * DEG && (!corners.length || i - corners[corners.length - 1] > window)) {
+      // The corner sits where the turn is sharpest inside the window.
+      let at = i, best = 0;
+      for (let k = i; k < Math.min(turn.length, i + window); k++) if (Math.abs(turn[k]) > best) { best = Math.abs(turn[k]); at = k; }
+      corners.push(at + 1);
+      i = at + window;
     }
-    heading = angle;
-    run.dx += dx; run.dy += dy; run.length += len;
   }
-  if (run.length > 0) runs.push(run);
+  let cuts = [0, ...corners, heading.length];
+  // A short lead-in before the first corner (a brush's entry in a measured median) belongs to the movement after it.
+  if (cuts.length > 2 && (cuts[1] - cuts[0]) * step < length * 0.12) cuts = [0, ...cuts.slice(2)];
   const words: string[] = [];
-  runs.forEach((r, i) => {
-    // A short last run after a turn is a hook.
-    const hook = i > 0 && i === runs.length - 1 && r.length < length * 0.16;
-    const word = `${hook ? "a hook " : ""}${compass(r.dx, r.dy)}`;
+  const sense = (k: number) => k > 0 ? "anticlockwise" : "clockwise";
+  for (let p = 0; p < cuts.length - 1; p++) {
+    const a = cuts[p], b = cuts[p + 1];
+    if (b - a < 1) continue;
+    const piece = heading.slice(a, b);
+    // The turning inside the piece, away from the corners that bound it (their turn belongs to the corner).
+    const trimA = p > 0 ? Math.min(window, Math.floor((b - a) / 3)) : 0, trimB = p < cuts.length - 2 ? Math.min(window, Math.floor((b - a) / 3)) : 0;
+    const turns = turn.slice(a + trimA, Math.max(a + trimA, b - 1 - trimB));
+    const net = turns.reduce((sum, t) => sum + t, 0), absolute = turns.reduce((sum, t) => sum + Math.abs(t), 0);
+    const chordX = pts[b * 2] - pts[a * 2], chordY = pts[b * 2 + 1] - pts[a * 2 + 1];
+    const pieceLength = piece.length * step;
+    const hook = p > 0 && p === cuts.length - 2 && pieceLength < length * 0.16;
+    const mean = (hs: number[]) => Math.atan2(hs.reduce((s, h) => s + Math.sin(h), 0), hs.reduce((s, h) => s + Math.cos(h), 0));
+    let word: string;
+    if (absolute < 60 * DEG || hook) word = compass(chordX, chordY);
+    else if (Math.abs(net) >= 300 * DEG) word = `a loop, ${sense(net)}`;
+    else {
+      const k = Math.max(1, Math.round(piece.length * 0.15));
+      const start = mean(piece.slice(trimA, trimA + k)), finish = mean(piece.slice(Math.max(0, piece.length - trimB - k), piece.length - trimB));
+      // Senses in order, ignoring wobbles: an S turns one way, then the other.
+      const senses: number[] = [];
+      let run = 0;
+      for (const t of turns) {
+        if (Math.sign(t) !== Math.sign(run) && Math.abs(run) > 50 * DEG) { senses.push(Math.sign(run)); run = 0; }
+        run += t;
+      }
+      if (Math.abs(run) > 50 * DEG) senses.push(Math.sign(run));
+      const merged = senses.filter((value, i) => i === 0 || value !== senses[i - 1]);
+      const from = compass(Math.cos(start), Math.sin(start)), to = compass(Math.cos(finish), Math.sin(finish));
+      if (merged.length >= 2) word = `${from}, curving ${sense(merged[0])}, then ${sense(merged[1])}`;
+      else if (Math.abs(net) < 45 * DEG) word = compass(chordX, chordY);
+      else word = Math.abs(net) >= 100 * DEG && to !== from ? `${from}, curving ${sense(net)} to ${to}` : `${from}, curving ${sense(net)}`;
+    }
+    word = `${hook ? "a hook " : ""}${word}`;
     if (words[words.length - 1] !== word) words.push(word);
-  });
-  if (words.length === 1 && Math.abs(turning) > Math.PI * 0.55) return `${words[0]}, curving ${turning > 0 ? "anticlockwise" : "clockwise"}`;
-  return words.slice(0, 4).join(", then ");
+  }
+  return words.slice(0, 4).join(", then ") || compass(input[input.length - 2] - input[0], input[input.length - 1] - input[1]);
+}
+
+/** Ramer–Douglas–Peucker simplification of a flat polyline, keeping its ends. */
+export function simplifyPolyline(points: readonly number[], epsilon: number): number[] {
+  const n = points.length / 2;
+  if (n <= 2) return [...points];
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const ax = points[a * 2], ay = points[a * 2 + 1], bx = points[b * 2], by = points[b * 2 + 1];
+    const dx = bx - ax, dy = by - ay, len = Math.hypot(dx, dy);
+    let worst = -1, far = 0;
+    for (let i = a + 1; i < b; i++) {
+      const px = points[i * 2] - ax, py = points[i * 2 + 1] - ay;
+      const d = len > 1e-12 ? Math.abs(px * dy - py * dx) / len : Math.hypot(px, py);
+      if (d > far) { far = d; worst = i; }
+    }
+    if (worst >= 0 && far > epsilon) { keep[worst] = 1; stack.push([a, worst], [worst, b]); }
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(points[i * 2], points[i * 2 + 1]);
+  return out;
 }
 
 /** Seconds to write a stroke at normal speed: unhurried, longer strokes taking longer. */
 export const strokeSeconds = (length: number) => Math.max(0.45, Math.min(3.4, 0.4 + length * 0.46));
 
-/** Builds a pack's symbol into its normalized, measured, ordered sequence. */
-export function buildSequence(pack: StrokePack, spec: SymbolSpec): StrokeSequence {
-  const commands = spec.strokes.map(stroke => parseStrokePath(stroke.d));
-  const box = spec.box ?? (pack.autoWidth ? autoBox(pack.box, commands) : pack.box);
-  const [left, bottom, right, top] = box;
-  const width = right - left, height = top - bottom;
-  if (!(width > 0 && height > 0)) throw new Error("stroke-box-invalid");
-  const scale = (STROKE_SPACE.limit * 2) / Math.max(width, height);
-  const cx = (left + right) / 2, cy = (bottom + top) / 2;
-  const map = (x: number, y: number): [number, number] => [(x - cx) * scale, (y - cy) * scale];
-  const strokes: Stroke[] = spec.strokes.map((stroke, index) => {
-    const path = flatten(commands[index], map, scale);
-    const length = flatLength(path);
+/**
+ * A curated symbol's strokes, flattened in normalized units through `map` (authoring → normalized; `scale` is its
+ * factor): each stroke's ordered centre line, its pen width at start and end, its name and any hand-written description.
+ */
+export function curatedStrokes(pack: StrokePack, spec: SymbolSpec, map: (x: number, y: number) => [number, number], scale: number) {
+  return spec.strokes.map(stroke => {
+    const path = flatten(parseStrokePath(stroke.d), map, scale);
     const w = pack.width * (stroke.width ?? 1), taper = stroke.taper ?? [1, 1];
-    return {
-      id: `${spec.symbol}-${index + 1}`, order: index + 1, path,
-      startPoint: [path[0], path[1]], endPoint: [path[path.length - 2], path[path.length - 1]],
-      direction: stroke.say ?? describeDirection(path), length, duration: strokeSeconds(length),
-      width: [w * taper[0], w * taper[1]], ...(stroke.name ? { name: stroke.name } : {}),
-    };
+    return { path, width: [w * taper[0], w * taper[1]] as [number, number], name: stroke.name, say: stroke.say };
   });
-  const sequence: StrokeSequence = {
-    id: `${pack.system}:${spec.symbol}`, symbol: spec.symbol, title: spec.title, writingSystem: pack.system, variant: pack.variant,
-    convention: pack.convention, ...(spec.note ? { note: spec.note } : {}), strokes, guides: guides(pack.guide, box, map),
-    totalDuration: 0,
-  };
-  sequence.totalDuration = writingSeconds(sequence);
-  validateSequence(sequence);
-  return sequence;
+}
+
+/** Builds a pack's symbol into its normalized, measured, ordered sequence (one item; see compose.ts). */
+export function buildSequence(pack: StrokePack, spec: SymbolSpec): StrokeSequence {
+  return composeWriting({ system: pack.system, text: spec.symbol, title: spec.title, pieces: [{ type: "symbol", id: `${pack.system}:${spec.symbol}` }] },
+    () => ({ pack, spec }));
 }
 
 /** The pause between two strokes: the pen lifts, travels and settles. */
@@ -191,11 +243,12 @@ export const gapSeconds = (from: readonly [number, number], to: readonly [number
 
 /** Strokes and the pauses between them, at normal speed. */
 export function writingSeconds(sequence: Pick<StrokeSequence, "strokes">): number {
-  return sequence.strokes.reduce((sum, stroke, i) => sum + stroke.duration + (i ? gapSeconds(sequence.strokes[i - 1].endPoint, stroke.startPoint) : 0), 0);
+  return sequence.strokes.reduce((sum, stroke) => sum + stroke.pause + stroke.duration, 0);
 }
 
 /** A symbol's own horizontal extent (its points and control points, plus a margin) inside the pack's vertical extent. */
-function autoBox(box: readonly [number, number, number, number], commands: Command[][]): [number, number, number, number] {
+export function autoBox(box: readonly [number, number, number, number], strokes: readonly { d: string }[]): [number, number, number, number] {
+  const commands = strokes.map(stroke => parseStrokePath(stroke.d));
   let low = Infinity, high = -Infinity;
   const see = (x: number) => { low = Math.min(low, x); high = Math.max(high, x); };
   for (const command of commands.flat()) {
@@ -209,7 +262,7 @@ function autoBox(box: readonly [number, number, number, number], commands: Comma
 }
 
 /** Faint context: a practice grid (田字格 with its diagonals dashed), a five-line staff, or writing lines. */
-function guides(kind: StrokePack["guide"], box: readonly [number, number, number, number], map: (x: number, y: number) => [number, number]): number[][] {
+export function guides(kind: StrokePack["guide"], box: readonly [number, number, number, number], map: (x: number, y: number) => [number, number]): number[][] {
   const [left, bottom, right, top] = box;
   const line = (x0: number, y0: number, x1: number, y1: number) => [...map(x0, y0), ...map(x1, y1)];
   switch (kind) {
@@ -234,13 +287,35 @@ function guides(kind: StrokePack["guide"], box: readonly [number, number, number
 export function validateSequence(sequence: StrokeSequence) {
   const fail = () => { throw new Error("stroke-sequence-invalid"); };
   if (!sequence.strokes.length || sequence.strokes.length > STROKE_LIMITS.strokes) fail();
+  if (!sequence.items.length || sequence.items.length > STROKE_LIMITS.items) fail();
+  const inStage = (x: number, y: number) => Number.isFinite(x) && Number.isFinite(y) && Math.abs(x) <= STROKE_SPACE.halfWidth + 0.12 && Math.abs(y) <= STROKE_SPACE.limit + 0.12;
   let vertices = 0;
   sequence.strokes.forEach((stroke, i) => {
     if (stroke.order !== i + 1 || stroke.path.length < 4 || stroke.path.length % 2) fail();
-    if (!stroke.path.every(v => Number.isFinite(v) && Math.abs(v) <= STROKE_SPACE.limit + 0.08)) fail();
-    if (!(stroke.length >= STROKE_LIMITS.minLength) || !(stroke.duration > 0)) fail();
+    for (let k = 0; k < stroke.path.length; k += 2) if (!inStage(stroke.path[k], stroke.path[k + 1])) fail();
+    if (!(stroke.length >= STROKE_LIMITS.minLength) || !(stroke.duration > 0) || !(stroke.pause >= 0) || (i === 0 && stroke.pause !== 0)) fail();
     if (!stroke.width.every(w => w >= STROKE_LIMITS.width.min && w <= STROKE_LIMITS.width.max)) fail();
     vertices += stroke.path.length / 2;
+    if (stroke.outline) {
+      if (!stroke.outline.length) fail();
+      for (const ring of stroke.outline) {
+        if (ring.length < 6 || ring.length % 2) fail();
+        for (let k = 0; k < ring.length; k += 2) if (!inStage(ring[k], ring[k + 1])) fail();
+        vertices += ring.length / 2;
+      }
+    }
   });
+  // Each item's strokes are contiguous and numbered from 1 in its own order.
+  let next = 0;
+  sequence.items.forEach((item, index) => {
+    if (item.first !== next || item.count < 1 || item.count > STROKE_LIMITS.symbolStrokes) fail();
+    for (let k = 0; k < item.count; k++) {
+      const stroke = sequence.strokes[item.first + k];
+      if (!stroke || stroke.item !== index || stroke.local !== k + 1) fail();
+    }
+    if (item.radical && !item.radical.every(k => Number.isInteger(k) && k >= 0 && k < item.count)) fail();
+    next += item.count;
+  });
+  if (next !== sequence.strokes.length) fail();
   if (vertices > STROKE_LIMITS.vertices) fail();
 }

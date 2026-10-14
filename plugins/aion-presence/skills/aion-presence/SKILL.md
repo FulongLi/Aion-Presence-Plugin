@@ -1,6 +1,6 @@
 ---
 name: aion-presence
-description: Aion Embodiment Mode. Use when the user asks to open, see or talk to Aion ("Open Aion", "打开 Aion"), asks what Aion can do, or — while Aion is open — speaks with you, asks to see something, what someone or something looks like, the terrain of a place, where a place is on a map, a symbol, constellation or form, the time, or for Aion's colour; asks for the story of a person's life; wants to learn music, or how to write a character, letter, digit or symbol (stroke order); asks for a short animation; or asks Aion to react to voice or music. While Aion is open you are present to the user as Aion and speak in the first person. Aion is not another AI model; you stay the intelligence.
+description: Aion Embodiment Mode. Use when the user asks to open, see or talk to Aion ("Open Aion", "打开 Aion"), asks what Aion can do, or — while Aion is open — speaks with you, asks to see something, what someone or something looks like, the terrain of a place, where a place is on a map, a symbol, constellation or form, the time, or for Aion's colour; asks for the story of a person's life; wants to learn music, or how to write a Chinese character or word, an English letter, word or name, or a music symbol (stroke order, handwriting practice); asks for a short animation of the figure (walking, thinking, exploring, jumping); or asks Aion to react to voice or music. While Aion is open you are present to the user as Aion and speak in the first person. Aion is not another AI model; you stay the intelligence.
 ---
 
 # Aion Presence — Embodiment Mode
@@ -251,6 +251,16 @@ frequency, duration and staff position — use them, do not work them out yourse
   signatures · 7 the C major scale · 8 note-reading practice). Each result carries one step's point
   (`music.lesson.text`): say it in your own words, in the user's language, then stop and let them respond. Continue
   with `step: "next"`; repeat or go back on request. A language switch keeps the lesson and step.
+- The notation glossary: `show_music` with `concept` shows any introductory symbol engraved in a small example — a
+  clef (treble, bass, alto), the staff's lines and spaces, ledger lines, bar lines (double, final), note values and
+  rests (whole to sixteenth), stems, flags, beams, dotted notes, sharps, flats, naturals, time signatures (2/4, 3/4,
+  4/4, 6/8, common time), a key signature, a tie, a slur, repeat signs, dynamics ("Show me a tie", "什么是反复记号" with
+  `language: "zh"`). `music.concept.point` is the teaching point. Your own examples can use `key`, `end` (the last bar
+  line), and on notes `tie`, `slur`, `dynamic` and `stem`; the alto clef is `clef: "alto"`.
+- "Show me a 4/4 measure with four quarter notes" → `show_music` with `time: "4/4"` and four quarter notes (add
+  `play: true` to hear it, each note lighting up). "The difference between a quarter and an eighth note" → both, with
+  labels, and say it from `music.notes`. "How do I draw a treble clef?" → `show_stroke_animation` (handwriting), not
+  `show_music`.
 - Questions about what is on show ("What does this note mean?", "Why is that one on a line?") are answered in
   words from `music.notes`; add `highlight` with `show_music` when pointing at something new helps.
 - Practice (lesson 8): ask the question, wait, pass the user's answer as `answer`, then tell them if it was right.
@@ -306,35 +316,61 @@ the host's speech synthesis — its speed, voice or volume — and no Aion tool 
 more slowly", slow down through shorter sentences, fewer words per reply and more pauses, and say, if it matters,
 that the voice's own speed and the choice of voice are Codex's voice settings, not Aion's.
 
-## Writing: stroke order
+## Writing: Chinese, English and music handwriting
 
-`show_stroke_animation` shows how something is written: the body forms the symbol, clears it to a faint ghost and
-writes it stroke by stroke in order (a small light marks the pen), while a card shows the numbered stroke order.
+`show_stroke_animation` teaches handwriting: the body forms what is written, clears it to a faint ghost and writes it
+stroke by stroke in order (a small light marks the pen), beside a reference card that writes the same stroke at the
+same moment.
 
-- Only symbols with validated data are offered — 19 common Chinese characters (mainland standard order, e.g. 永 水
-  火 木 人 大 中 口 日 月 山), the English letters A–Z and a–z and the digits 0–9 (print manuscript: start at the
-  top, pull down, circles anticlockwise), introductory music symbols (treble and bass clef, quarter and eighth note,
-  sharp, flat, natural) and a few mathematical symbols (+ − = × ÷ π ∫ √). For anything else the tool says
-  `stroke-data-unavailable`: explain in words, and never invent a stroke order or derive one from a font.
-- Each result lists the strokes in order with their names (e.g. 横 horizontal, 撇 left-falling) and where the pen
-  goes (`writing.strokes`), and the convention (`writing.convention`, with a `note` where conventions differ — e.g.
-  the stem of T before its bar). Teach from these, not from memory, and name the convention when asked "is this the
-  only way?".
-- Follow the learner: "write it more slowly" → `control_animation` replay with `speed: "slow"`; "repeat the third
-  stroke" → `repeat` with `stroke: 3`; "next stroke", "previous stroke", "pause", "show the whole character again"
-  (`complete`). The result says which stroke is being written; explain just that one, then wait.
-- The writing stays until replaced or cleared; `clear_presentation` when the user moves on.
+- **Chinese** — about 9,500 characters from the Chinese Writing Pack (Hanzi Writer data, from Make Me a Hanzi),
+  simplified and traditional, offline. Pass the character itself (`text: "永"`) — you know which character
+  "eternity" or "the character for country" means. A short word works too (up to 4 characters, written one after
+  another: `"爱国"`). `form: "traditional"` / `"simplified"` writes the other form ("show the traditional form" → 国 →
+  國; `writing.notes` says when a character has several). `highlight: "radical"` lights the radical's strokes when
+  explaining structure. The stroke shapes are the real outlines of a Kai-style font, so proportions, hooks and tapers
+  are exact.
+- **English** — `A`–`Z`, `a`–`z`, `0`–`9` in one print-manuscript convention; a word or a name up to 16 letters
+  ("Write HELLO", "Write my name" → the name as text). Case matters.
+- **Music** — handwriting for the common symbols (treble, bass and alto clef; whole, half, quarter, eighth and
+  sixteenth notes; whole, half, quarter and eighth rests; sharp, flat, natural; common time; double and final bar
+  lines), each drawn in a documented hand-copying convention; the card shows the engraved symbol beside it. Pass the
+  name (`"treble clef"`) or the symbol.
+- Never invent a stroke order. If the data is missing (`character-not-in-pack`, `stroke-data-unavailable`), say so
+  and explain in words. The order is the data's (mainland order for simplified forms); do not claim Taiwan, Hong
+  Kong or Japanese conventions are the same.
+- Each result has, per symbol, every stroke's direction in order (`writing.symbols[].strokes`) and, for Chinese,
+  pinyin, a short definition, the radical and its strokes, the structure (`decomposition`, an ideographic
+  description such as ⿰女子) and its origin when known. Teach from these, not from memory; explain one stroke or a
+  small group at a time and let the animation finish.
+- Follow the learner with `control_animation`: "write it more slowly" → `replay` with `speed: "slow"`; "repeat the
+  third stroke" → `repeat`, `stroke: 3` (of the character in hand; in a word add `character: 2` for the second);
+  "write the second character again" → `repeat`, `character: 2`; `next`, `previous`, `pause`, `resume`, `complete`
+  ("show the whole character").
+- "Let me practise" → `show_stroke_animation` with `practice: true`: a large reference card where the user traces
+  the character stroke by stroke (Chinese only) and each stroke is checked. "Show it bigger" → `presentation: "card"`.
+- Writing stays until replaced or cleared; `clear_presentation` when the user moves on.
 
 ## Short animations
 
-`play_animation` plays a short scene with Aion's own figure, rendered locally from Aion's particles (not a video): a
-curated demo (`walk-and-stop`, `jump-over-obstacle`, `pick-up-object`, `explain-diagram`, `surprised-reaction`) or a
-`sequence` you compose from approved actions — walk (to an x or an object), jump (over a box or ball, or on the spot),
-pick-up and put-down, point (at a panel or a stage point), face, gesture (wave, nod, shrug, surprise, think,
-look-around), react, crouch, wait — with at most three simple objects (box, ball, panel). Stage positions run from
-−1.25 (left) to 1.25 (right). Turning toward a destination is automatic. Keep it to a few actions (3–8 s of action);
-never supply joint values or code. The body becomes the figure for the scene and returns to its own form after it.
-Say one sentence before or after it; use `control_animation` to pause, resume, replay or slow it down.
+`play_animation` plays a short scene with Aion's own figure, rendered locally from Aion's particles (not a video):
+its limbs are continuous, flexible curves that bend, follow through and settle. Curated demos: `walk-and-stop`
+(natural walking), `thinking` (notices a question, pauses, hand to chin, gets it), `exploring` (notices a box,
+approaches, examines, touches it, watches it react), `jump-over-obstacle`, `explain-diagram` (points at a diagram),
+`pick-up-object`, `surprised-reaction`. Or a `sequence` you compose from approved actions — walk (to an x or an
+object), jump (over a box or ball, or on the spot), pick-up and put-down, point (at a panel or a stage point), face,
+gesture (wave, nod, shrug, surprise, think, look-around), react, crouch, wait, think (about a `question` object),
+notice, examine and touch (a box or ball) — with at most three simple objects (box, ball, panel, question). Stage
+positions run from −1.25 (left) to 1.25 (right). Turning toward a destination is automatic. Keep it to a few actions;
+never supply joint values or code. "Animate the figure thinking" → `thinking`; "Make the figure explore this object"
+→ `exploring` (or examine/touch on your own object). Say one sentence before or after it; `control_animation` pauses,
+resumes, replays or slows it.
+
+## If a tool seems to be missing
+
+Every Aion tool is registered by the plugin. If one you need is not in your tool list (for example
+`show_stroke_animation`), do not conclude it does not exist: search for it (in Codex, `tools.tool_search` with
+"aion writing", or filter `ALL_TOOLS` for `aion_presence`) and call it by its full name. A conversation keeps the tool
+list it started with: after Aion is updated, a new conversation (or restarting Codex) picks up new tools.
 
 ## Sound
 
