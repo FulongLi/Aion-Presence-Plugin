@@ -9,7 +9,9 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  * a Git install (`codex plugin marketplace add FulongLi/Aion-Presence-Plugin`) needs no build; CI checks that the
  * committed runtime is exactly what the sources build (npm run runtime:check).
  *
- *   presence.html   the Presence surface: page, styles and script in one file (MCP Apps resource + companion)
+ *   presence.html   the Presence surface: page, styles and script in one file (MCP Apps resource + companion). It
+ *                   carries the interactive card runtime (v0.4.5) as a string: a separate bundle that only ever runs inside
+ *                   a sandboxed frame (src/cards/runtime), never in the page itself.
  *   aion-mcp.mjs    the MCP server and presence hub (Node, every dependency bundled)
  *   aion-hook.mjs   the lifecycle hook command (Node builtins only)
  *
@@ -40,6 +42,32 @@ const inlinePage: Plugin = {
   },
 };
 
+/** The card runtime: its own bundle (Three.js WebGL, the applications), inlined into its own sandboxed document. */
+async function cardRuntime(): Promise<{ html: string; inputs: string[] }> {
+  const result = await build({
+    ...common, entryPoints: [src("cards/runtime/main.ts")], write: false, metafile: true,
+    platform: "browser", format: "iife", target: ["chrome120", "safari17", "firefox121"],
+  });
+  const script = result.outputFiles[0].text;
+  const html = readFileSync(src("cards/runtime/index.html"), "utf8")
+    .replace("/*__STYLES__*/", () => readFileSync(src("cards/runtime/styles.css"), "utf8"))
+    .replace("/*__SCRIPT__*/", () => script.replace(/<\/script/gi, "<\\/script"));
+  return { html, inputs: Object.keys(result.metafile.inputs).map(input => resolve(REPO_ROOT, input)) };
+}
+
+/** `import CARD_RUNTIME from "aion:card-runtime"`: the card runtime's document, as a string. */
+const cardRuntimeModule: Plugin = {
+  name: "aion-card-runtime",
+  setup(context) {
+    context.onResolve({ filter: /^aion:card-runtime$/ }, args => ({ path: args.path, namespace: "aion-card-runtime" }));
+    context.onLoad({ filter: /.*/, namespace: "aion-card-runtime" }, async () => {
+      const runtime = await cardRuntime();
+      console.log(`  card runtime  ${(runtime.html.length / 1024).toFixed(0)} KB (sandboxed)`);
+      return { contents: `export default ${JSON.stringify(runtime.html)};`, loader: "js", watchFiles: [...runtime.inputs, src("cards/runtime/index.html"), src("cards/runtime/styles.css")] };
+    });
+  },
+};
+
 function report(file: string) {
   const size = statSync(join(RUNTIME, file)).size;
   console.log(`  ${relative(REPO_ROOT, join(RUNTIME, file))}  ${(size / 1024).toFixed(0)} KB`);
@@ -48,7 +76,7 @@ function report(file: string) {
 const targets: BuildOptions[] = [
   {
     ...common, entryPoints: [src("surface/main.ts")], outfile: join(RUNTIME, "presence.js"), write: false,
-    platform: "browser", format: "iife", target: ["chrome120", "safari17", "firefox121"], plugins: [inlinePage],
+    platform: "browser", format: "iife", target: ["chrome120", "safari17", "firefox121"], plugins: [cardRuntimeModule, inlinePage],
   },
   {
     ...common, entryPoints: [src("host/mcp/main.ts")], outfile: join(RUNTIME, "aion-mcp.mjs"),

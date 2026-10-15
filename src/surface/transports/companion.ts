@@ -1,5 +1,6 @@
 import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 import type { ConnectionState, PresenceTransport } from "./types";
+import type { CardReport } from "../../cards/state";
 
 /**
  * The companion window: a page served by the local presence hub. Snapshots arrive over server-sent events;
@@ -38,6 +39,13 @@ export class CompanionTransport implements PresenceTransport {
     };
     void fetch(new URL("api/surface", this.base), {
       method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify(body), keepalive: true,
+    }).catch(() => {});
+  }
+
+  /** The interactive card's meaningful state (v0.4.5); the hub refuses a report about any other card. */
+  async cardReport(report: Omit<CardReport, "window">) {
+    await fetch(new URL("api/card", this.base), {
+      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify({ window: this.window, ...report }), keepalive: true,
     }).catch(() => {});
   }
 

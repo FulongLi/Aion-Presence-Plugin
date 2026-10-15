@@ -159,6 +159,14 @@ marker changes never re-form the visual. Aion's colours arrive in the snapshot: 
 Browser fullscreen, window sizing and gestures live only in the surface adapter (`immersive.ts`), never in Aion
 Core or the renderer.
 
+Interactive cards (v0.4.5): `cards/host.ts` is the Interactive Application Container — it creates a sandboxed frame
+(opaque origin, no network) from the card runtime (`src/cards/runtime`, a separate Three.js WebGL bundle embedded as a
+string), hands it one MessagePort (`cards/bridge.ts`, validated against `src/cards/protocol.ts`), drives the lifecycle
+(`src/cards/lifecycle.ts`), draws the universal controls and reports meaningful state to the hub (`POST /api/card`, or
+the app-only `presence_card` tool when embedded). The hub keeps the card (`src/cards/state.ts`) beside the
+presentation; the view frames the body by the card's layout and points toward the selected object when the application
+reports exactly where it is. See [CARDS.md](CARDS.md).
+
 ## Plugin package and distribution (`plugins/aion-presence`)
 
 A portable Agent Plugins package: `plugin.json` (with `extensions.com.openai.interface`), `mcp.json`, `skills/`,
@@ -181,3 +189,5 @@ marketplace is `spirit-connect`: `codex plugin marketplace add FulongLi/Aion-Pre
 - **Another host**: a transport in `src/surface/transports` and, if it is not an MCP client, an adapter that sends
   hub commands.
 - **Another visual pack**: one more entry in `VISUAL_FORM_PACKS`. Another image source: one more provider.
+- **Another interactive application** (v0.4.5): a manifest in `src/cards/registry.ts` and a module in
+  `src/cards/runtime/apps.ts`; the router, bridge, hub and MCP tools take it unchanged ([CARDS.md](CARDS.md)).

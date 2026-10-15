@@ -1,0 +1,150 @@
+import { CARD_LAYOUTS, CARD_LIMITS, checkState, type CardAppManifest, type CardLayout } from "./manifest";
+import { CARD_LIFECYCLE, type CardLifecycle } from "./lifecycle";
+import { CARD_INSTANCE, selectionProblem, validResources, type CardSelection, type ResourceStatus } from "./protocol";
+import { cleanCardText, type CardValue } from "./values";
+
+/**
+ * The interactive card as Aion's hub knows it (v0.4.5): independent of any page's DOM, so Codex can inspect it and every
+ * surface draws the same card. Only meaningful state is kept — the application, its lifecycle, its declared state, the
+ * selection, the loaded asset, errors and the commands for surfaces to apply — never animation frames.
+ *
+ * Commands travel as numbered entries (`seq`); each surface applies those it has not applied yet and the card's RESULT
+ * comes back as an acknowledgement, so a tool call knows whether its command really took effect.
+ */
+export interface CardCommandEntry { seq: number; command: string; value?: CardValue; at: number }
+export interface CardAck { seq: number; ok: boolean; problem?: string }
+export interface CardAssetRef { id: string; name: string; bytes: number; sha256: string; mime: string }
+
+export interface CardSnapshot {
+  instance: string;
+  app: string;
+  title: string;
+  layout: CardLayout;
+  lifecycle: CardLifecycle;
+  state: Record<string, CardValue>;
+  selection: CardSelection | null;
+  error: { code: string; message: string } | null;
+  asset: CardAssetRef | null;
+  config: Record<string, CardValue>;
+  commands: CardCommandEntry[];
+  acks: CardAck[];
+  nextSeq: number;
+  resources: ResourceStatus | null;
+  /** When a surface last reported this card (null: none has yet). */
+  reportedAt: number | null;
+  openedAt: number;
+  /** The user is manipulating the card right now (the body calms its background motion). */
+  interacting: boolean;
+}
+
+/** What a surface reports about the card it shows. Everything is optional except whose card it is. */
+export interface CardReport {
+  window: string;
+  instance: string;
+  lifecycle?: CardLifecycle;
+  layout?: CardLayout;
+  state?: Record<string, CardValue>;
+  selection?: CardSelection | null;
+  error?: { code: string; message: string } | null;
+  acks?: CardAck[];
+  resources?: ResourceStatus;
+  interacting?: boolean;
+}
+
+export const CARD_REPORT_BYTES = 96 * 1024;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+
+/**
+ * Validates a report against the card on show: a report about another (closed, replaced, obsolete) instance is refused,
+ * and its state must be what the application's manifest declares.
+ */
+export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifest: CardAppManifest | undefined): { ok: true; report: CardReport } | { ok: false; problem: string; stale?: boolean } {
+  if (!isRecord(raw)) return { ok: false, problem: "not an object" };
+  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting"];
+  if (Object.keys(raw).some(key => !allowed.includes(key))) return { ok: false, problem: "unknown fields" };
+  if (typeof raw.window !== "string" || !/^[a-z0-9]{8,32}$/.test(raw.window)) return { ok: false, problem: "invalid window" };
+  if (typeof raw.instance !== "string" || !CARD_INSTANCE.test(raw.instance)) return { ok: false, problem: "invalid instance" };
+  if (!card || raw.instance !== card.instance || !manifest) return { ok: false, problem: "stale card instance", stale: true };
+  const report: CardReport = { window: raw.window, instance: raw.instance };
+  if (raw.lifecycle !== undefined) {
+    if (!(CARD_LIFECYCLE as readonly unknown[]).includes(raw.lifecycle)) return { ok: false, problem: "invalid lifecycle" };
+    report.lifecycle = raw.lifecycle as CardLifecycle;
+  }
+  if (raw.layout !== undefined) {
+    if (!(CARD_LAYOUTS as readonly unknown[]).includes(raw.layout) || !manifest.display.layouts.includes(raw.layout as CardLayout)) return { ok: false, problem: "invalid layout" };
+    report.layout = raw.layout as CardLayout;
+  }
+  if (raw.state !== undefined) {
+    const state = checkState(manifest, raw.state);
+    if (!state.ok) return { ok: false, problem: state.problem };
+    report.state = state.state;
+  }
+  if (raw.selection !== undefined) {
+    if (raw.selection !== null) {
+      if (!manifest.capabilities.includes("selection")) return { ok: false, problem: "selection needs the selection capability" };
+      const problem = selectionProblem(raw.selection);
+      if (problem) return { ok: false, problem: `selection: ${problem}` };
+    }
+    report.selection = raw.selection as CardSelection | null;
+  }
+  if (raw.error !== undefined) {
+    if (raw.error !== null) {
+      const error = raw.error as Record<string, unknown>;
+      if (!isRecord(error) || Object.keys(error).some(key => key !== "code" && key !== "message") || typeof error.code !== "string" || !/^[a-z][a-z0-9-]{1,40}$/.test(error.code)
+        || cleanCardText(error.message, 200) !== error.message) return { ok: false, problem: "invalid error" };
+    }
+    report.error = raw.error as CardReport["error"];
+  }
+  if (raw.acks !== undefined) {
+    if (!Array.isArray(raw.acks) || raw.acks.length > CARD_LIMITS.commandQueue) return { ok: false, problem: "invalid acknowledgements" };
+    for (const ack of raw.acks as unknown[]) {
+      const a = ack as Record<string, unknown>;
+      if (!isRecord(a) || !Number.isInteger(a.seq) || (a.seq as number) < 1 || (a.seq as number) >= card.nextSeq || typeof a.ok !== "boolean"
+        || (a.problem !== undefined && cleanCardText(a.problem, 200) !== a.problem) || Object.keys(a).some(key => !["seq", "ok", "problem"].includes(key))) return { ok: false, problem: "invalid acknowledgement" };
+    }
+    report.acks = raw.acks as CardAck[];
+  }
+  if (raw.resources !== undefined) {
+    if (!validResources(raw.resources)) return { ok: false, problem: "invalid resources" };
+    report.resources = raw.resources;
+  }
+  if (raw.interacting !== undefined) {
+    if (typeof raw.interacting !== "boolean") return { ok: false, problem: "invalid interacting" };
+    report.interacting = raw.interacting;
+  }
+  return { ok: true, report };
+}
+
+/** The card after a report (state merges key by key; acknowledgements accumulate, the newest kept). */
+export function applyCardReport(card: CardSnapshot, report: CardReport, now: number): CardSnapshot {
+  const acks = report.acks?.length
+    ? [...card.acks.filter(ack => !report.acks!.some(next => next.seq === ack.seq)), ...report.acks].sort((a, b) => a.seq - b.seq).slice(-CARD_LIMITS.commandQueue)
+    : card.acks;
+  return {
+    ...card,
+    ...(report.lifecycle ? { lifecycle: report.lifecycle } : {}),
+    ...(report.layout ? { layout: report.layout } : {}),
+    ...(report.state ? { state: { ...card.state, ...report.state } } : {}),
+    ...(report.selection !== undefined ? { selection: report.selection } : {}),
+    ...(report.error !== undefined ? { error: report.error } : {}),
+    ...(report.resources ? { resources: report.resources } : {}),
+    ...(report.interacting !== undefined ? { interacting: report.interacting } : {}),
+    acks, reportedAt: now,
+  };
+}
+
+/** Appends a command for the surfaces to apply; returns the card and the command's number. */
+export function queueCardCommand(card: CardSnapshot, command: string, value: CardValue | undefined, now: number): { card: CardSnapshot; seq: number } {
+  const seq = card.nextSeq;
+  const entry: CardCommandEntry = { seq, command, ...(value !== undefined ? { value } : {}), at: now };
+  return { card: { ...card, commands: [...card.commands, entry].slice(-CARD_LIMITS.commandQueue), nextSeq: seq + 1 }, seq };
+}
+
+/** A card just opened (nothing reported yet). */
+export function openCard(init: { instance: string; app: string; title: string; layout: CardLayout; asset: CardAssetRef | null; config: Record<string, CardValue>; now: number }): CardSnapshot {
+  return {
+    instance: init.instance, app: init.app, title: init.title, layout: init.layout, lifecycle: "loading", state: {}, selection: null, error: null,
+    asset: init.asset, config: init.config, commands: [], acks: [], nextSeq: 1, resources: null, reportedAt: null, openedAt: init.now, interacting: false,
+  };
+}

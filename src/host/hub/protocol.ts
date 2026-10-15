@@ -28,6 +28,12 @@ import { checkHanziData, type HanziData } from "../../writing/hanzi/codec";
 import { validateHanzi } from "../../writing/hanzi/geometry";
 import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
 import { DEMO_NAMES, type DemoName } from "../../animation/scene/demos";
+import { CARD_LAYOUTS, checkConfig, UNIVERSAL_COMMANDS } from "../../cards/manifest";
+import { CARD_INSTANCE } from "../../cards/protocol";
+import { CARD_APP_IDS } from "../../cards/registry";
+import { cardRegistry } from "../../core/cards";
+import { GLB_MIME } from "../../cards/assets/gltf";
+import type { CardValue } from "../../cards/values";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -98,7 +104,9 @@ export type HubCommand =
   /** Silences any music playing. */
   | { type: "stop-music" }
   /** v0.4.3: controls the animation on show (a symbol being written, a figure's action sequence). */
-  | ({ type: "animation" } & AnimationCommand);
+  | ({ type: "animation" } & AnimationCommand)
+  /** v0.4.5: a command for the interactive card on show (checked against its application's manifest). */
+  | { type: "card"; command: string; value?: CardValue };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -132,6 +140,12 @@ const writingSource = z.object({
     z.object({ type: z.literal("space") }).strict(),
   ])).min(1).max(STROKE_LIMITS.items * 2),
 }).strict().refine(source => { try { writingSequence(source as WritingSource); return true; } catch { return false; } }, "a writing that can be composed");
+
+/** A validated model asset (v0.4.5): its media id, file name, size and SHA-256 (checked by the page before the card sees it). */
+const cardAsset = z.object({
+  id: z.string().regex(/^m[a-f0-9]{18}$/), name: clean(cleanLine, 120), bytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/), mime: z.literal(GLB_MIME),
+}).strict();
+const cardValue: z.ZodType<CardValue> = z.lazy(() => z.union([z.string().max(400), z.number().finite(), z.boolean(), z.null(), z.array(z.union([z.string().max(120), z.record(z.string(), z.unknown())])).max(500)])) as z.ZodType<CardValue>;
 
 const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("form"), form: z.string().regex(/^[a-z][a-z0-9]*\.[a-z0-9]+(?:-[a-z0-9]+)*$/), variant: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), label: clean(cleanLine, 120) }).strict(),
@@ -187,6 +201,17 @@ const presentationSchema = z.discriminatedUnion("kind", [
     demo: z.enum(DEMO_NAMES as [DemoName, ...DemoName[]]).optional(),
   }).strict(),
   z.object({
+    kind: z.literal("interactive"), app: z.enum(CARD_APP_IDS), instance: z.string().regex(CARD_INSTANCE), title: clean(cleanLine, LIMITS.title),
+    layout: z.enum(CARD_LAYOUTS), config: z.record(z.string(), cardValue), asset: cardAsset.optional(),
+    bodyScene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene").optional(),
+  }).strict().refine(value => {
+    const manifest = cardRegistry.get(value.app);
+    if (!manifest || !manifest.display.layouts.includes(value.layout) || !checkConfig(manifest, value.config).ok) return false;
+    // Only a model-assets application takes a model, and its particle form is only ever its manifest's own.
+    if (value.asset && (!manifest.resources.assets.includes("model") || value.asset.bytes > manifest.resources.maxAssetBytes)) return false;
+    return value.bodyScene === undefined || JSON.stringify(value.bodyScene) === JSON.stringify(manifest.hybrid);
+  }, "an interactive card its application's manifest allows"),
+  z.object({
     kind: z.literal("artifact"), type: z.enum(ARTIFACT_TYPES), title: clean(cleanLine, LIMITS.title),
     content: clean(cleanCode, LIMITS.artifact).optional(), language: z.string().regex(/^[a-z0-9+#.-]{1,24}$/i).optional(), media: mediaRef.optional(),
     items: z.array(clean(cleanLine, LIMITS.item)).max(LIMITS.items).optional(),
@@ -241,6 +266,11 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("animation"), action: z.enum(ANIMATION_ACTIONS), stroke: z.number().int().min(1).max(STROKE_LIMITS.symbolStrokes).optional(),
     character: z.number().int().min(1).max(STROKE_LIMITS.items).optional(),
     speed: z.enum(ANIMATION_SPEEDS).optional(),
+  }).strict(),
+  z.object({
+    type: z.literal("card"),
+    command: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/).refine(value => (UNIVERSAL_COMMANDS as readonly string[]).includes(value) || cardRegistry.list().some(app => value in app.commands), "a card command"),
+    value: z.union([z.string().max(120), z.number().finite(), z.boolean()]).optional(),
   }).strict(),
 ]);
 

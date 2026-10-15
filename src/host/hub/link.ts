@@ -14,6 +14,8 @@ export interface PresenceBackend {
   addMedia(data: Buffer, mime: string): Promise<MediaRef>;
   state(after?: number, hub?: string, waitMs?: number): Promise<HubSnapshot>;
   media(id: string): Promise<{ mime: string; data: Buffer } | null>;
+  /** v0.4.5: an embedded view's report about the interactive card it shows. */
+  cardReport(report: unknown): Promise<{ ok: true } | { ok: false; status: number; problem: string }>;
   close(): Promise<void>;
 }
 
@@ -25,6 +27,7 @@ class LocalBackend implements PresenceBackend {
   async addMedia(data: Buffer, mime: string) { return this.hub.addMedia(data, mime); }
   state(after = -1, hub?: string, waitMs = 0) { return this.hub.waitFor(after, hub ?? this.hub.id, waitMs); }
   async media(id: string) { const item = this.hub.media.get(id); return item ? { mime: item.mime, data: item.data } : null; }
+  async cardReport(report: unknown) { return this.hub.cardReport(report); }
   close() { return this.hub.stop(); }
 }
 
@@ -55,6 +58,14 @@ class RemoteBackend implements PresenceBackend {
       const response = await this.request(`media/${id}`);
       return { mime: response.headers.get("content-type") ?? "application/octet-stream", data: Buffer.from(await response.arrayBuffer()) };
     } catch { return null; }
+  }
+  async cardReport(report: unknown): Promise<{ ok: true } | { ok: false; status: number; problem: string }> {
+    const response = await fetch(new URL("api/card", this.base), {
+      method: "POST", headers: { "x-aion-token": this.token, "content-type": "application/json" }, body: JSON.stringify(report), signal: AbortSignal.timeout(4_000),
+    });
+    if (response.ok) return { ok: true };
+    const body = await response.json().catch(() => ({})) as { error?: string };
+    return { ok: false, status: response.status, problem: body.error ?? `hub-${response.status}` };
   }
   async close() {}
 

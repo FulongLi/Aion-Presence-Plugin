@@ -25,3 +25,16 @@ export function toolMetadataReport(tools: readonly ListedTool[], budget: { total
   ];
   return { tools: rows, total, largest, ok: problems.length === 0, problems };
 }
+
+/**
+ * A tool input schema as it is listed, without the JSON Schema dialect line (`$schema`, about 60 bytes a tool): MCP
+ * already defines 2020-12 as the dialect when it is absent, so nothing changes in meaning — v0.4.5's three card tools fit
+ * in the budget this way. Validation is still the zod schema's own.
+ */
+export function compactSchema<T>(schema: T): T {
+  const standard = (schema as { "~standard"?: { validate: unknown; vendor: string; version: number; jsonSchema?: { input(options: unknown): Record<string, unknown>; output(options: unknown): Record<string, unknown> } } })["~standard"];
+  if (!standard?.jsonSchema) return schema;
+  const json = standard.jsonSchema;
+  const strip = (value: Record<string, unknown>) => { const { $schema: _dialect, ...rest } = value; return rest; };
+  return { "~standard": { ...standard, validate: standard.validate, jsonSchema: { input: (options: unknown) => strip(json.input(options)), output: (options: unknown) => strip(json.output(options)) } } } as T;
+}

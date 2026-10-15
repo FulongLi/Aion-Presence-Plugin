@@ -10,6 +10,10 @@ import { DEFAULT_AUDIO_PRESENCE, type AudioPresence, type AudioSettings, type Br
 import type { PlaybackEvent } from "../music/notation/score";
 import { endOf, positionAt, type PlaybackState } from "../animation/timeline";
 import { controlAnimation, playbackFor, type AnimationCommand, type ControlResult } from "../animation/control";
+import { applyCardReport, openCard, queueCardCommand, type CardReport, type CardSnapshot } from "../cards/state";
+import { checkCommand } from "../cards/manifest";
+import type { CardValue } from "../cards/values";
+import { cardRegistry } from "./cards";
 
 /**
  * The presence state shared by every surface: the host's activity, the persistent body, the one temporary
@@ -43,6 +47,11 @@ export interface PresenceSnapshot {
    * wall clock so every surface draws the same frame (see animation/timeline.ts). Null when nothing animates.
    */
   animation: AnimationPlayback | null;
+  /**
+   * v0.4.5: the interactive card on show (its application, lifecycle, declared state, selection, asset, and the commands
+   * for surfaces to apply), or null. Present exactly while the presentation is an interactive one.
+   */
+  card: CardSnapshot | null;
 }
 
 /** The animation on show and where its playhead is. */
@@ -98,7 +107,7 @@ export class PresenceStore {
   private cancelActivity: (() => void) | null = null;
 
   constructor(private readonly clock: StoreClock = systemClock) {
-    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null, animation: null };
+    this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null, animation: null, card: null };
   }
 
   snapshot(): PresenceSnapshot { return this.state; }
@@ -147,10 +156,53 @@ export class PresenceStore {
     // An animation starts playing with it (a sequence's lifetime follows its speed).
     const animated = content.kind === "writing" || content.kind === "animation";
     const animation = animated ? { presentation: presentation.id, playback: playbackFor(content, now, request.rate ?? 1) } : null;
-    this.commit({ presentation, animation });
+    // An interactive card: a new one, or the open one when the same instance is shown again (a new model in the viewer).
+    let card: CardSnapshot | null = null;
+    if (content.kind === "interactive") {
+      const open = this.state.card;
+      card = open && open.instance === content.instance && open.app === content.app
+        ? { ...open, title: content.title, layout: content.layout, config: content.config, asset: content.asset ?? open.asset, error: null, ...(content.asset && content.asset.id !== open.asset?.id ? { lifecycle: "loading" as const } : {}) }
+        : openCard({ instance: content.instance, app: content.app, title: content.title, layout: content.layout, asset: content.asset ?? null, config: content.config, now });
+    }
+    this.commit({ presentation, animation, card });
     if (animation && content.kind === "animation" && holds.total > 0) this.expire(presentation.id, this.playbackLeft(animation.playback) + ANIMATION_TAIL_SECONDS);
     else if (holds.total > 0) this.expire(presentation.id, holds.total + FORMING_SECONDS);
     return presentation;
+  }
+
+  /**
+   * A command for the interactive card on show (v0.4.5), checked against its application's manifest. Layout commands
+   * change the card at once; close ends it; everything else is queued for the surfaces (and acknowledged by the card).
+   */
+  cardCommand(command: string, value?: CardValue): { ok: true; seq: number; card: CardSnapshot | null } | { ok: false; problem: string } {
+    const card = this.state.card, manifest = card ? cardRegistry.get(card.app) : undefined;
+    if (!card || !manifest) return { ok: false, problem: "no interactive card is open" };
+    const checked = checkCommand(manifest, command, value);
+    if (!checked.ok) return checked;
+    if (command === "close") { this.clearPresentation(); return { ok: true, seq: 0, card: null }; }
+    if (command === "expand" || command === "collapse" || command === "fullscreen") {
+      const layout = command === "expand" ? "expanded" : command === "collapse" ? "compact" : "fullscreen";
+      if (!manifest.display.layouts.includes(layout)) return { ok: false, problem: `${manifest.name} has no ${layout} layout` };
+      this.commit({ card: { ...card, layout } });
+      return { ok: true, seq: 0, card: this.state.card };
+    }
+    const queued = queueCardCommand(card, command, checked.value, this.clock.now());
+    this.commit({ card: queued.card });
+    return { ok: true, seq: queued.seq, card: queued.card };
+  }
+
+  /**
+   * A surface's report about the card it shows (already validated against the card and its manifest by the hub). A change
+   * of meaningful state is a new revision; a report that only refreshes counters is kept quietly.
+   */
+  cardReport(report: CardReport) {
+    const card = this.state.card;
+    if (!card || card.instance !== report.instance) return false;
+    const next = applyCardReport(card, report, this.clock.now());
+    const meaningful = (c: CardSnapshot) => JSON.stringify({ ...c, reportedAt: 0, resources: null });
+    if (meaningful(next) === meaningful(card)) { this.state = { ...this.state, card: next }; return false; }
+    this.commit({ card: next });
+    return true;
   }
 
   /** Wall-clock seconds until a playback reaches where it stops. */
@@ -301,6 +353,8 @@ export class PresenceStore {
   }
 
   private commit(patch: Partial<PresenceSnapshot>) {
+    // The card lives exactly as long as its interactive presentation.
+    if ("presentation" in patch && patch.presentation?.kind !== "interactive") patch = { ...patch, card: null };
     this.state = { ...this.state, ...patch, revision: this.state.revision + 1 };
     for (const listener of this.listeners) listener(this.state);
   }

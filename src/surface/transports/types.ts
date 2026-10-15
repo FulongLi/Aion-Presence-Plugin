@@ -1,4 +1,5 @@
 import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
+import type { CardReport } from "../../cards/state";
 
 export type ConnectionState = "connecting" | "live" | "resting";
 
@@ -29,5 +30,7 @@ export interface PresenceTransport {
   onAudio?: (message: unknown) => void;
   /** Tells the hub where this window's own audio stands (states only, never audio). */
   audioStatus?(status: SurfaceAudio): void;
+  /** v0.4.5: reports the interactive card this surface shows (validated again by the hub). */
+  cardReport?(report: Omit<CardReport, "window">): Promise<void>;
   close(): void;
 }

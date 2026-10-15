@@ -112,6 +112,18 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   hosts that budget it (Codex dropped 8 tools in v0.4.3) see every tool ([docs/MCP-TOOLS.md](docs/MCP-TOOLS.md)).
 
   ![Figure 2.0 and Figure 3.0](docs/media/v0.4.4/walk-figure2-vs-figure3.gif)
+- **v0.4.5 — Interactive Cards & Spatial Applications**: **Card 2.0**, a container for registered applications that run
+  beside Aion's living body in an isolated frame (an opaque-origin sandbox with no network, a validated MessageChannel
+  bridge, manifests that cannot widen their own permissions), with compact, expanded and fullscreen layouts, universal
+  controls and a formal lifecycle ([docs/CARDS.md](docs/CARDS.md), [docs/CARD-BRIDGE.md](docs/CARD-BRIDGE.md),
+  [docs/CARD-SECURITY.md](docs/CARD-SECURITY.md)). Two applications on a shared Three.js engine: the **Earth–Moon system**
+  — Earth's rotation, the Moon's orbit and why the same side faces Earth, with educational scaling it always declares
+  ([docs/EARTH-MOON.md](docs/EARTH-MOON.md)) — and a **CAD viewer** for glTF/GLB models: orbit, select, metadata, hide,
+  isolate, with a bundled transformer ([docs/CAD-VIEWER.md](docs/CAD-VIEWER.md)). Codex opens, controls and inspects them
+  with `show_interactive_card`, `control_interactive_card` and `inspect_interactive_card`; the user manipulates them
+  directly.
+
+  ![The Moon turns once per orbit](docs/media/v0.4.5/05-earth-moon-orbit-synchronous-rotation.gif)
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -188,7 +200,8 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | `set_audio_visualizer` | How Aion moves with sound (microphone, Codex Voice Sync, another app, a tab, Aion's own music). |
 | `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
-| `clear_presentation` | Return to the persistent body now. |
+| `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close) and the app's commands, confirmed by the card; its state, selection and metadata as the user sees it. |
+| `clear_presentation` | Return to the persistent body now (also closes an interactive card). |
 
 `show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
 (`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
@@ -211,6 +224,9 @@ hooks Aion still works; the Skill then sets the main states itself.
 ## Privacy and security
 
 - **No credentials**: no OpenAI key, ChatGPT or Codex token is read, stored or requested.
+- **Interactive cards** (v0.4.5): only registered applications run, each in a sandboxed frame with an opaque origin and
+  no network; they never see the hub token, cannot reach the hub or any tool, and receive models only as validated,
+  self-contained bytes (no remote or out-of-folder files). See [docs/CARD-SECURITY.md](docs/CARD-SECURITY.md).
 - **Microphone**: analysed in the Presence window only, as loudness and voice activity, so Aion can look
   attentive. Never recorded, stored, uploaded or transcribed; refusing it is fine. Real-device check:
   [docs/MICROPHONE.md](docs/MICROPHONE.md).
@@ -247,17 +263,18 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync, and v0.4.4's Chinese pack, words, practice, music handwriting and Figure 3.0 behaviours — in both renderers (`-- --offline` skips lookups; `-- --only=v44` one section) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync, v0.4.4's Chinese pack, words, practice, music handwriting and Figure 3.0 behaviours, and v0.4.5's interactive cards (isolation probed from inside the frame, selection by click, Codex control, layouts, repeated open/close with nothing left behind, timings, a browser without WebGL, a card in an MCP Apps host) — in both renderers (`-- --offline` skips lookups; `-- --only=v45` one section) |
 | `npm run audio:eval` | Measures the music detector on real recordings on this Mac (Apple Loops, system voices); nothing is kept |
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` (Xcode command-line tools) |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge: a real app's sound, or Codex's voice while you talk to it |
 | `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`.e2e/showcase/*.webm`, screenshots, filmed frames for `scripts/media/gif.py`); `-- --list`, `-- map-usa eyes-motion`, `-- --headed`, `-- --canvas` |
 | `npm run geo:coverage` | Geography against the live services (continents, the largest and smallest countries, high latitudes, the date line, OSM regions, markers, terrain); writes [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md) |
 | `npm run geo:build -- <dir>` | Rebuilds the bundled world from the Natural Earth GeoJSON files (see [docs/MAPS.md](docs/MAPS.md)) |
-| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes (v0.4.4: the pack installed, every tool reaching Codex within the metadata budget, Chinese writing offline) |
+| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes (v0.4.4: the pack installed, every tool reaching Codex within the metadata budget, Chinese writing offline; v0.4.5: the Earth–Moon card and the bundled transformer from the installed runtime) |
 | `npm run mcp:budget` · `npm run codex:tools` | Aion's tool metadata against its budget · what your Codex receives from every MCP server (see [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md)) |
 | `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild the Chinese Writing Pack from pinned upstream releases · write the original JSON back (lossless) · re-verify all characters and measure the particle letterforms |
 | `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol (start points, directions) |
+| `npm run cards:models` · `cards:earth-mask` | Regenerate the CAD viewer's transformer (and the test bracket) · the Earth–Moon card's land mask from Natural Earth |
 | `npm run notices` | Regenerate `plugins/aion-presence/THIRD-PARTY-NOTICES.md` |
 | `npm run release` | The reproducible installable archive in `dist/` |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |

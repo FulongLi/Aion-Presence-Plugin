@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "n
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Ajv2020 } from "ajv/dist/2020.js";
+import { validateGlb } from "../../src/cards/assets/gltf";
 
 /**
  * Static checks for the Aion Presence plugin package, following the Agent Plugins 1.0.0 specification
@@ -193,6 +194,13 @@ export function validatePluginPackage(options: { root?: string; marketplace?: st
       if (!existsSync(path)) { error(`packs/chinese-writing/${file}`, "missing"); continue; }
       if (createHash("sha256").update(readFileSync(path)).digest("hex") !== sha) error(`packs/chinese-writing/${file}`, "differs from its checksum in manifest.json (rebuild with npm run chinese:build)");
     }
+  }
+
+  // v0.4.5: the CAD viewer's bundled demonstration model, a self-contained GLB that passes the card asset policy.
+  const model = join(root, "assets", "cards", "transformer.glb");
+  if (!existsSync(model)) error("assets/cards/transformer.glb", "missing (npm run cards:models)");
+  else {
+    try { validateGlb(new Uint8Array(readFileSync(model))); } catch (problem) { error("assets/cards/transformer.glb", `fails the card asset policy: ${(problem as Error).message}`); }
   }
 
   // Repo marketplace.
