@@ -1,0 +1,387 @@
+[
+ {
+  "op": "add",
+  "objects": [
+   {
+    "id": "periods",
+    "type": "group",
+    "name": "Phanerozoic periods (magnified)",
+    "position": [
+     0,
+     2.6,
+     0
+    ]
+   },
+   {
+    "id": "zoom-left",
+    "type": "line",
+    "from": [
+     7.657,
+     0.6,
+     0
+    ],
+    "to": [
+     -10,
+     2.3,
+     0
+    ],
+    "material": {
+     "color": "#7fa86b",
+     "dashed": true
+    }
+   },
+   {
+    "id": "zoom-right",
+    "type": "line",
+    "from": [
+     10.0,
+     0.6,
+     0
+    ],
+    "to": [
+     10,
+     2.3,
+     0
+    ],
+    "material": {
+     "color": "#7fa86b",
+     "dashed": true
+    }
+   },
+   {
+    "id": "cambrian",
+    "type": "box",
+    "parent": "periods",
+    "name": "Cambrian Period",
+    "size": [
+     1.942,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -9.009,
+     0,
+     0
+    ],
+    "label": "Cambrian",
+    "material": {
+     "color": "#7fa86b",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 538.8,
+     "Ended (Ma)": 485.4,
+     "Duration (Myr)": 53.4
+    }
+   },
+   {
+    "id": "ordovician",
+    "type": "box",
+    "parent": "periods",
+    "name": "Ordovician Period",
+    "size": [
+     1.504,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -7.246,
+     0,
+     0
+    ],
+    "label": "Ordovician",
+    "material": {
+     "color": "#009270",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 485.4,
+     "Ended (Ma)": 443.8,
+     "Duration (Myr)": 41.6
+    }
+   },
+   {
+    "id": "silurian",
+    "type": "box",
+    "parent": "periods",
+    "name": "Silurian Period",
+    "size": [
+     0.873,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -6.018,
+     0,
+     0
+    ],
+    "label": "Silurian",
+    "material": {
+     "color": "#b3e1b6",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 443.8,
+     "Ended (Ma)": 419.2,
+     "Duration (Myr)": 24.6
+    }
+   },
+   {
+    "id": "devonian",
+    "type": "box",
+    "parent": "periods",
+    "name": "Devonian Period",
+    "size": [
+     2.199,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -4.441,
+     0,
+     0
+    ],
+    "label": "Devonian",
+    "material": {
+     "color": "#cb8c37",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 419.2,
+     "Ended (Ma)": 358.9,
+     "Duration (Myr)": 60.3
+    }
+   },
+   {
+    "id": "carboniferous",
+    "type": "box",
+    "parent": "periods",
+    "name": "Carboniferous Period",
+    "size": [
+     2.187,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -2.208,
+     0,
+     0
+    ],
+    "label": "Carboniferous",
+    "material": {
+     "color": "#67a599",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 358.9,
+     "Ended (Ma)": 298.9,
+     "Duration (Myr)": 60.0
+    }
+   },
+   {
+    "id": "permian",
+    "type": "box",
+    "parent": "periods",
+    "name": "Permian Period",
+    "size": [
+     1.705,
+     0.45,
+     0.9
+    ],
+    "position": [
+     -0.222,
+     0,
+     0
+    ],
+    "label": "Permian",
+    "material": {
+     "color": "#f04028",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 298.9,
+     "Ended (Ma)": 251.9,
+     "Duration (Myr)": 47.0
+    }
+   },
+   {
+    "id": "triassic",
+    "type": "box",
+    "parent": "periods",
+    "name": "Triassic Period",
+    "size": [
+     1.834,
+     0.45,
+     0.9
+    ],
+    "position": [
+     1.587,
+     0,
+     0
+    ],
+    "label": "Triassic",
+    "material": {
+     "color": "#812b92",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 251.9,
+     "Ended (Ma)": 201.4,
+     "Duration (Myr)": 50.5
+    }
+   },
+   {
+    "id": "jurassic",
+    "type": "box",
+    "parent": "periods",
+    "name": "Jurassic Period",
+    "size": [
+     2.054,
+     0.45,
+     0.9
+    ],
+    "position": [
+     3.571,
+     0,
+     0
+    ],
+    "label": "Jurassic",
+    "material": {
+     "color": "#34b2c9",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 201.4,
+     "Ended (Ma)": 145.0,
+     "Duration (Myr)": 56.4
+    }
+   },
+   {
+    "id": "cretaceous",
+    "type": "box",
+    "parent": "periods",
+    "name": "Cretaceous Period",
+    "size": [
+     2.892,
+     0.45,
+     0.9
+    ],
+    "position": [
+     6.084,
+     0,
+     0
+    ],
+    "label": "Cretaceous",
+    "material": {
+     "color": "#7fc64e",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 145.0,
+     "Ended (Ma)": 66.0,
+     "Duration (Myr)": 79.0
+    }
+   },
+   {
+    "id": "paleogene",
+    "type": "box",
+    "parent": "periods",
+    "name": "Paleogene Period",
+    "size": [
+     1.555,
+     0.45,
+     0.9
+    ],
+    "position": [
+     8.348,
+     0,
+     0
+    ],
+    "label": "Paleogene",
+    "material": {
+     "color": "#fd9a52",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 66.0,
+     "Ended (Ma)": 23.03,
+     "Duration (Myr)": 42.97
+    }
+   },
+   {
+    "id": "neogene",
+    "type": "box",
+    "parent": "periods",
+    "name": "Neogene Period",
+    "size": [
+     0.719,
+     0.45,
+     0.9
+    ],
+    "position": [
+     9.524,
+     0,
+     0
+    ],
+    "label": "Neogene",
+    "material": {
+     "color": "#ffe619",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 23.03,
+     "Ended (Ma)": 2.58,
+     "Duration (Myr)": 20.45
+    }
+   },
+   {
+    "id": "quaternary",
+    "type": "box",
+    "parent": "periods",
+    "name": "Quaternary Period",
+    "size": [
+     0.08,
+     0.45,
+     0.9
+    ],
+    "position": [
+     9.952,
+     0,
+     0
+    ],
+    "label": "Quaternary",
+    "material": {
+     "color": "#f9f97f",
+     "roughness": 0.7
+    },
+    "metadata": {
+     "Began (Ma)": 2.58,
+     "Ended (Ma)": 0.0,
+     "Duration (Myr)": 2.58
+    }
+   }
+  ]
+ },
+ {
+  "op": "meta",
+  "disclosure": [
+   "Lower track: each unit is 230 million years. Upper track: the Phanerozoic magnified 8.5\u00d7.",
+   "Boundaries follow the International Chronostratigraphic Chart (2023)."
+  ]
+ },
+ {
+  "op": "camera",
+  "set": {
+   "position": [
+    0,
+    7,
+    16
+   ],
+   "target": [
+    0,
+    1.4,
+    0
+   ]
+  }
+ }
+]

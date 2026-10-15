@@ -52,7 +52,12 @@ export class InteractiveCardHost {
   private reportTimer?: ReturnType<typeof setTimeout>;
   private resizeTimer?: ReturnType<typeof setTimeout>;
   private readonly observer: ResizeObserver;
-  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle } = { state: {}, acks: [] };
+  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle; scene?: CardReport["scene"] } = { state: {}, acks: [] };
+  /** v0.5: the newest scene revision from the hub, the one this frame has built, and whether one is being sent now. */
+  private latestScene: { revision: number; document: NonNullable<CardSnapshot["scene"]>["document"] } | null = null;
+  private sceneSent = 0;
+  private sceneReady = false;
+  private sceneBusy = false;
   /** What the frame reported when it was disposed (the cleanup check). */
   leftovers: { geometries: number; textures: number; urls: number; loops: number } | null = null;
   readonly elements: { bar: HTMLElement; name: HTMLElement; status: HTMLElement; body: HTMLElement; loading: HTMLElement; progress: HTMLElement; loadingText: HTMLElement; error: HTMLElement; errorText: HTMLElement; retry: HTMLButtonElement; buttons: Record<"pause" | "reset" | "size" | "fullscreen" | "close", HTMLButtonElement> };
@@ -165,6 +170,7 @@ export class InteractiveCardHost {
   }
 
   private async start() {
+    this.sceneSent = 0; this.sceneReady = false;
     const frame = document.createElement("iframe");
     // Scripts only: no same-origin (opaque origin), no forms, popups, top navigation, downloads or pointer lock.
     frame.setAttribute("sandbox", "allow-scripts");
@@ -195,9 +201,11 @@ export class InteractiveCardHost {
     if (this.disposed || this.frame !== frame) return;
     if (!result.ok) { if (this.lifecycle.state !== "error") this.fail("card-start-failed", result.problem === "the card did not answer in time" ? "The card did not start in time." : "The card could not start."); return; }
     if (this.presentation.asset) await this.loadAsset();
+    // v0.5: a scene card builds the hub's current scene before it is shown as active.
+    if (this.options.manifest.capabilities.includes("scene-documents")) { this.sceneReady = true; await this.pumpScene(); }
     if (this.disposed || this.frame !== frame || this.lifecycle.state === "error") return;
     this.postResize();
-    const startPaused = this.presentation.config.paused === true || this.options.card.state.running === false;
+    const startPaused = this.presentation.config.paused === true || this.options.card.state.running === false || this.options.card.state.playing === false;
     if (startPaused) { this.lifecycle.send("pause"); await this.bridge.request("PAUSE", { reason: "codex" }); }
     else this.lifecycle.send("activate");
     if (document.visibilityState === "hidden") this.visibility();
@@ -310,15 +318,37 @@ export class InteractiveCardHost {
     if (asset && presentation.asset && this.lifecycle.state !== "loading" && this.lifecycle.state !== "error") void this.loadAsset();
   }
 
-  /** Applies the hub's card: its layout and any commands this window has not applied yet. */
+  /** Applies the hub's card: its layout, its scene (v0.5) and any commands this window has not applied yet. */
   apply(card: CardSnapshot) {
     if (card.instance !== this.instance || this.disposed) return;
     if (card.layout !== this.layout) this.setLayout(card.layout, false);
+    if (card.scene && card.scene.revision > (this.latestScene?.revision ?? 0)) { this.latestScene = { revision: card.scene.revision, document: card.scene.document }; void this.pumpScene(); }
     for (const entry of card.commands) {
       if (entry.seq <= this.applied) continue;
       this.applied = entry.seq;
       this.queue = this.queue.then(() => this.execute(entry.seq, entry.command, entry.value));
     }
+  }
+
+  /**
+   * Sends the newest scene revision the frame has not built yet, one at a time (a burst of revisions sends only the
+   * latest). The card answers once it has built it; that answer — built, or refused and why — is reported to the hub.
+   */
+  private async pumpScene() {
+    const bridge = this.bridge;
+    if (this.sceneBusy || !this.sceneReady || !bridge || this.disposed) return;
+    const target = this.latestScene;
+    if (!target || target.revision <= this.sceneSent) return;
+    this.sceneBusy = true;
+    try {
+      const result = await bridge.request("LOAD_SCENE", { revision: target.revision, document: target.document }, { seconds: this.options.manifest.resources.maxLoadSeconds });
+      if (this.disposed || this.bridge !== bridge) return;
+      this.sceneSent = target.revision;
+      this.pending.scene = { revision: target.revision, ok: result.ok, ...(result.ok ? {} : { problem: (result.problem ?? "failed").slice(0, 200) }) };
+      if (!result.ok) this.flash("The scene could not be built");
+      this.scheduleReport(true);
+    } finally { this.sceneBusy = false; }
+    void this.pumpScene();
   }
 
   private async execute(seq: number, command: string, value: CardValue | undefined) {
@@ -399,9 +429,10 @@ export class InteractiveCardHost {
       ...(Object.keys(p.state).length ? { state: p.state } : {}), ...(p.selection !== undefined ? { selection: p.selection } : {}),
       ...(p.error !== undefined ? { error: p.error } : {}), ...(p.acks.length ? { acks: p.acks.slice(-16) } : {}),
       ...(p.resources ? { resources: p.resources } : {}), ...(p.interacting !== undefined ? { interacting: p.interacting } : {}),
+      ...(p.scene ? { scene: p.scene } : {}),
     };
     this.pending.state = {}; this.pending.acks = [];
-    delete p.selection; delete p.error; delete p.resources; delete p.interacting; delete p.layout; delete p.lifecycle;
+    delete p.selection; delete p.error; delete p.resources; delete p.interacting; delete p.layout; delete p.lifecycle; delete p.scene;
     if (Object.keys(report).length > 1 && !this.disposed) this.options.report(report);
   }
 

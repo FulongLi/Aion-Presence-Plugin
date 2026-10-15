@@ -1,13 +1,14 @@
 import type { CardAppManifest, CardLayout, CardResources } from "../manifest";
 import type { CardAssetInfo, CardSelection, CardTheme, FromCardPayloads, ResourceStatus } from "../protocol";
 import type { CardValue } from "../values";
+import type { SceneDocument } from "../../scene/ir";
 
 /**
  * What an interactive card application implements inside the sandbox (v0.4.5). The runtime (main.ts) owns the bridge:
  * it validates every message from Aion, calls these hooks, and turns what the application emits into validated messages
  * back. An application never sees the MessagePort, the page, the hub or any URL.
  *
- * Lifecycle hooks: start (once, after INITIALIZE) → loadAsset (zero or more) → command / setState / setCamera / resize
+ * Lifecycle hooks: start (once, after INITIALIZE) → loadAsset / loadScene (zero or more) → command / setState / setCamera / resize
  * while live → pause / resume (simulation time stops; on-demand frames), suspend / wake (nothing renders) → reset →
  * dispose (release everything; report what is left, ideally nothing).
  */
@@ -42,6 +43,8 @@ export type CommandResult = { ok: true } | { ok: false; problem: string };
 export interface CardApp {
   start(): Promise<void> | void;
   loadAsset?(asset: CardAssetInfo, data: ArrayBuffer): Promise<void>;
+  /** v0.5 (scene-documents): builds a validated scene revision; answers only once it is built (or why not). */
+  loadScene?(revision: number, document: SceneDocument): Promise<CommandResult> | CommandResult;
   command(name: string, value: CardValue | undefined): Promise<CommandResult> | CommandResult;
   setState?(state: Record<string, CardValue>): void;
   /** Emits any state change still waiting (the runtime calls it before answering a request, so state precedes the answer). */

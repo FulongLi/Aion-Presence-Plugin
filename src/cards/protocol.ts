@@ -1,5 +1,7 @@
 import { CARD_LAYOUTS, CARD_LIMITS, checkCommand, checkConfig, checkState, type CardAppManifest, type CardCapability, type CardLayout, type CardResources } from "./manifest";
 import { cleanCardText, isObjectId, type CardValue } from "./values";
+import type { SceneDocument } from "../scene/ir";
+import { validateScene } from "../scene/validate";
 
 /**
  * The Aion Card Bridge (v0.4.5): the only way an interactive card and the Aion page talk. It runs over a dedicated
@@ -8,14 +10,16 @@ import { cleanCardText, isObjectId, type CardValue } from "./values";
  * application's manifest: unknown types, undeclared capabilities, oversized or malformed messages are dropped. There is
  * no message that runs code.
  *
- *   Aion → card   INITIALIZE LOAD_ASSET SET_STATE SET_CAMERA EXECUTE_COMMAND PAUSE RESUME RESIZE RESET DISPOSE
+ *   Aion → card   INITIALIZE LOAD_ASSET LOAD_SCENE SET_STATE SET_CAMERA EXECUTE_COMMAND PAUSE RESUME RESIZE RESET DISPOSE
  *   card → Aion   READY LOADING STATE_CHANGED SELECTION_CHANGED INTERACTION ERROR RESOURCE_STATUS DISPOSED RESULT
  *
  * Requests carry an `id`; the card answers with RESULT and `re` set to that id (request/response correlation).
+ * v0.5: LOAD_SCENE hands a `scene-documents` application a Scene IR document and its revision; the card validates it
+ * again, applies it incrementally, and answers only once it is built (an accepted command is not a rendered result).
  */
 export const CARD_PROTOCOL_VERSION = 1;
 
-export const TO_CARD = ["INITIALIZE", "LOAD_ASSET", "SET_STATE", "SET_CAMERA", "EXECUTE_COMMAND", "PAUSE", "RESUME", "RESIZE", "RESET", "DISPOSE"] as const;
+export const TO_CARD = ["INITIALIZE", "LOAD_ASSET", "LOAD_SCENE", "SET_STATE", "SET_CAMERA", "EXECUTE_COMMAND", "PAUSE", "RESUME", "RESIZE", "RESET", "DISPOSE"] as const;
 export const FROM_CARD = ["READY", "LOADING", "STATE_CHANGED", "SELECTION_CHANGED", "INTERACTION", "ERROR", "RESOURCE_STATUS", "DISPOSED", "RESULT"] as const;
 export type ToCardType = typeof TO_CARD[number];
 export type FromCardType = typeof FROM_CARD[number];
@@ -29,7 +33,7 @@ export const CAPABILITY_MESSAGES: Partial<Record<FromCardType, CardCapability>> 
   SELECTION_CHANGED: "selection", INTERACTION: "interaction-events", RESOURCE_STATUS: "resource-status",
 };
 /** Messages Aion sends only to an application with a capability. */
-export const CAPABILITY_REQUESTS: Partial<Record<ToCardType, CardCapability>> = { LOAD_ASSET: "model-assets", SET_CAMERA: "camera" };
+export const CAPABILITY_REQUESTS: Partial<Record<ToCardType, CardCapability>> = { LOAD_ASSET: "model-assets", SET_CAMERA: "camera", LOAD_SCENE: "scene-documents" };
 
 export const INTERACTION_KINDS = ["pointer-down", "pointer-up", "wheel", "key", "escape", "focus", "blur"] as const;
 export const PAUSE_REASONS = ["user", "codex", "hidden"] as const;
@@ -40,6 +44,7 @@ export interface CardAssetInfo { id: string; name: string; kind: "model"; bytes:
 export interface ToCardPayloads {
   INITIALIZE: { app: string; config: Record<string, CardValue>; state?: Record<string, CardValue>; layout: CardLayout; reducedMotion: boolean; theme: CardTheme; limits: CardResources };
   LOAD_ASSET: { asset: CardAssetInfo; data: ArrayBuffer };
+  LOAD_SCENE: { revision: number; document: SceneDocument };
   SET_STATE: { state: Record<string, CardValue> };
   SET_CAMERA: { view?: string; focus?: string };
   EXECUTE_COMMAND: { command: string; value?: CardValue };
@@ -219,6 +224,12 @@ export function parseToCard(raw: unknown, instance: string, manifest: CardAppMan
         || !finite(asset.bytes, 1, manifest.resources.maxAssetBytes) || typeof asset.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(asset.sha256)) return bad("invalid asset");
       if (!(p.data instanceof ArrayBuffer) || p.data.byteLength !== asset.bytes) return bad("asset bytes do not match");
       break;
+    }
+    case "LOAD_SCENE": {
+      if (!onlyKeys(p, ["revision", "document"]) || !Number.isInteger(p.revision) || !finite(p.revision, 1, 1e9)) return bad("needs a revision and a document");
+      const scene = validateScene(p.document);
+      if (!scene.ok) return bad(`${scene.code}: ${scene.problem}`);
+      return { ok: true, message: { ...message, payload: { revision: p.revision, document: scene.document } } as ToCardMessage };
     }
     case "SET_STATE":
       if (!checkState(manifest, p.state).ok) return bad("invalid state");

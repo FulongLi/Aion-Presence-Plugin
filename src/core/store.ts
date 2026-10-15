@@ -14,6 +14,10 @@ import { applyCardReport, openCard, queueCardCommand, type CardReport, type Card
 import { checkCommand } from "../cards/manifest";
 import type { CardValue } from "../cards/values";
 import { cardRegistry } from "./cards";
+import type { SceneDocument } from "../scene/ir";
+import { validateScene } from "../scene/validate";
+import { applyPatch } from "../scene/patch";
+import { commit as commitScene, redo as redoScene, resetHistory, startHistory, undo as undoScene, type HistoryResult, type SceneHistoryState } from "../scene/history";
 
 /**
  * The presence state shared by every surface: the host's activity, the persistent body, the one temporary
@@ -53,6 +57,16 @@ export interface PresenceSnapshot {
    */
   card: CardSnapshot | null;
 }
+
+/**
+ * v0.5: a change to a generative scene card's scene. `request` names it so the caller can read its outcome from the
+ * snapshot (card.scene.outcome). `base`: the revision the change was made from (a stale one is refused).
+ */
+export type SceneCommand = { request: string; base?: number; label?: string } & (
+  | { action: "set"; document: unknown }
+  | { action: "patch"; ops: unknown[] }
+  | { action: "undo" | "redo" | "reset" }
+);
 
 /** The animation on show and where its playhead is. */
 export interface AnimationPlayback { presentation: string; playback: PlaybackState }
@@ -105,6 +119,8 @@ export class PresenceStore {
   private readonly listeners = new Set<(snapshot: PresenceSnapshot) => void>();
   private cancelPresentation: (() => void) | null = null;
   private cancelActivity: (() => void) | null = null;
+  /** v0.5: the generative scene card's full history (earlier documents stay here, not in the snapshot). */
+  private sceneHistory: { instance: string; state: SceneHistoryState } | null = null;
 
   constructor(private readonly clock: StoreClock = systemClock) {
     this.state = { revision: 0, activity: { state: "idle", source: "system", since: clock.now() }, body: DEFAULT_BODY, presentation: null, gesture: null, expression: null, sceneView: null, appearance: DEFAULT_APPEARANCE, audio: DEFAULT_AUDIO_PRESENCE, playback: null, animation: null, card: null };
@@ -163,7 +179,15 @@ export class PresenceStore {
       card = open && open.instance === content.instance && open.app === content.app
         ? { ...open, title: content.title, layout: content.layout, config: content.config, asset: content.asset ?? open.asset, error: null, ...(content.asset && content.asset.id !== open.asset?.id ? { lifecycle: "loading" as const } : {}) }
         : openCard({ instance: content.instance, app: content.app, title: content.title, layout: content.layout, asset: content.asset ?? null, config: content.config, now });
+      // v0.5: a generated scene. The same card shown with a new scene keeps its history: the new scene is a new revision.
+      if (content.scene !== undefined) {
+        delete (presentation as { scene?: unknown }).scene;
+        const checked = validateScene(content.scene);
+        if (checked.ok) card = { ...card, scene: this.sceneState(card, checked.document, now) };
+      }
     }
+    // A different card (or none) ends the old card's scene history.
+    if (!card || (!card.scene && card.instance !== this.sceneHistory?.instance)) this.sceneHistory = null;
     this.commit({ presentation, animation, card });
     if (animation && content.kind === "animation" && holds.total > 0) this.expire(presentation.id, this.playbackLeft(animation.playback) + ANIMATION_TAIL_SECONDS);
     else if (holds.total > 0) this.expire(presentation.id, holds.total + FORMING_SECONDS);
@@ -189,6 +213,63 @@ export class PresenceStore {
     const queued = queueCardCommand(card, command, checked.value, this.clock.now());
     this.commit({ card: queued.card });
     return { ok: true, seq: queued.seq, card: queued.card };
+  }
+
+  /** The scene state after a whole new scene: a new history, or a new revision of the open card's. */
+  private sceneState(card: CardSnapshot, document: SceneDocument, now: number) {
+    const history = this.sceneHistory?.instance === card.instance ? this.sceneHistory.state : null;
+    const next = history ? commitScene(history, document, "replaced the scene", now) : { ok: true as const, state: startHistory(document, now) };
+    const state = next.ok ? next.state : startHistory(document, now);
+    this.sceneHistory = { instance: card.instance, state };
+    return { ...this.sceneSnapshot(state), rendered: card.scene?.rendered ?? null, outcome: null };
+  }
+
+  private sceneSnapshot(state: SceneHistoryState) {
+    return { document: state.document, revision: state.revision, label: state.label, log: state.log, undo: state.undo.length, redo: state.redo.length };
+  }
+
+  /**
+   * v0.5: changes the generative scene card's scene — a whole new document, a patch, undo, redo or reset — as one
+   * transaction: validated, checked against `base` (stale changes are refused), recorded in the history. The outcome is
+   * written to the card's scene (by request id) either way; a failure leaves the scene exactly as it was.
+   */
+  sceneCommand(command: SceneCommand): { ok: boolean; problem?: string } {
+    const card = this.state.card, manifest = card ? cardRegistry.get(card.app) : undefined;
+    if (!card || !manifest?.capabilities.includes("scene-documents")) return { ok: false, problem: "no generated scene is open" };
+    const now = this.clock.now();
+    const history = this.sceneHistory?.instance === card.instance ? this.sceneHistory.state : null;
+    const fail = (code: string, problem: string) => {
+      if (card.scene) this.commit({ card: { ...card, scene: { ...card.scene, outcome: { request: command.request, ok: false, revision: card.scene.revision, code, problem: problem.slice(0, 400) } } } });
+      return { ok: false, problem };
+    };
+    let result: HistoryResult, extra: { summary?: string; changed?: string[]; removed?: string[] } = {};
+    if (command.action === "set") {
+      const checked = validateScene(command.document);
+      if (!checked.ok) return fail(checked.code, checked.problem);
+      if (!history || !card.scene) {
+        const state = startHistory(checked.document, now);
+        this.sceneHistory = { instance: card.instance, state };
+        this.commit({ card: { ...card, scene: { ...this.sceneSnapshot(state), rendered: null, outcome: { request: command.request, ok: true, revision: state.revision, summary: "created the scene" } } } });
+        return { ok: true };
+      }
+      result = commitScene(history, checked.document, (command.label ?? "replaced the scene").slice(0, 160), now, command.base);
+      extra = { summary: "replaced the scene" };
+    } else {
+      if (!history || !card.scene) return fail("no-scene", "the card has no scene yet");
+      if (command.action === "patch") {
+        const patched = applyPatch(history.document, command.ops, { selected: card.selection?.objectId ?? null });
+        if (!patched.ok) return fail(patched.code, patched.problem);
+        result = commitScene(history, patched.document, (command.label ?? patched.summary).slice(0, 160), now, command.base);
+        extra = { summary: patched.summary, changed: patched.changed.slice(0, 64), removed: patched.removed.slice(0, 64) };
+      } else {
+        result = command.action === "undo" ? undoScene(history, now) : command.action === "redo" ? redoScene(history, now) : resetHistory(history, now);
+        extra = { summary: command.action === "reset" ? "reset to the original scene" : `${command.action}: ${command.action === "undo" ? history.label : history.redo.at(-1)?.label ?? ""}`.slice(0, 160) };
+      }
+    }
+    if (!result.ok) return fail(result.code, result.problem);
+    this.sceneHistory = { instance: card.instance, state: result.state };
+    this.commit({ card: { ...card, scene: { ...this.sceneSnapshot(result.state), rendered: card.scene?.rendered ?? null, outcome: { request: command.request, ok: true, revision: result.state.revision, ...extra } } } });
+    return { ok: true };
   }
 
   /**
@@ -353,8 +434,8 @@ export class PresenceStore {
   }
 
   private commit(patch: Partial<PresenceSnapshot>) {
-    // The card lives exactly as long as its interactive presentation.
-    if ("presentation" in patch && patch.presentation?.kind !== "interactive") patch = { ...patch, card: null };
+    // The card lives exactly as long as its interactive presentation (and its scene history with it).
+    if ("presentation" in patch && patch.presentation?.kind !== "interactive") { patch = { ...patch, card: null }; this.sceneHistory = null; }
     this.state = { ...this.state, ...patch, revision: this.state.revision + 1 };
     for (const listener of this.listeners) listener(this.state);
   }

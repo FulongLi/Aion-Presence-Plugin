@@ -34,6 +34,10 @@ import { CARD_APP_IDS } from "../../cards/registry";
 import { cardRegistry } from "../../core/cards";
 import { GLB_MIME } from "../../cards/assets/gltf";
 import type { CardValue } from "../../cards/values";
+import type { SceneDocument } from "../../scene/ir";
+import { validateScene } from "../../scene/validate";
+import { PATCH_LIMITS } from "../../scene/patch";
+import { toParticleScene } from "../../scene/particleAdapter";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -106,7 +110,9 @@ export type HubCommand =
   /** v0.4.3: controls the animation on show (a symbol being written, a figure's action sequence). */
   | ({ type: "animation" } & AnimationCommand)
   /** v0.4.5: a command for the interactive card on show (checked against its application's manifest). */
-  | { type: "card"; command: string; value?: CardValue };
+  | { type: "card"; command: string; value?: CardValue }
+  /** v0.5: a change to the generative scene card's scene (its outcome is reported in card.scene.outcome by request). */
+  | { type: "scene"; action: "set" | "patch" | "undo" | "redo" | "reset"; request: string; document?: SceneDocument; ops?: Record<string, unknown>[]; base?: number; label?: string };
 
 const clean = (fn: (value: unknown, max: number) => string | null, max: number) =>
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
@@ -204,11 +210,18 @@ const presentationSchema = z.discriminatedUnion("kind", [
     kind: z.literal("interactive"), app: z.enum(CARD_APP_IDS), instance: z.string().regex(CARD_INSTANCE), title: clean(cleanLine, LIMITS.title),
     layout: z.enum(CARD_LAYOUTS), config: z.record(z.string(), cardValue), asset: cardAsset.optional(),
     bodyScene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene").optional(),
+    scene: z.custom<SceneDocument>(value => validateScene(value).ok, "a valid Scene IR document").optional(),
   }).strict().refine(value => {
     const manifest = cardRegistry.get(value.app);
     if (!manifest || !manifest.display.layouts.includes(value.layout) || !checkConfig(manifest, value.config).ok) return false;
     // Only a model-assets application takes a model, and its particle form is only ever its manifest's own.
     if (value.asset && (!manifest.resources.assets.includes("model") || value.asset.bytes > manifest.resources.maxAssetBytes)) return false;
+    // v0.5: only a scene-documents application takes a scene, and its particle form is that scene's own (the adapter's).
+    if (value.scene !== undefined && !manifest.capabilities.includes("scene-documents")) return false;
+    if (value.bodyScene !== undefined && manifest.capabilities.includes("scene-documents")) {
+      const checked = value.scene === undefined ? null : validateScene(value.scene);
+      return !!checked?.ok && JSON.stringify(value.bodyScene) === JSON.stringify(toParticleScene(checked.document).scene);
+    }
     return value.bodyScene === undefined || JSON.stringify(value.bodyScene) === JSON.stringify(manifest.hybrid);
   }, "an interactive card its application's manifest allows"),
   z.object({
@@ -272,6 +285,12 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     command: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/).refine(value => (UNIVERSAL_COMMANDS as readonly string[]).includes(value) || cardRegistry.list().some(app => value in app.commands), "a card command"),
     value: z.union([z.string().max(120), z.number().finite(), z.boolean()]).optional(),
   }).strict(),
+  z.object({
+    type: z.literal("scene"), action: z.enum(["set", "patch", "undo", "redo", "reset"]), request: z.string().regex(/^q[a-z0-9]{4,32}$/),
+    document: z.custom<SceneDocument>(value => validateScene(value).ok, "a valid Scene IR document").optional(),
+    ops: z.array(z.record(z.string(), z.unknown())).min(1).max(PATCH_LIMITS.ops).optional(),
+    base: z.number().int().min(0).optional(), label: clean(cleanLine, 160).optional(),
+  }).strict().refine(value => value.action === "set" ? value.document !== undefined && value.ops === undefined : value.action === "patch" ? value.ops !== undefined && value.document === undefined : value.document === undefined && value.ops === undefined, "set takes a document, patch takes ops"),
 ]);
 
 /** A companion window describing itself (focus, fullscreen, visibility): nothing else. */

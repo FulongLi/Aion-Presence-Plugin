@@ -2,6 +2,8 @@ import { CARD_LAYOUTS, CARD_LIMITS, checkState, type CardAppManifest, type CardL
 import { CARD_LIFECYCLE, type CardLifecycle } from "./lifecycle";
 import { CARD_INSTANCE, selectionProblem, validResources, type CardSelection, type ResourceStatus } from "./protocol";
 import { cleanCardText, type CardValue } from "./values";
+import type { SceneDocument } from "../scene/ir";
+import type { HistoryEntry } from "../scene/history";
 
 /**
  * The interactive card as Aion's hub knows it (v0.4.5): independent of any page's DOM, so Codex can inspect it and every
@@ -14,6 +16,24 @@ import { cleanCardText, type CardValue } from "./values";
 export interface CardCommandEntry { seq: number; command: string; value?: CardValue; at: number }
 export interface CardAck { seq: number; ok: boolean; problem?: string }
 export interface CardAssetRef { id: string; name: string; bytes: number; sha256: string; mime: string }
+
+/**
+ * v0.5: the scene of a `scene-documents` card (the generative scene). The document here is authoritative; the card
+ * builds it and confirms which revision it has actually built (`rendered`) — an accepted change is not a rendered one.
+ * Earlier documents (undo/redo) stay in the store; the snapshot carries only their count and the revision log.
+ */
+export interface CardSceneState {
+  document: SceneDocument;
+  revision: number;
+  label: string;
+  log: HistoryEntry[];
+  undo: number;
+  redo: number;
+  rendered: { revision: number; ok: boolean; problem?: string; at: number } | null;
+  /** The outcome of the latest scene command, by its request id (the tool that sent it reads it). */
+  outcome: SceneOutcome | null;
+}
+export interface SceneOutcome { request: string; ok: boolean; revision: number; code?: string; problem?: string; summary?: string; changed?: string[]; removed?: string[] }
 
 export interface CardSnapshot {
   instance: string;
@@ -35,6 +55,8 @@ export interface CardSnapshot {
   openedAt: number;
   /** The user is manipulating the card right now (the body calms its background motion). */
   interacting: boolean;
+  /** v0.5: the scene of a generative scene card (null for other applications, or before its first scene). */
+  scene: CardSceneState | null;
 }
 
 /** What a surface reports about the card it shows. Everything is optional except whose card it is. */
@@ -49,6 +71,8 @@ export interface CardReport {
   acks?: CardAck[];
   resources?: ResourceStatus;
   interacting?: boolean;
+  /** v0.5: the scene revision the card has built (ok) or refused to build (with why). */
+  scene?: { revision: number; ok: boolean; problem?: string };
 }
 
 export const CARD_REPORT_BYTES = 96 * 1024;
@@ -61,7 +85,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
  */
 export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifest: CardAppManifest | undefined): { ok: true; report: CardReport } | { ok: false; problem: string; stale?: boolean } {
   if (!isRecord(raw)) return { ok: false, problem: "not an object" };
-  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting"];
+  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting", "scene"];
   if (Object.keys(raw).some(key => !allowed.includes(key))) return { ok: false, problem: "unknown fields" };
   if (typeof raw.window !== "string" || !/^[a-z0-9]{8,32}$/.test(raw.window)) return { ok: false, problem: "invalid window" };
   if (typeof raw.instance !== "string" || !CARD_INSTANCE.test(raw.instance)) return { ok: false, problem: "invalid instance" };
@@ -113,6 +137,13 @@ export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifes
     if (typeof raw.interacting !== "boolean") return { ok: false, problem: "invalid interacting" };
     report.interacting = raw.interacting;
   }
+  if (raw.scene !== undefined) {
+    const scene = raw.scene as Record<string, unknown>;
+    if (!manifest.capabilities.includes("scene-documents")) return { ok: false, problem: "scene needs the scene-documents capability" };
+    if (!isRecord(scene) || Object.keys(scene).some(key => !["revision", "ok", "problem"].includes(key)) || !Number.isInteger(scene.revision) || (scene.revision as number) < 1
+      || (scene.revision as number) > (card.scene?.revision ?? 0) || typeof scene.ok !== "boolean" || (scene.problem !== undefined && cleanCardText(scene.problem, 200) !== scene.problem)) return { ok: false, problem: "invalid scene acknowledgement" };
+    report.scene = { revision: scene.revision as number, ok: scene.ok as boolean, ...(scene.problem !== undefined ? { problem: scene.problem as string } : {}) };
+  }
   return { ok: true, report };
 }
 
@@ -130,6 +161,7 @@ export function applyCardReport(card: CardSnapshot, report: CardReport, now: num
     ...(report.error !== undefined ? { error: report.error } : {}),
     ...(report.resources ? { resources: report.resources } : {}),
     ...(report.interacting !== undefined ? { interacting: report.interacting } : {}),
+    ...(report.scene && card.scene ? { scene: { ...card.scene, rendered: { ...report.scene, at: now } } } : {}),
     acks, reportedAt: now,
   };
 }
@@ -145,6 +177,6 @@ export function queueCardCommand(card: CardSnapshot, command: string, value: Car
 export function openCard(init: { instance: string; app: string; title: string; layout: CardLayout; asset: CardAssetRef | null; config: Record<string, CardValue>; now: number }): CardSnapshot {
   return {
     instance: init.instance, app: init.app, title: init.title, layout: init.layout, lifecycle: "loading", state: {}, selection: null, error: null,
-    asset: init.asset, config: init.config, commands: [], acks: [], nextSeq: 1, resources: null, reportedAt: null, openedAt: init.now, interacting: false,
+    asset: init.asset, config: init.config, commands: [], acks: [], nextSeq: 1, resources: null, reportedAt: null, openedAt: init.now, interacting: false, scene: null,
   };
 }

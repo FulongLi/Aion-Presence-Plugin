@@ -1,0 +1,33 @@
+{
+  "measured": "npm run smoke -- --only=v05, headless Chrome, Apple-silicon Mac, 1440x900",
+  "webgpu-body": {
+    "renderer": "auto",
+    "solarSystemBuiltMs": 142,
+    "patchEarthMs": 38,
+    "timelineBuiltMs": 85,
+    "periodsPatchMs": 38,
+    "openBuildCloseMs": 686,
+    "bodyFps": 60,
+    "cardFps": 60,
+    "cardDrawCalls": 20,
+    "cardTriangles": 27296,
+    "cardGeometries": 19,
+    "cardBuildMs": 9.3,
+    "cardHeapMB": 8.5
+  },
+  "canvas-body": {
+    "renderer": "canvas",
+    "solarSystemBuiltMs": 99,
+    "patchEarthMs": 38,
+    "timelineBuiltMs": 81,
+    "periodsPatchMs": 37,
+    "openBuildCloseMs": 679,
+    "bodyFps": 60,
+    "cardFps": 60,
+    "cardDrawCalls": 20,
+    "cardTriangles": 27296,
+    "cardGeometries": 19,
+    "cardBuildMs": 9,
+    "cardHeapMB": 6.9
+  }
+}

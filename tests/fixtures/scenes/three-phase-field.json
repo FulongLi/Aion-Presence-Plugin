@@ -1,0 +1,401 @@
+{
+ "version": 1,
+ "sceneId": "three-phase-field",
+ "title": "Three-phase rotating magnetic field",
+ "intent": {
+  "kind": "scientific",
+  "summary": "A simple animated three-phase magnetic field",
+  "fidelity": "illustrative",
+  "interaction": "inspect"
+ },
+ "requirements": [
+  "compute:magnetic-field"
+ ],
+ "disclosure": [
+  "Conceptual: coil brightness follows each phase current (120° apart); the arrows are phasors and the resultant rotating field. Not computed by a field solver."
+ ],
+ "objects": [
+  {
+   "id": "stator",
+   "type": "torus",
+   "name": "Stator",
+   "radius": 3,
+   "tube": 0.35,
+   "rotation": [
+    90,
+    0,
+    0
+   ],
+   "material": {
+    "color": "#56606b",
+    "metalness": 0.6,
+    "roughness": 0.4
+   },
+   "metadata": {
+    "Role": "Holds the three windings 120° apart"
+   }
+  },
+  {
+   "id": "coil-a",
+   "type": "helix",
+   "name": "Phase A coil",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    2.6,
+    0,
+    -0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    90
+   ],
+   "material": {
+    "color": "#ff5a4f",
+    "emissive": "#ff5a4f",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "A",
+    "Electrical angle (deg)": 0
+   }
+  },
+  {
+   "id": "coil-a-return",
+   "type": "helix",
+   "name": "Phase A coil (return)",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    -2.6,
+    0,
+    0.0
+   ],
+   "rotation": [
+    0,
+    0,
+    90
+   ],
+   "material": {
+    "color": "#ff5a4f",
+    "emissive": "#ff5a4f",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "A",
+    "Electrical angle (deg)": 0
+   }
+  },
+  {
+   "id": "coil-b",
+   "type": "helix",
+   "name": "Phase B coil",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    -1.3,
+    0,
+    -2.252
+   ],
+   "rotation": [
+    0,
+    120,
+    90
+   ],
+   "material": {
+    "color": "#ffd60a",
+    "emissive": "#ffd60a",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "B",
+    "Electrical angle (deg)": 120
+   }
+  },
+  {
+   "id": "coil-b-return",
+   "type": "helix",
+   "name": "Phase B coil (return)",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    1.3,
+    0,
+    2.252
+   ],
+   "rotation": [
+    0,
+    120,
+    90
+   ],
+   "material": {
+    "color": "#ffd60a",
+    "emissive": "#ffd60a",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "B",
+    "Electrical angle (deg)": 120
+   }
+  },
+  {
+   "id": "coil-c",
+   "type": "helix",
+   "name": "Phase C coil",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    -1.3,
+    0,
+    2.252
+   ],
+   "rotation": [
+    0,
+    240,
+    90
+   ],
+   "material": {
+    "color": "#3b82f6",
+    "emissive": "#3b82f6",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "C",
+    "Electrical angle (deg)": 240
+   }
+  },
+  {
+   "id": "coil-c-return",
+   "type": "helix",
+   "name": "Phase C coil (return)",
+   "radius": 0.32,
+   "height": 0.9,
+   "turns": 5,
+   "tube": 0.05,
+   "position": [
+    1.3,
+    0,
+    -2.252
+   ],
+   "rotation": [
+    0,
+    240,
+    90
+   ],
+   "material": {
+    "color": "#3b82f6",
+    "emissive": "#3b82f6",
+    "emissiveIntensity": 0.2
+   },
+   "metadata": {
+    "Phase": "C",
+    "Electrical angle (deg)": 240
+   }
+  },
+  {
+   "id": "phasors",
+   "type": "group",
+   "name": "Phasor diagram",
+   "position": [
+    0,
+    0,
+    0
+   ]
+  },
+  {
+   "id": "phasor-a",
+   "type": "arrow",
+   "parent": "phasors",
+   "name": "Phase A field",
+   "from": [
+    0,
+    0,
+    0
+   ],
+   "to": [
+    1.3,
+    0,
+    -0.0
+   ],
+   "radius": 0.04,
+   "material": {
+    "color": "#ff5a4f",
+    "unlit": true
+   },
+   "metadata": {
+    "Phase": "A",
+    "Lag (deg)": 0
+   }
+  },
+  {
+   "id": "phasor-b",
+   "type": "arrow",
+   "parent": "phasors",
+   "name": "Phase B field",
+   "from": [
+    0,
+    0,
+    0
+   ],
+   "to": [
+    -0.65,
+    0,
+    -1.126
+   ],
+   "radius": 0.04,
+   "material": {
+    "color": "#ffd60a",
+    "unlit": true
+   },
+   "metadata": {
+    "Phase": "B",
+    "Lag (deg)": 120
+   }
+  },
+  {
+   "id": "phasor-c",
+   "type": "arrow",
+   "parent": "phasors",
+   "name": "Phase C field",
+   "from": [
+    0,
+    0,
+    0
+   ],
+   "to": [
+    -0.65,
+    0,
+    1.126
+   ],
+   "radius": 0.04,
+   "material": {
+    "color": "#3b82f6",
+    "unlit": true
+   },
+   "metadata": {
+    "Phase": "C",
+    "Lag (deg)": 240
+   }
+  },
+  {
+   "id": "resultant",
+   "type": "arrow",
+   "name": "Resultant field",
+   "from": [
+    0,
+    0.05,
+    0
+   ],
+   "to": [
+    1.95,
+    0.05,
+    0
+   ],
+   "radius": 0.07,
+   "material": {
+    "color": "#ffffff",
+    "emissive": "#ffffff",
+    "emissiveIntensity": 0.6
+   },
+   "annotation": "The three pulsating fields add up to one field of constant strength (1.5× a phase's peak) that rotates once per electrical cycle.",
+   "metadata": {
+    "Magnitude": "1.5 × phase peak",
+    "Rotation": "one turn per cycle"
+   }
+  }
+ ],
+ "animations": [
+  {
+   "id": "current-a",
+   "target": "coil-a",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": 90
+  },
+  {
+   "id": "current-a-return",
+   "target": "coil-a-return",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": 270
+  },
+  {
+   "id": "current-b",
+   "target": "coil-b",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": -30
+  },
+  {
+   "id": "current-b-return",
+   "target": "coil-b-return",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": 150
+  },
+  {
+   "id": "current-c",
+   "target": "coil-c",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": -150
+  },
+  {
+   "id": "current-c-return",
+   "target": "coil-c-return",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.6,
+   "period": 2,
+   "phase": 30
+  },
+  {
+   "id": "phasor-spin",
+   "target": "phasors",
+   "type": "spin",
+   "speed": 180
+  },
+  {
+   "id": "field-spin",
+   "target": "resultant",
+   "type": "spin",
+   "speed": 180
+  }
+ ],
+ "camera": {
+  "position": [
+   0,
+   8,
+   6
+  ],
+  "target": [
+   0,
+   0,
+   0
+  ]
+ },
+ "environment": {
+  "ambient": 0.5
+ }
+}

@@ -72,6 +72,11 @@ Codex answers                →  Aion visibly answers, for as long as the answe
 "Show a stick figure jumping over a box."  →  Aion's flexible figure gathers, jumps the box, lands soft, returns
 "Animate the figure thinking." →  it pauses, hand to chin, and gets it — the "?" above it becomes "!"
 "Tell me the story of Nikola Tesla."  →  a heritage portrait and a calm story, told in parts as you ask
+"Create a 3D solar system with the Sun and eight planets." →  generated, animated, beside a body that forms it too
+"Make Earth three times larger." · "Stop Mars." · "Change the orbit colour to blue." →  the same scene, changed in place
+(click an object) "Move this to the left and make it larger." · "Undo that." →  edited where it stands, and back
+"Visualize the passage of time." → "Turn it into an interactive 3D timeline." →  from particles to a scene you can explore
+"Show an animated conceptual buck converter." →  switching, current and energy, labelled as not a simulation
 ```
 
 - **Three persistent bodies**, one Aion: the original particle **Sphere** (abstract intelligence, visuals),
@@ -124,6 +129,19 @@ Codex answers                →  Aion visibly answers, for as long as the answe
   directly.
 
   ![The Moon turns once per orbit](docs/media/v0.4.5/05-earth-moon-orbit-synchronous-rotation.gif)
+- **v0.5 — the Generative Visual Engine**: describe what you want to see and Codex writes it as a **Scene IR** document
+  (objects, materials, labels, metadata, declarative animations; data, never code). Aion validates it, checks what it
+  can honestly show, picks body, card or hybrid with **Presentation Router 2.0**, and builds it in a general-purpose
+  Three.js card (**`generative-scene`** on Card 2.0) or in its particle body. Each later request is a validated
+  **patch**: the same scene changes in place, objects keep their identity, every change is a revision you can undo,
+  and Codex hears "done" only when the card confirms it rendered. Click an object and say "this". Requests that need a
+  solver Aion does not have are refused plainly, and illustrations say they are illustrations. A boundary for future
+  FreeCAD/OCCT and AIPE backends is defined. No new MCP tools; the metadata budget holds. See
+  [docs/GENERATIVE-VISUAL-ENGINE.md](docs/GENERATIVE-VISUAL-ENGINE.md), [docs/SCENE-IR.md](docs/SCENE-IR.md),
+  [docs/SCENE-ANIMATION.md](docs/SCENE-ANIMATION.md), [docs/SCENE-INTERACTION.md](docs/SCENE-INTERACTION.md),
+  [docs/PRESENTATION-ROUTER-V2.md](docs/PRESENTATION-ROUTER-V2.md), [docs/FUTURE-CAD-INTEGRATION.md](docs/FUTURE-CAD-INTEGRATION.md).
+
+  ![Earth larger, Mars stopped, orbits blue — one scene, patched in place](docs/media/v0.5/02-incremental-edits.gif)
 - **The Presentation Router**: BODY (the particles become it), CARD (exact, high-fidelity, beside the living body)
   or HYBRID (both), decided deterministically from what the information is; the model may prefer, the policy
   overrides clearly bad choices (long text never becomes particles). Cards show the original picture, never the
@@ -200,7 +218,7 @@ actually allows — assistant audio, fullscreen, foreground, always-on-top — i
 | `set_audio_visualizer` | How Aion moves with sound (microphone, Codex Voice Sync, another app, a tab, Aion's own music). |
 | `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
-| `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close) and the app's commands, confirmed by the card; its state, selection and metadata as the user sees it. |
+| `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model, v0.5's `generative-scene` with a Scene IR `scene`, routed to body, card or hybrid), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close), the app's commands, and for scenes `patch` (with `revision`), `undo`, `redo` and `revert`, each confirmed by the card; its state, selection, metadata and scene (with `full`, the whole document) as the user sees it. |
 | `clear_presentation` | Return to the persistent body now (also closes an interactive card). |
 
 `show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
@@ -240,6 +258,9 @@ hooks Aion still works; the Skill then sets the main states itself.
   (`AION_PRESENCE_BRAVE_SEARCH_KEY`) is off unless you set it.
 - Presented content is rendered as text (never as HTML), images only through `<img>` or as particles. Cards and the
   Presentation Router run locally; card contents are never sent anywhere.
+- **Generated scenes are data, never code** (v0.5): a Scene IR document has no field that can carry code, markup, a
+  shader or a URL; it is validated in the MCP server, the hub and the sandboxed card, bounded (48 KB, 256 objects,
+  600,000 triangles, 60,000 particles), and a failed change leaves the previous scene on show.
 - **3D scenes are data, never code**: every scene is validated strictly (known fields and names only, bounded
   numbers, at most 24 objects, 256 after repeats, 80,000 triangles, 16 KB) in the MCP server, again in the hub and
   again before geometry is built. No 3D asset is ever fetched.
@@ -263,14 +284,14 @@ npm run dev
 | `npm run build` | The self-contained runtime in `plugins/aion-presence/runtime/` (committed) |
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace and versions |
-| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync, v0.4.4's Chinese pack, words, practice, music handwriting and Figure 3.0 behaviours, and v0.4.5's interactive cards (isolation probed from inside the frame, selection by click, Codex control, layouts, repeated open/close with nothing left behind, timings, a browser without WebGL, a card in an MCP Apps host) — in both renderers (`-- --offline` skips lookups; `-- --only=v45` one section) |
+| `npm run smoke` | The surface in headless Chrome: renderers, routes, the microphone path, responding, immersive, embedded, v0.4's eyes, explanation, heritage and 3D, v0.4.1's default heritage, maps and markers (pixels checked), terrain pins and colours, v0.4.2's lessons, engraving, playback timing, spectrum and Codex-voice paths, v0.4.3's stroke writing, action sequences, local portraits and Codex Voice Sync, v0.4.4's Chinese pack, words, practice, music handwriting and Figure 3.0 behaviours, v0.4.5's interactive cards (isolation probed from inside the frame, selection by click, Codex control, layouts, repeated open/close with nothing left behind, timings, a browser without WebGL, a card in an MCP Apps host), and v0.5's generated scenes (Demos A–H: routing, in-place patches checked by change counts and pixels, click-to-select and `$selected`, undo/redo/revert, stale and invalid patches refused, abstract time in the body becoming a timeline, an illustrative field, a buck converter, an unsupported request refused, cleanup and timings) — in both renderers (`-- --offline` skips lookups; `-- --only=v05` one section) |
 | `npm run audio:eval` | Measures the music detector on real recordings on this Mac (Apple Loops, system voices); nothing is kept |
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` (Xcode command-line tools) |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge: a real app's sound, or Codex's voice while you talk to it |
 | `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`.e2e/showcase/*.webm`, screenshots, filmed frames for `scripts/media/gif.py`); `-- --list`, `-- map-usa eyes-motion`, `-- --headed`, `-- --canvas` |
 | `npm run geo:coverage` | Geography against the live services (continents, the largest and smallest countries, high latitudes, the date line, OSM regions, markers, terrain); writes [docs/GEO-COVERAGE.md](docs/GEO-COVERAGE.md) |
 | `npm run geo:build -- <dir>` | Rebuilds the bundled world from the Natural Earth GeoJSON files (see [docs/MAPS.md](docs/MAPS.md)) |
-| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes (v0.4.4: the pack installed, every tool reaching Codex within the metadata budget, Chinese writing offline; v0.4.5: the Earth–Moon card and the bundled transformer from the installed runtime) |
+| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes (v0.4.4: the pack installed, every tool reaching Codex within the metadata budget, Chinese writing offline; v0.4.5: the Earth–Moon card and the bundled transformer from the installed runtime; v0.5: a generated scene built and patched from the installed runtime) |
 | `npm run mcp:budget` · `npm run codex:tools` | Aion's tool metadata against its budget · what your Codex receives from every MCP server (see [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md)) |
 | `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild the Chinese Writing Pack from pinned upstream releases · write the original JSON back (lossless) · re-verify all characters and measure the particle letterforms |
 | `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol (start points, directions) |

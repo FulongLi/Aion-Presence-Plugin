@@ -13,9 +13,10 @@ export type CardLayout = typeof CARD_LAYOUTS[number];
 
 /**
  * What an application may do. Each capability unlocks exactly the bridge messages listed in CAPABILITY_MESSAGES; an
- * application without it is never sent them and may not send them.
+ * application without it is never sent them and may not send them. v0.5: `scene-documents` — the application is handed
+ * validated Scene IR documents (LOAD_SCENE) and renders them.
  */
-export const CARD_CAPABILITIES = ["webgl", "model-assets", "selection", "camera", "simulation-time", "visibility", "interaction-events", "resource-status"] as const;
+export const CARD_CAPABILITIES = ["webgl", "model-assets", "selection", "camera", "simulation-time", "visibility", "interaction-events", "resource-status", "scene-documents"] as const;
 export type CardCapability = typeof CARD_CAPABILITIES[number];
 
 /** What an application may receive from the user: pointer input (always) and keyboard focus inside its frame. */

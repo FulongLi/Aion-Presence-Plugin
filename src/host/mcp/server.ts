@@ -60,6 +60,10 @@ import { newInstanceId } from "../../cards/protocol";
 import { describeSpec, type CardValue } from "../../cards/values";
 import type { CardSnapshot } from "../../cards/state";
 import { AssetError, BUNDLED_MODEL_NAMES, loadModel } from "../cardAssets";
+import { validateScene } from "../../scene/validate";
+import { routeScene, type RouteMode, type SceneRoute } from "../../scene/router";
+import { summarizeScene } from "../../scene/summary";
+import type { SceneDocument } from "../../scene/ir";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -148,6 +152,7 @@ export const presenceOutput = z.object({
     title: z.string(), seconds: z.number(), actions: z.array(z.string()), playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
   }).optional().describe("The action sequence on show: what it does and its length. Do not narrate every movement."),
   card: z.record(z.string(), z.unknown()).optional().describe("The interactive card: application, lifecycle, layout, state, selection, model, commands."),
+  route: z.record(z.string(), z.unknown()).optional().describe("v0.5: how a generated scene is shown (body, card or hybrid), why, what it needs and what is approximated."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -185,15 +190,13 @@ export function formVariantCatalog(registry: VisualFormRegistry = visualForms): 
  * SCF's, tuned there over many conversations, with "your particle body" read as Aion, Codex's body.
  */
 export const TOOL_DESCRIPTIONS = {
-  show_interactive_card: "Open an interactive 3D app beside Aion; it stays until closed. earth-moon: Earth's rotation, the Moon's orbit, why one side "
-    + "faces Earth (scaled for visibility). cad-viewer: a glTF/GLB model (model \"transformer\" or a .glb/.gltf path) to orbit, select, hide, isolate. "
-    + "The user manipulates it directly; then use control_interactive_card / inspect_interactive_card. The same app again keeps the card.",
-  control_interactive_card: "Control the open interactive card: pause, resume, reset, expand, collapse, fullscreen, close; earth-moon: set-time-speed "
-    + "(days/s), set-time, reset-time, focus (earth|moon|system), set-view (overview|top|edge|from-earth), select, show-orbit/-labels/-orbital-plane/-axis/"
-    + "-teaching, compare-no-rotation, set-scale, reset-camera; cad-viewer: select/hide/show/isolate/focus (component id), show-all, fit, set-view, "
-    + "show-edges, clear-selection, reset-camera. Says whether the card confirmed it.",
-  inspect_interactive_card: "Read the open interactive card as the user sees it: state, the selected object and its metadata, components, model, "
-    + "errors. Use before answering about it; never guess properties it does not report.",
+  show_interactive_card: "Open an interactive 3D app beside Aion (until closed). earth-moon: Earth's rotation, the Moon's orbit. cad-viewer: a "
+    + "glTF/GLB model (\"transformer\" or a path). generative-scene: any scene you write as a Scene IR document (solar system, timeline, circuit, "
+    + "field); Aion picks body, card or hybrid and says what it approximates. The same app again updates it.",
+  control_interactive_card: "Control the open card: pause, resume, reset, expand, collapse, fullscreen, close, or a command its result lists. "
+    + "generative-scene: patch (operations on object ids, from revision), undo, redo, revert. Says if the card confirmed it.",
+  inspect_interactive_card: "Read the open card as the user sees it: state, the selection and its metadata, the scene and its revisions. "
+    + "Use before answering about it; never guess what it does not report.",
   show_image: `Form a picture of almost anything with Aion's particle body (a person, object, animal, building, place, artwork, logo, map or `
     + `idea). query: Aion's curated assets first (such as the ${AION_IDENTITY.creatorCompany} logo), then open image sources (Wikipedia, Commons, `
     + "Openverse); source: an image on this machine, shown as it is (intent portrait if the user says it is one). Use when seeing it helps. "
@@ -1118,7 +1121,12 @@ export function createAionServer(options: AionServerOptions): McpServer {
       state, selection: card.selection, ...(card.asset ? { model: { name: card.asset.name, bytes: card.asset.bytes } } : {}),
       ...(card.error ? { error: card.error } : {}),
       ...(detail && card.resources ? { resources: card.resources } : {}),
-      commands: [...UNIVERSAL_COMMANDS, ...Object.entries(manifest.commands).map(([name, spec]) => `${name}${describeSpec(spec.value) ? ` (${describeSpec(spec.value)})` : ""}`)],
+      ...(card.scene ? {
+        scene: summarizeScene(card.scene.document, card.scene.revision, { log: card.scene.log, undo: card.scene.undo, redo: card.scene.redo }),
+        rendered: card.scene.rendered ? (card.scene.rendered.ok ? `revision ${card.scene.rendered.revision} is built` : `revision ${card.scene.rendered.revision} could not be built: ${card.scene.rendered.problem ?? "failed"}`) : "not built yet",
+      } : {}),
+      commands: [...UNIVERSAL_COMMANDS, ...Object.entries(manifest.commands).map(([name, spec]) => `${name}${describeSpec(spec.value) ? ` (${describeSpec(spec.value)})` : ""}`),
+        ...(manifest.capabilities.includes("scene-documents") ? ["patch (patch, revision)", "undo", "redo", "revert"] : [])],
     };
   };
   const cardText = (message: string, summary: object) => `${message}\n${JSON.stringify(summary)}`;
@@ -1142,6 +1150,110 @@ export function createAionServer(options: AionServerOptions): McpServer {
     return snapshot;
   };
 
+  // ── v0.5: generated scenes (Scene IR → Router 2.0 → body, card or hybrid; patches with history) ────────────────
+  const SCENE_ACTIONS = ["patch", "undo", "redo", "revert"] as const;
+  let sceneRequests = 0;
+  const sceneRequest = () => `q${Date.now().toString(36)}${(++sceneRequests).toString(36)}`;
+  const currentMode = (snapshot: HubSnapshot): RouteMode | "none" => snapshot.presentation ? snapshot.presentation.route : "none";
+  /** The router's explanation, as Codex receives it. */
+  const routeOutput = (route: SceneRoute) => ({
+    mode: route.mode, reason: route.reason, transition: route.transition.description, capability: route.capability.status,
+    signals: route.signals, requested: route.requested,
+    available: `modes ${route.available.filter(a => a.startsWith("mode:")).map(a => a.slice(5)).join("/")}; ${route.available.filter(a => a.startsWith("geometry:")).length} geometries, `
+      + `${route.available.filter(a => a.startsWith("animation:")).length} animations; compute backends: ${route.available.filter(a => a.startsWith("compute:")).map(a => a.slice(8)).join(", ") || "none"}`,
+    ...(route.limitations.length ? { limitations: route.limitations } : {}),
+    ...(route.capability.unsupported.length ? { unsupported: route.capability.unsupported } : {}),
+    ...(route.capability.approximated.length ? { approximated: route.capability.approximated } : {}),
+  });
+  const withRoute = (outcome: CallToolResult, route: SceneRoute): CallToolResult => {
+    const explained = routeOutput(route);
+    return {
+      ...outcome,
+      content: [{ type: "text", text: `${(outcome.content[0] as { text: string }).text}\nRoute: ${JSON.stringify(explained)}` }],
+      ...(outcome.structuredContent ? { structuredContent: { ...outcome.structuredContent, route: explained } } : {}),
+    };
+  };
+
+  /** show_interactive_card for a generative scene: validate, check capabilities, route, show, and wait until it is built. */
+  const showGeneratedScene = async (args: z.infer<typeof showInteractiveCardInput>, ctx: ServerContext, manifest: CardAppManifest): Promise<CallToolResult> => {
+    const before = await link.run(backend => backend.state());
+    const open = before.card && before.card.app === manifest.id ? before.card : null;
+    if (args.scene === undefined) {
+      if (!open) return failure("scene-required: generative-scene builds the Scene IR document you pass as scene (the aion-presence skill's scene reference). Nothing was shown.");
+      return cardResult(ctx, before, "The generated scene is open. Pass scene to replace it, or control_interactive_card with action patch to change it.");
+    }
+    if (args.model !== undefined) return failure(`invalid-arguments: ${manifest.name} takes no model.`);
+    const checked = validateScene(args.scene);
+    if (!checked.ok) return failure(`${checked.code}: ${checked.problem}. Nothing was shown or changed; fix the scene and call again.`);
+    let document: SceneDocument = checked.document;
+    const route = routeScene({ document, preference: args.presentation, current: currentMode(before) });
+    if (route.capability.status === "UNSUPPORTED") {
+      const notes = route.capability.unsupported.map(u => u.note).join("; ");
+      return withRoute({ ...result({ ...summarize(before, modeFor(ctx), ""), ok: false }), isError: true, content: [{ type: "text", text: `unsupported: ${notes}. Nothing was shown, and nothing was substituted. `
+        + "Say so plainly. Only if the user wants it, offer a conceptual version declared as illustrative (intent.fidelity \"illustrative\"), which is labelled as not computed." }] }, route);
+    }
+    // What the user must know travels with the scene (shown on the card, always).
+    if (route.capability.disclosures.length) document = { ...document, disclosure: [...new Set([...(document.disclosure ?? []), ...route.capability.disclosures])].slice(0, 6) };
+    const title = (args.title ?? document.title).replace(/\s+/g, " ").trim().slice(0, LIMITS.title) || manifest.name;
+    const notes = document.disclosure?.length ? ` Tell the user: ${document.disclosure.join(" ")}` : "";
+    if (route.mode === "body") {
+      const shown = await link.run(backend => backend.apply({ type: "present", content: { kind: "scene", scene: route.particle.scene!, label: title }, ...(args.hold_seconds !== undefined ? { hold: args.hold_seconds } : {}), presentation: "body" }));
+      return withRoute(result(summarize(shown, modeFor(ctx), `Aion's body forms "${title}" (${route.reason}).${notes} Answer in your own voice; do not narrate this tool call.`)), route);
+    }
+    // A card (or a hybrid): the open generated scene keeps its card and history — the new scene is a new revision.
+    const instance = open ? open.instance : newInstanceId();
+    const layout = args.layout ?? document.presentation?.layout ?? manifest.display.defaultLayout;
+    const config: Record<string, CardValue> = {};
+    if (document.presentation?.labels === false) config.labels = false;
+    if (document.timeline?.autoplay === false) config.paused = true;
+    const hybrid = route.mode === "hybrid" && route.particle.scene !== null;
+    const content: PresentationContent = { kind: "interactive", app: manifest.id, instance, title, layout, config, scene: document, ...(hybrid ? { bodyScene: route.particle.scene! } : {}) };
+    await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds ?? 0, presentation: hybrid ? "hybrid" : "card" }));
+    const shown = await link.run(backend => backend.state());
+    const revision = shown.card?.instance === instance ? shown.card.scene?.revision ?? 0 : 0;
+    const snapshot = watched(shown, ctx)
+      ? await waitForCard(card => card.instance !== instance || card.lifecycle === "error" || (card.scene?.rendered?.revision ?? 0) >= revision, 12_000)
+      : shown;
+    const card = snapshot.card, rendered = card?.scene?.rendered;
+    if (card?.instance === instance && rendered && rendered.revision >= revision && !rendered.ok && revision > 1) {
+      // A replacement the card could not build: the previous scene stays (document and picture agree again).
+      const undone = await link.run(backend => backend.apply({ type: "scene", action: "undo", request: sceneRequest() }));
+      return withRoute({ ...cardResult(ctx, undone, `The card could not build the new scene: ${rendered.problem ?? "failed"}. It was undone; the previous scene stays on show.`), isError: true }, route);
+    }
+    const status = !card || card.instance !== instance ? "It was replaced before it was built."
+      : card.lifecycle === "error" ? `The card stopped with an error: ${card.error?.message ?? "unknown"}.`
+        : rendered && rendered.revision >= revision ? (rendered.ok ? `It is built (revision ${revision}) and ${card.state.playing === false || card.lifecycle === "paused" ? "paused" : "running"}.` : `The card could not build it: ${rendered.problem ?? "failed"}.`)
+          : watched(snapshot, ctx) ? `Accepted as revision ${revision}; the card has not confirmed it is built yet.` : "Aion is not open, so nothing displays it yet.";
+    const failed = !!rendered && rendered.revision >= revision && !rendered.ok;
+    const outcome = cardResult(ctx, snapshot, `${open ? "Updated" : "Opened"} the generated scene "${title}" as ${route.mode === "hybrid" ? "a card while the body forms it" : "a card beside the body"}. ${status}${notes} `
+      + "The user can turn, zoom and select objects. Answer in your own voice; do not narrate this tool call.");
+    return withRoute(failed ? { ...outcome, isError: true } : outcome, route);
+  };
+
+  /** control_interactive_card patch / undo / redo / revert: one transaction in the hub, then the card's confirmation. */
+  const changeScene = async (ctx: ServerContext, card: CardSnapshot, action: typeof SCENE_ACTIONS[number], patch?: Record<string, unknown>[], revision?: number): Promise<CallToolResult> => {
+    if (action === "patch" && !patch) return failure("invalid-arguments: action patch needs patch: [operations].");
+    if (action !== "patch" && (patch || revision !== undefined)) return failure(`invalid-arguments: ${action} takes no patch or revision.`);
+    if (!card.scene) return failure("no-scene: the card has no scene yet; use show_interactive_card with a scene first.");
+    const request = sceneRequest();
+    const after = await link.run(backend => backend.apply({
+      type: "scene", action: action === "revert" ? "reset" : action, request, ...(patch ? { ops: patch } : {}), ...(revision !== undefined ? { base: revision } : {}),
+    }));
+    const outcome = after.card?.scene?.outcome;
+    if (!outcome || outcome.request !== request) return failure("card-changed: the card closed or changed before the change was applied.");
+    if (!outcome.ok) return { ...cardResult(ctx, after, `${outcome.code ?? "invalid-patch"}: ${outcome.problem ?? "failed"}. Nothing changed; the scene is still at revision ${outcome.revision}.`), isError: true };
+    const what = `${outcome.summary ?? action}${outcome.changed?.length ? ` (${outcome.changed.slice(0, 8).join(", ")}${outcome.changed.length > 8 ? "…" : ""})` : ""}`;
+    if (!watched(after, ctx)) return cardResult(ctx, after, `Accepted as revision ${outcome.revision}: ${what}. Aion is not open, so it is not displayed yet.`);
+    const snapshot = await waitForCard(next => next.instance !== card.instance || next.lifecycle === "error" || (next.scene?.rendered?.revision ?? 0) >= outcome.revision, 8_000);
+    const rendered = snapshot.card?.scene?.rendered;
+    if (!rendered || rendered.revision < outcome.revision) return cardResult(ctx, snapshot, `Accepted as revision ${outcome.revision}: ${what}. The card has not confirmed it is built yet.`);
+    if (!rendered.ok) {
+      const undone = await link.run(backend => backend.apply({ type: "scene", action: "undo", request: sceneRequest() }));
+      return { ...cardResult(ctx, undone, `The card could not build revision ${outcome.revision}: ${rendered.problem ?? "failed"}. The change was undone (now revision ${undone.card?.scene?.revision ?? "?"}); the previous scene stays on show.`), isError: true };
+    }
+    return cardResult(ctx, snapshot, `Done and rendered (revision ${outcome.revision}): ${what}. Answer in your own voice; do not narrate this tool call.`);
+  };
+
   server.registerTool("show_interactive_card", {
     title: "Show an interactive card",
     description: TOOL_DESCRIPTIONS.show_interactive_card,
@@ -1150,6 +1262,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, async (args, ctx) => {
     const manifest = cardRegistry.get(args.app);
     if (!manifest) return failure(`card-app-unknown: only registered applications run (${cardRegistry.ids().join(", ")}).`);
+    if (manifest.capabilities.includes("scene-documents")) return showGeneratedScene(args, ctx, manifest);
+    if (args.scene !== undefined) return failure(`invalid-arguments: ${manifest.name} takes no scene (use app generative-scene).`);
+    if (args.presentation === "body" || args.presentation === "auto") args = { ...args, presentation: args.presentation === "body" ? "hybrid" : undefined };
     if (args.model !== undefined && !manifest.resources.assets.includes("model")) return failure(`invalid-arguments: ${manifest.name} takes no model.`);
     const config = checkConfig(manifest, args.settings);
     if (!config.ok) return failure(`invalid-settings: ${config.problem}.`);
@@ -1201,6 +1316,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const before = await link.run(backend => backend.state());
     const card = before.card, manifest = card ? cardRegistry.get(card.app) : undefined;
     if (!card || !manifest) return failure("no-card: no interactive card is open. Use show_interactive_card first.");
+    const sceneAction = manifest.capabilities.includes("scene-documents") && (SCENE_ACTIONS as readonly string[]).includes(args.action);
+    if (sceneAction) return changeScene(ctx, card, args.action as typeof SCENE_ACTIONS[number], args.patch, args.revision);
+    if (args.patch !== undefined || args.revision !== undefined) return failure(`invalid-arguments: patch and revision go with action "patch"${manifest.capabilities.includes("scene-documents") ? "" : " on a generative-scene card"}.`);
     const checked = checkCommand(manifest, args.action, args.value as CardValue | undefined);
     if (!checked.ok) return failure(`invalid-command: ${checked.problem}.`);
     const after = await link.run(backend => backend.apply({ type: "card", command: args.action, ...(checked.value !== undefined && typeof checked.value !== "object" ? { value: checked.value as string | number | boolean } : {}) }));
@@ -1224,12 +1342,15 @@ export function createAionServer(options: AionServerOptions): McpServer {
     description: TOOL_DESCRIPTIONS.inspect_interactive_card,
     inputSchema: inspectInteractiveCardInput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  }, async (_args, ctx) => {
+  }, async (args, ctx) => {
     const snapshot = await link.run(backend => backend.state());
     if (!snapshot.card) return result(summarize(snapshot, modeFor(ctx), "No interactive card is open."));
     const selection = snapshot.card.selection;
-    const said = selection?.objectId ? `Selected: ${selection.name ?? selection.objectId}. Explain it only from the metadata reported; say when something is not in the model.` : "Nothing is selected.";
-    return cardResult(ctx, snapshot, `The ${cardRegistry.get(snapshot.card.app)?.name ?? snapshot.card.app} card is ${snapshot.card.lifecycle}. ${said}`, true);
+    const said = selection?.objectId ? `Selected: ${selection.name ?? selection.objectId}${snapshot.card.scene ? ` (id "${selection.objectId}"; "$selected" in a patch)` : ""}. Explain it only from the metadata reported; say when something is not in the model.` : "Nothing is selected.";
+    const inspected = cardResult(ctx, snapshot, `The ${cardRegistry.get(snapshot.card.app)?.name ?? snapshot.card.app} card is ${snapshot.card.lifecycle}. ${said}`, true);
+    if (!args.full || !snapshot.card.scene) return inspected;
+    const text = (inspected.content[0] as { text: string }).text;
+    return { ...inspected, content: [{ type: "text", text: `${text}\nScene document (revision ${snapshot.card.scene.revision}):\n${JSON.stringify(snapshot.card.scene.document)}` }] };
   });
 
   server.registerTool("show_form", {

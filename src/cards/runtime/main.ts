@@ -91,6 +91,11 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
             send("ERROR", { code, message: code === "model-too-large" ? "The model has more triangles than this card allows." : code === "model-load-timeout" ? "The model took too long to load." : "The model could not be loaded.", fatal: false });
             return reply(message.id, false, code);
           }
+        case "LOAD_SCENE": {
+          if (!app?.loadScene) return reply(message.id, false, "this application takes no scenes");
+          const result = await app.loadScene(message.payload.revision, message.payload.document);
+          return reply(message.id, result.ok, result.ok ? undefined : result.problem);
+        }
         case "SET_STATE": app?.setState?.(message.payload.state); return reply(message.id, true);
         case "SET_CAMERA": {
           const result = app?.setCamera?.(message.payload.view, message.payload.focus) ?? { ok: false, problem: "no camera" };

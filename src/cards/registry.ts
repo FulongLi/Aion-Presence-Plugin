@@ -1,6 +1,7 @@
 import { validateManifest, type CardAppManifest } from "./manifest";
 import { EARTH_MOON_MANIFEST } from "./apps/earthMoon.manifest";
 import { CAD_VIEWER_MANIFEST } from "./apps/cadViewer.manifest";
+import { GENERATIVE_SCENE_MANIFEST } from "./apps/generativeScene.manifest";
 
 /**
  * The Application Registry (v0.4.5): the only applications an interactive card may run. Registering validates the
@@ -30,7 +31,7 @@ export class CardRegistry {
 }
 
 /** The applications Aion ships with. */
-export const BUILTIN_CARD_APPS: readonly CardAppManifest[] = [EARTH_MOON_MANIFEST, CAD_VIEWER_MANIFEST];
+export const BUILTIN_CARD_APPS: readonly CardAppManifest[] = [EARTH_MOON_MANIFEST, CAD_VIEWER_MANIFEST, GENERATIVE_SCENE_MANIFEST];
 export const CARD_APP_IDS = BUILTIN_CARD_APPS.map(app => app.id) as [string, ...string[]];
 
 /** A registry with the built-in applications (the host passes the 3D scene validator for their body forms). */
