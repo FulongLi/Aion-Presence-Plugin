@@ -567,13 +567,13 @@ function mapPoints(target: MapTarget, count: number): TargetPoints {
 }
 
 /** Writing targets (v0.4.3): their scale on the stage (as point layouts), the pen's and the guides' shares of grains. */
-export const strokeLayout = { scale: 1.6, pen: 0.03, guides: 0.05, penSpread: 0.022, strokes: 40, guideLines: 96, vertices: 6000 };
+export const strokeLayout = { scale: 1.6, pen: 0.03, guides: 0.05, penSpread: 0.022, strokes: 160, guideLines: 160, vertices: 60_000, extent: 1.75 };
 
 /** Reveal keys of grains that are not part of a stroke. */
 export const WRITING_KEYS = { guide: -1, pen: -2 } as const;
 
 function validateStrokes(target: StrokesTarget) {
-  const finite = (values: readonly number[]) => values.every(value => Number.isFinite(value) && Math.abs(value) <= 1.05);
+  const finite = (values: readonly number[]) => values.every(value => Number.isFinite(value) && Math.abs(value) <= strokeLayout.extent);
   const { strokes, guides } = target;
   if (!Array.isArray(strokes) || !strokes.length || strokes.length > strokeLayout.strokes || !Array.isArray(guides) || guides.length > strokeLayout.guideLines) {
     throw new Error("invalid-strokes");
@@ -583,6 +583,10 @@ function validateStrokes(target: StrokesTarget) {
     if (!Array.isArray(stroke.path) || stroke.path.length < 4 || stroke.path.length % 2 || !finite(stroke.path)
       || !stroke.width.every(w => w > 0 && w <= 0.3)) throw new Error("invalid-strokes");
     vertices += stroke.path.length / 2;
+    if (stroke.outline) for (const ring of stroke.outline) {
+      if (!Array.isArray(ring) || ring.length < 6 || ring.length % 2 || !finite(ring)) throw new Error("invalid-strokes");
+      vertices += ring.length / 2;
+    }
   }
   for (const guide of guides) {
     if (!Array.isArray(guide) || guide.length < 4 || guide.length % 2 || !finite(guide)) throw new Error("invalid-strokes");
@@ -591,31 +595,105 @@ function validateStrokes(target: StrokesTarget) {
   if (vertices > strokeLayout.vertices) throw new Error("invalid-strokes");
 }
 
+/** Radical inverse in a base (Halton sequences). */
+const radicalInverse = (index: number, base: number) => {
+  let result = 0, fraction = 1 / base;
+  for (let i = index; i > 0; i = Math.floor(i / base)) { result += (i % base) * fraction; fraction /= base; }
+  return result;
+};
+
 /**
- * Writing strokes drawn in particles. Grains are spread along each stroke in proportion to its length × width (an even
- * ink), across the pen's width with a soft edge; each carries its reveal key. A few grains form the pen's small cluster
- * of light (offsets around the tip) and a few the faint guides. Deterministic, so every quality tier is a prefix.
+ * One stroke's region for sampling (v0.4.4): a true outline as scanline spans (exact horizontally, rows of ≈ 0.003),
+ * or a pen line with round ends. `inside` tests a point; `key` is how far along the median its nearest point lies.
+ */
+interface StrokeRegion {
+  box: [number, number, number, number];
+  area: number;
+  inside(x: number, y: number): boolean;
+  /** Fraction (0…1) along the stroke's median of the point nearest (x, y). */
+  key(x: number, y: number): number;
+}
+
+function medianIndex(path: readonly number[]) {
+  const n = path.length / 2, cumulative = new Float64Array(n);
+  for (let i = 1; i < n; i++) cumulative[i] = cumulative[i - 1] + Math.hypot(path[i * 2] - path[i * 2 - 2], path[i * 2 + 1] - path[i * 2 - 1]);
+  const total = cumulative[n - 1] || 1;
+  /** The nearest point on the median: its fraction along it and its distance. */
+  return (x: number, y: number): { u: number; distance: number; segment: number; t: number } => {
+    let best = Infinity, u = 0, segment = 0, at = 0;
+    for (let i = 1; i < n; i++) {
+      const ax = path[i * 2 - 2], ay = path[i * 2 - 1], dx = path[i * 2] - ax, dy = path[i * 2 + 1] - ay, l2 = dx * dx + dy * dy;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)) : 0;
+      const d = Math.hypot(x - ax - dx * t, y - ay - dy * t);
+      if (d < best) { best = d; u = (cumulative[i - 1] + (cumulative[i] - cumulative[i - 1]) * t) / total; segment = i; at = t; }
+    }
+    return { u, distance: best, segment, t: at };
+  };
+}
+
+function outlineRegion(rings: readonly number[][], path: readonly number[]): StrokeRegion {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, signed = 0;
+  for (const ring of rings) for (let i = 0, n = ring.length / 2; i < n; i++) {
+    const x = ring[i * 2], y = ring[i * 2 + 1], j = (i + 1) % n;
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    signed += x * ring[j * 2 + 1] - ring[j * 2] * y;
+  }
+  const rows = Math.max(16, Math.min(480, Math.ceil((y1 - y0) / 0.003)));
+  const rowHeight = (y1 - y0) / rows || 1;
+  // For each row, where its centre line crosses the outline (even-odd spans).
+  const spans: Float64Array[] = [];
+  for (let r = 0; r < rows; r++) {
+    const y = y0 + (r + 0.5) * rowHeight, xs: number[] = [];
+    for (const ring of rings) for (let i = 0, n = ring.length / 2, j = n - 1; i < n; j = i++) {
+      const yi = ring[i * 2 + 1], yj = ring[j * 2 + 1];
+      if ((yi > y) !== (yj > y)) xs.push(ring[i * 2] + (y - yi) * (ring[j * 2] - ring[i * 2]) / (yj - yi));
+    }
+    spans.push(Float64Array.from(xs.sort((a, b) => a - b)));
+  }
+  const near = medianIndex(path);
+  return {
+    box: [x0, y0, x1, y1], area: Math.abs(signed) / 2,
+    inside(x, y) {
+      if (x < x0 || x > x1 || y < y0 || y > y1) return false;
+      const row = spans[Math.min(rows - 1, Math.floor((y - y0) / rowHeight))];
+      let crossings = 0;
+      for (let i = 0; i < row.length && row[i] <= x; i++) crossings++;
+      return crossings % 2 === 1;
+    },
+    key: (x, y) => near(x, y).u,
+  };
+}
+
+function penRegion(path: readonly number[], width: readonly [number, number]): StrokeRegion {
+  const half = Math.max(width[0], width[1]) / 2;
+  const [x0, y0, x1, y1] = path.reduce((b, v, i) => i % 2 ? [b[0], Math.min(b[1], v), b[2], Math.max(b[3], v)] : [Math.min(b[0], v), b[1], Math.max(b[2], v), b[3]],
+    [Infinity, Infinity, -Infinity, -Infinity]);
+  const near = medianIndex(path);
+  let length = 0;
+  for (let i = 2; i < path.length; i += 2) length += Math.hypot(path[i] - path[i - 2], path[i + 1] - path[i - 1]);
+  return {
+    box: [x0 - half, y0 - half, x1 + half, y1 + half], area: length * (width[0] + width[1]) / 2 + Math.PI * half * half,
+    // A round pen: within half its (tapering) width of the centre line, round at both ends.
+    inside(x, y) { const n = near(x, y); return n.distance <= (width[0] + (width[1] - width[0]) * n.u) / 2; },
+    key: (x, y) => near(x, y).u,
+  };
+}
+
+/**
+ * Writing strokes drawn in particles (v0.4.4). Each stroke's grains fill its region evenly — a Chinese stroke's true
+ * outline, or a round pen line — in proportion to its area, so ink density is the same everywhere and the finished
+ * symbol has the source's exact shape (no centre line with a constant width). Each grain carries its reveal key: the
+ * stroke's index plus how far along the stroke's median its nearest point lies, so the reveal follows the pen through
+ * curves, turns and hooks. Where a stroke crosses an earlier one its grains are dimmer, so crossings do not glare. A few
+ * grains form the pen's small cluster of light and a few the faint guides.
+ *
+ * Deterministic and progressive: a golden-ratio sequence chooses the stroke and a per-stroke Halton sequence the place,
+ * so every quality tier is an even prefix of the same writing. Sampled once per target; nothing is resampled per frame.
  */
 function strokePoints(target: StrokesTarget, count: number): TargetPoints {
   validateStrokes(target);
   const { strokes, guides } = target;
-  const segments: { stroke: number; ax: number; ay: number; bx: number; by: number; s0: number; s1: number; w0: number; w1: number }[] = [];
-  const weights: number[] = [];
-  strokes.forEach((stroke, index) => {
-    let total = 0;
-    for (let k = 2; k < stroke.path.length; k += 2) total += Math.hypot(stroke.path[k] - stroke.path[k - 2], stroke.path[k + 1] - stroke.path[k - 1]);
-    let at = 0;
-    for (let k = 2; k < stroke.path.length; k += 2) {
-      const [ax, ay, bx, by] = [stroke.path[k - 2], stroke.path[k - 1], stroke.path[k], stroke.path[k + 1]];
-      const length = Math.hypot(bx - ax, by - ay);
-      if (length < 1e-9) continue;
-      const s0 = total > 0 ? at / total : 0, s1 = total > 0 ? (at + length) / total : 1;
-      const w0 = stroke.width[0] + (stroke.width[1] - stroke.width[0]) * s0, w1 = stroke.width[0] + (stroke.width[1] - stroke.width[0]) * s1;
-      segments.push({ stroke: index, ax, ay, bx, by, s0, s1, w0, w1 });
-      weights.push(length * (w0 + w1) / 2);
-      at += length;
-    }
-  });
+  const regions = strokes.map(stroke => stroke.outline?.length ? outlineRegion(stroke.outline, stroke.path) : penRegion(stroke.path, stroke.width));
   const guideSegments: number[][] = [];
   const guideWeights: number[] = [];
   for (const guide of guides) for (let k = 2; k < guide.length; k += 2) {
@@ -623,7 +701,7 @@ function strokePoints(target: StrokesTarget, count: number): TargetPoints {
     guideSegments.push(segment); guideWeights.push(Math.hypot(segment[2] - segment[0], segment[3] - segment[1]));
   }
   const cumulative = (values: number[]) => { const out = new Float64Array(values.length); let sum = 0; values.forEach((v, i) => { sum += v; out[i] = sum; }); return out; };
-  const strokeDistribution = cumulative(weights), guideDistribution = cumulative(guideWeights);
+  const strokeDistribution = cumulative(regions.map(region => Math.max(1e-6, region.area))), guideDistribution = cumulative(guideWeights);
   const strokeTotal = strokeDistribution[strokeDistribution.length - 1] ?? 0, guideTotal = guideDistribution[guideDistribution.length - 1] ?? 0;
   if (!(strokeTotal > 0)) throw new Error("invalid-strokes");
   const positions = new Float32Array(count * 3), tones = new Float32Array(count), keys = new Float32Array(count);
@@ -631,6 +709,8 @@ function strokePoints(target: StrokesTarget, count: number): TargetPoints {
   const gaussian = () => Math.sqrt(-2 * Math.log(1 - next())) * Math.cos(2 * Math.PI * next());
   const { scale, pen, penSpread } = strokeLayout;
   const guideShare = guideTotal > 0 ? strokeLayout.guides : 0;
+  const drawn = new Uint32Array(regions.length);
+  let ink = 0;
   for (let i = 0; i < count; i++) {
     const role = next();
     if (role < pen) {
@@ -645,15 +725,27 @@ function strokePoints(target: StrokesTarget, count: number): TargetPoints {
       tones[i] = 0.1 + next() * 0.06;
       keys[i] = WRITING_KEYS.guide;
     } else {
-      const s = segments[pickCell(strokeDistribution, next() * strokeTotal)];
-      const t = next(), length = Math.hypot(s.bx - s.ax, s.by - s.ay);
-      const width = s.w0 + (s.w1 - s.w0) * t;
-      // Even across the pen's width, with a slightly soft edge.
-      const across = ((next() - 0.5) * 0.94 + gaussian() * 0.03) * width;
-      const x = s.ax + (s.bx - s.ax) * t - (s.by - s.ay) / length * across, y = s.ay + (s.by - s.ay) * t + (s.bx - s.ax) / length * across;
+      // Which stroke: a golden-ratio sequence through the strokes' areas. Where: the stroke's own Halton sequence, kept inside it.
+      const s = pickCell(strokeDistribution, ((0.5 + ink++ * 0.6180339887498949) % 1) * strokeTotal);
+      const region = regions[s], [bx0, by0, bx1, by1] = region.box;
+      let x = 0, y = 0, found = false;
+      for (let tries = 0; tries < 96 && !found; tries++) {
+        const h = ++drawn[s] + 409 * s;
+        x = bx0 + (bx1 - bx0) * radicalInverse(h, 2);
+        y = by0 + (by1 - by0) * radicalInverse(h, 3);
+        found = region.inside(x, y);
+      }
+      if (!found) { const p = strokes[s].path; x = p[0]; y = p[1]; }
+      let tone = 0.82 + next() * 0.16;
+      // Crossings: already lit by an earlier stroke, so this stroke's grains there are dimmer.
+      for (let e = 0; e < s; e++) {
+        const b = regions[e].box;
+        if (x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3] && regions[e].inside(x, y)) { tone *= 0.55; break; }
+      }
+      tone *= strokes[s].emphasis ?? 1;
       positions.set([x * scale, y * scale, (next() - 0.5) * 0.03], i * 3);
-      tones[i] = 0.82 + next() * 0.16;
-      keys[i] = s.stroke + Math.min(0.999, s.s0 + (s.s1 - s.s0) * t);
+      tones[i] = tone;
+      keys[i] = s + Math.min(0.999, Math.max(0, region.key(x, y)));
     }
   }
   return { positions, tones, keys };

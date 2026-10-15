@@ -18,7 +18,7 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `listening/` | SCF's `VoiceActivityDetector` and `EmphasisDetector` (unchanged), `MicFrame`, `rms`. Pure numbers. |
 | `guidance.ts` | The greeting (from the identity), onboarding examples backed by real tools, SCF's greeting gate (waits for the body and a quiet moment). |
 | `body.ts` | Persistent body: sphere, figure or eyes, each layer with its own eased weight, so any change is one particle transition. |
-| `figure/` | Figure 2.0: skeleton, the clean particle layout (strokes, head ring, joint beads), poses with two-bone IK (`pose.ts`), and the Expressive Motion System (`motion.ts`: eased keyframe clips, per-state tracks, gestures, the explanation cue). See [FIGURE.md](FIGURE.md). |
+| `figure/` | Figure 3.0 (v0.4.4): limbs drawn as continuous curves through the skeleton's anchors (`layout.ts limbCurve`), a chest anchor for a bending torso, and restrained secondary motion (`secondary.ts`). Figure 2.0: skeleton, the clean particle layout (strokes, head ring, joint beads), poses with two-bone IK (`pose.ts`), and the Expressive Motion System (`motion.ts`: eased keyframe clips, per-state tracks, gestures, the explanation cue). See [FIGURE.md](FIGURE.md). |
 | `eyes/` | Aion Eyes (v0.4.1 cartoon design): one luminous shape per eye, bound by direction and share of the outline's reach (`layout.ts`, with its CPU reference), expressions as shapes, spring-driven motion with entries, tempo, blinks and saccades (`expression.ts`). See [EYES.md](EYES.md). |
 | `colors.ts` | Aion's colours (v0.4.1): parsing (English and Chinese names, presets, hex), the particle palette (Aion Silver exact; others scaled, saturated and lifted to read on black), the accent. See [COLORS.md](COLORS.md). |
 | `audio.ts` | `HostAudioSource`, the seam for real assistant audio: `NO_HOST_AUDIO`, or Codex's voice through the native bridge (v0.4.2, `surface/audioVisual.ts`). |
@@ -28,6 +28,7 @@ Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─
 | `visual/geo/` | Geography (v0.4.1), pure and shared: equal-area projections and frames (`projection.ts`), spherical extents — the primary part of a scattered region, windows (`extent.ts`), map geometry projected, densified and clipped, with its `AMP1` codec (`map.ts`), and `markerWorldPoint`, a place's position on a formed map or terrain through the samplers' own geometry (`markers.ts`). See [MAPS.md](MAPS.md). |
 | `audio/` (v0.4.2) | The Audio Analysis Engine (`analyzer.ts`: the only FFT; loudness, 32 log bands, onsets, beats, voice), the common feature format, the feature bus, the source policy (`route.ts`), the music detector, settings and the compact wire form. Pure. See [AUDIO-REACTIVE.md](AUDIO-REACTIVE.md). |
 | `music/` (v0.4.2) | The Music Library: theory (pitch, rhythm, scales), notation (staff positions, the validated score, audio-clock scheduling), lessons in English and Chinese, practice questions, and the body's music symbols (Bravura outlines). Pure. See [MUSIC.md](MUSIC.md). |
+| `writing/` (v0.4.4) | The Chinese Writing Pack's pure core: the block-compressed resource container (`pack/container.ts`), the lossless codec of Hanzi Writer character data (`hanzi/codec.ts`), outline geometry and validation shared by the build, the host and the page (`hanzi/geometry.ts`), simplified ↔ traditional classification (`hanzi/variants.ts`), the pack's identity and pinned upstream sources (`hanzi/sources.ts`). See [CHINESE-WRITING.md](CHINESE-WRITING.md). |
 | `animation/` (v0.4.3) | The Animation Core (`timeline.ts`: playback anchored to the clock, easing, keyframes, segments; `control.ts`: one control vocabulary), the Stroke Animation Engine (`stroke/`: the data model, the path processor, curated packs, the writing timeline) and the Scene Sequencer (`scene/`: approved motion primitives compiled onto Figure 2.0, five demos). Pure. See [ANIMATION.md](ANIMATION.md) and [STROKE-ANIMATION.md](STROKE-ANIMATION.md). |
 | `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
 
@@ -97,7 +98,8 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   companion windows (each with its own id), long-poll for embedded views, media by id, hook intake, the answer
   tail, and companion windows' reports about themselves (focused, fullscreen, visible — nothing else) so "Open
   Aion" knows whether to bring a new window forward (the old one retires). Every command is re-validated.
-- **MCP server** (`mcp/server.ts`): SCF's visual vocabulary plus the host tools; SCF's tuned descriptions;
+- **MCP server** (`mcp/server.ts`): SCF's visual vocabulary plus the host tools; SCF's tuned descriptions; v0.4.4 keeps the
+  tool metadata inside a budget (`mcp/budget.ts`, [MCP-TOOLS.md](MCP-TOOLS.md));
   `greeting.due` once per newly opened Presence; app-only tools only for MCP Apps hosts.
 - **Geography** (`geo/`, v0.4.1): the bundled offline world (Natural Earth: countries, named parts, Chinese names,
   groups, a gazetteer), region and place resolution (offline first, then Nominatim/Photon, markers bounded to the view),
@@ -114,6 +116,9 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   shared analyser at 60 Hz, features out as `event: audio` on the companion stream. Started only when the user asks.
 - **Codex Voice Sync** (`audio/voiceSync.ts`, v0.4.3): the user's remembered opt-in; the hub connects Codex's voice while
   a companion window is open and reconnects with bounded backoff (policy in `src/audio/voiceSync.ts`).
+- **Writing** (`writing/`, v0.4.4): the Chinese Writing Pack read lazily from the installed plugin (`chinesePack.ts`), and the
+  Writing Education Core's lookup (`resolve.ts`): text → a writing source (Chinese characters with their data, simplified ↔
+  traditional; English letters and words; curated symbols), with the dictionary's facts for Codex.
 - **Music** (`music.ts`, v0.4.2): tool arguments → validated scores, note facts, lesson moves, answers.
 - **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
   companion window once (`autoOpen`: first-run | always | never).

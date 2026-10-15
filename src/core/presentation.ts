@@ -2,6 +2,7 @@ import { IMAGE_FITS, PORTRAIT_STYLES, portraitStyleFor, SYMBOL_NAMES, TERRAIN_ST
 import type { Scene3D } from "../visual/scene3d/types";
 import type { MusicHighlight, MusicScore } from "../music/notation/score";
 import type { AnimationSpec } from "../animation/scene/sequence";
+import type { WritingSource } from "../animation/stroke/compose";
 import { animationDuration } from "../animation/control";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
@@ -114,10 +115,14 @@ export type PresentationContent =
   | { kind: "music"; title: string; score: MusicScore; highlight?: MusicHighlight[]; caption?: string; symbol?: string; lesson?: MusicLessonRef; tempo?: number }
   | { kind: "artifact"; type: ArtifactType; title: string; content?: string; language?: string; media?: MediaRef; items?: string[]; changes?: FileChange[] }
   /**
-   * A symbol written stroke by stroke (v0.4.3): `stroke` is a writing sequence's id (animation/stroke, e.g. "chinese:永");
-   * the body writes it while a card shows its numbered stroke order. Playback is the snapshot's `animation`.
+   * A symbol, word or name written stroke by stroke (v0.4.3; v0.4.4 words and the Chinese Writing Pack). `source` is
+   * everything needed to compose it (animation/stroke/compose.ts) — curated symbols by id, Chinese characters with their
+   * data — so every surface draws the same writing without bundling the pack; `stroke` is its id ("chinese:永",
+   * "latin:HELLO"). The body writes it while a card shows the reference. `highlight: "radical"` lights the radical's
+   * strokes; `practice` turns the reference card into tracing practice (Hanzi Writer's quiz). Playback is the
+   * snapshot's `animation`.
    */
-  | { kind: "writing"; stroke: string; label: string }
+  | { kind: "writing"; stroke: string; label: string; source: WritingSource; highlight?: "radical"; practice?: boolean }
   /**
    * A short action sequence of Aion's figure (v0.4.3): a validated declarative spec (animation/scene); `demo` names a
    * curated one. The body itself performs it; playback is the snapshot's `animation`.
@@ -229,8 +234,8 @@ export type BodyVisual =
   | { type: "map"; media: MediaRef }
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
-  /** v0.4.3: the body writes a symbol (a writing target revealed stroke by stroke). */
-  | { type: "writing"; stroke: string }
+  /** v0.4.3: the body writes a symbol (a writing target revealed stroke by stroke); v0.4.4: from its source. */
+  | { type: "writing"; stroke: string; source: WritingSource; highlight?: "radical" }
   /** v0.4.3: the body itself (as the figure) performs an action sequence; nothing is formed. */
   | { type: "performance" }
   | { type: "none" };
@@ -257,7 +262,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "scene": return { type: "scene", scene: presentation.scene };
     case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
-    case "writing": return { type: "writing", stroke: presentation.stroke };
+    case "writing": return { type: "writing", stroke: presentation.stroke, source: presentation.source, ...(presentation.highlight ? { highlight: presentation.highlight } : {}) };
     case "animation": return { type: "performance" };
   }
 }

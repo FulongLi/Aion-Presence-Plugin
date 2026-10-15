@@ -133,6 +133,7 @@ try {
   if (section("v41")) for (const renderer of ["auto", "canvas"] as const) await v41(renderer);
   if (section("v42")) { await music(); for (const renderer of ["auto", "canvas"] as const) await sound(renderer); }
   if (section("v43")) { for (const renderer of ["auto", "canvas"] as const) await v43(renderer); await voiceSync(); }
+  if (section("v44")) for (const renderer of ["auto", "canvas"] as const) await v44(renderer);
   if (section("listening")) await listening();
   if (section("responding")) await responding();
   if (section("immersive")) await immersive();
@@ -845,7 +846,7 @@ async function v43(renderer: "auto" | "canvas") {
     await pause(800);
     const repeat = await frame();
     check(repeat?.stroke === 2 && Math.floor(repeat.progress) === 2, "repeat the third stroke: strokes 1–2 written, the third being written");
-    check(await page.locator("#card .stroke-list li.current").textContent().then(text => /横撇/.test(text ?? "")), "the card lights the same stroke");
+    check(await page.locator("#card .stroke-list li.current").textContent().then(text => /right, then down-left/.test(text ?? "")), "the card lights the same stroke");
     await page.screenshot({ path: name("repeat-third") });
     await aion.call("control_animation", { action: "replay", speed: "slow" });
     await pause(300);
@@ -878,6 +879,108 @@ async function v43(renderer: "auto" | "canvas") {
     await page.screenshot({ path: name("local-portrait") });
     await aion.call("clear_presentation");
     await until(page, s => s.phase === "sphere", 6_000);
+  } finally { await aion.close(); }
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
+/**
+ * v0.4.4 in the real renderer: Chinese characters from the pack written into their true outlines (a single character, a
+ * complex one, a traditional form, a word with a repeated character), the reference card in step, tracing practice,
+ * English words, a music symbol with its engraving beside its handwriting, a 4/4 bar that plays, and Figure 3.0's limbs,
+ * secondary motion and behaviours (thinking, exploring).
+ */
+async function v44(renderer: "auto" | "canvas") {
+  console.log(`v0.4.4: Chinese Writing Pack, English and music writing, Figure 3.0 (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const name = (moment: string) => join(OUT, `v44-${renderer}-${moment}.png`);
+  const aion = await connectAion({ home });
+  const frame = () => view<{ phase: string; stroke: number; progress: number } | null>("v.writing.frame && { phase: v.writing.frame.phase, stroke: v.writing.frame.stroke, progress: v.writing.frame.progress }");
+  const waitDone = async (ms: number) => { for (let waited = 0; waited < ms && (await frame())?.phase !== "done"; waited += 150) await pause(150); };
+  try {
+    await aion.call("show_stroke_animation", { text: "永" });
+    check((await until(page, s => s.phase === "holding" && s.card === "shown", 6_000)).phase === "holding", "永 from the pack forms beside its reference card");
+    check(await view<boolean>("v.visual.target.visual.strokes.every(s => Array.isArray(s.outline) && s.outline.length > 0)"), "every stroke carries its true outline");
+    check(await page.locator("#card .stroke-ink").count() === 5 && await page.locator("#card clipPath").count() === 5, "the card draws the five outlines, each revealed through its clip path");
+    let synced = false;
+    for (let waited = 0; waited < 10_000 && !synced; waited += 100) {
+      const f = await frame();
+      if (f?.phase === "stroke") {
+        const lit = await page.locator("#card .stroke-brush.current").count();
+        const listed = await page.locator("#card .stroke-list li.current").textContent();
+        synced = lit === 1 && listed !== null;
+      }
+      await pause(100);
+    }
+    check(synced, "the card's brush and list follow the stroke the particles are writing");
+    await waitDone(14_000);
+    await page.screenshot({ path: name("yong") });
+
+    await aion.call("show_stroke_animation", { text: "鬱" });
+    await until(page, s => s.phase === "holding", 6_000);
+    check(await view<number>("v.visual.target.visual.strokes.length") === 29, "a complex character (鬱, 29 strokes) with no special case");
+    await pause(9_000);
+    await page.screenshot({ path: name("yu") });
+
+    await aion.call("show_stroke_animation", { text: "国", form: "traditional" });
+    await until(page, s => s.phase === "holding", 6_000);
+    check(await view<string>("v.snapshot.presentation.source.text") === "國", "the traditional form (国 → 國)");
+
+    await aion.call("show_stroke_animation", { text: "爱国" });
+    await until(page, s => s.phase === "holding", 6_000);
+    check(await view<number>("v.writing.sequence.items.length") === 2, "a word: two characters, each in its own order");
+    await aion.call("control_animation", { action: "repeat", character: 2 });
+    await pause(1_400);
+    const second = await frame();
+    check(second !== null && second.progress >= 10, "repeat the second character: the first stays written");
+    await page.screenshot({ path: name("word") });
+
+    await aion.call("show_stroke_animation", { text: "永", practice: true });
+    await until(page, s => s.card === "shown", 6_000);
+    let practice = false;
+    for (let i = 0; i < 30 && !practice; i++) { practice = await page.locator("#card .practice-target svg").count() > 0; await pause(150); }
+    check(practice, "tracing practice: Hanzi Writer's quiz on the same data");
+
+    await aion.call("show_stroke_animation", { text: "HELLO", presentation: "body" });
+    await until(page, s => s.phase === "holding", 6_000);
+    check(await view<number>("v.writing.sequence.items.length") === 5, "HELLO: five letters in order");
+    await waitDone(16_000);
+    await page.screenshot({ path: name("hello") });
+
+    await aion.call("show_stroke_animation", { text: "treble clef" });
+    await until(page, s => s.card === "shown", 6_000);
+    let engraved = false;
+    for (let i = 0; i < 30 && !engraved; i++) { engraved = await page.locator("#card .music-score.engraved svg").count() > 0; await pause(150); }
+    check(engraved, "the treble clef's engraving stands beside its handwriting");
+    await page.screenshot({ path: name("clef") });
+
+    await aion.call("show_music", { time: "4/4", notes: [{ pitch: "C4" }, { pitch: "D4" }, { pitch: "E4" }, { pitch: "F4" }], play: true });
+    await until(page, s => s.card === "shown", 6_000);
+    check(await page.locator("#card .music-note").count() === 4, "a 4/4 bar of four quarter notes, engraved");
+
+    await aion.call("clear_presentation");
+    await until(page, s => s.phase === "sphere", 6_000);
+    await aion.call("set_body_form", { body: "figure" });
+    await pause(2_500);
+    check(await view<boolean>("Array.isArray(v.aion.figure.lag) && v.aion.figure.lag.length === 5 && v.aion.figure.lag.flat().every(Number.isFinite)"), "Figure 3.0: five limbs with secondary motion");
+    await aion.call("play_animation", { demo: "thinking" });
+    await pause(9_200);
+    const answered = await view<number>("(() => { const p = v.performance; return p ? 1 : 0; })()");
+    check(answered === 1 && await view<boolean>("v.sceneLayer.drawn.has('question')"), "thinking: the question is drawn above the figure");
+    await page.screenshot({ path: name("thinking") });
+    await pause(3_000);
+    await aion.call("play_animation", { demo: "exploring" });
+    await pause(2_600);
+    check(await view<boolean>("v.sceneLayer.drawn.has('box')"), "exploring: the box is there");
+    let touched = false;
+    for (let waited = 0; waited < 14_000 && !touched; waited += 100) { touched = /figure touch/.test((await diag(page)).animation ?? ""); await pause(100); }
+    check(touched, "it walks up, examines and touches the box");
+    await page.screenshot({ path: name("exploring") });
+    let returned = false;
+    for (let i = 0; i < 100 && !returned; i++) { returned = await view<number>("v.aion.figure.performing") === 0; await pause(150); }
+    check(returned, "and returns to the persistent body");
+    await aion.call("set_body_form", { body: "sphere" });
   } finally { await aion.close(); }
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   await page.close();

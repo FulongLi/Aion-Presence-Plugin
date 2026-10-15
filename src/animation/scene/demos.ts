@@ -5,10 +5,26 @@ import type { AnimationSpec } from "./sequence";
  * may write — so they double as examples and building blocks.
  */
 export const DEMO_SEQUENCES = {
+  // v0.4.4 Demo A: natural walking — weight shifting over each foot, arms swinging against the legs, the upper body leading,
+  // slowing before it stops and settling.
   "walk-and-stop": {
     title: "Walk and stop",
-    start: { x: -0.95, facing: "right" },
-    actions: [{ do: "walk", to: 0.7 }, { do: "face", toward: "viewer" }],
+    start: { x: -1.05, facing: "right" },
+    actions: [{ do: "walk", to: 0.75 }, { do: "face", toward: "viewer" }],
+  },
+  // v0.4.4 Demo B: thinking — it notices a question, pauses, tilts its head, a hand to its chin, then gets it ("?" → "!").
+  "thinking": {
+    title: "Thinking it over",
+    start: { x: -0.22, facing: "viewer" },
+    objects: [{ id: "question", type: "question", x: 0.32, size: "medium" }],
+    actions: [{ do: "notice", object: "question" }, { do: "think", about: "question" }, { do: "gesture", name: "nod" }],
+  },
+  // v0.4.4 Demo C: exploring — a box; it notices it, approaches cautiously, examines it, touches it, watches it react.
+  "exploring": {
+    title: "Exploring a box",
+    start: { x: -1.0, facing: "right" },
+    objects: [{ id: "box", type: "box", x: 0.4, size: "small" }],
+    actions: [{ do: "notice", object: "box" }, { do: "examine", object: "box" }, { do: "touch", object: "box" }, { do: "gesture", name: "nod" }, { do: "face", toward: "viewer" }],
   },
   "jump-over-obstacle": {
     title: "Jump over a box",

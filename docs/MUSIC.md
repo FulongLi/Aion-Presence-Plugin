@@ -15,6 +15,29 @@ is fetched.
 "Explain that in Chinese."              →  the same lesson and step, in Chinese terminology
 ```
 
+## Music Education Pack (v0.4.4)
+
+The Music Library gained the rest of the introductory vocabulary — in the same validated score model, engraved by the same
+VexFlow + Bravura card (no second renderer):
+
+- **Clefs**: treble, bass, and now **alto** (C clef: middle C on the middle line).
+- **Key signatures** (`key`: C … C♯, F … C♭, and minor keys), with accidentals shown as engraving does: the key's sharps and
+  flats are not repeated, an accidental lasts to the end of its bar for that letter and octave, a return to the key's
+  spelling shows a natural (tested rule by rule).
+- **Ties** (`tie` on a note, to the next note of the same pitch — across bar lines too), **slurs** (`slur: start/end`),
+  **dynamics** (pp p mp mf f ff, engraved in Bravura's SMuFL dynamic glyphs, never typed text), **stem direction**
+  (`stem`), **bar lines** (`end`: single, double, final, repeat) and a start-repeat sign.
+- **A glossary** (`music/glossary.ts`, `show_music {concept}`): 40 concepts — clefs, the staff's lines and spaces, ledger
+  lines, bar lines, every note value and rest, stems, flags, beams, dotted notes, sharps, flats, naturals, 2/4 3/4 4/4 6/8
+  and common time, a key signature, ties, slurs, repeat signs, dynamics, note positions and note values — each a small
+  validated score with what to light up and a teaching point in English and Chinese. Where a validated handwriting
+  sequence exists, the result says so and `show_stroke_animation` draws it; concepts without one are shown engraved only.
+
+![Glossary examples](media/v0.4.4/notation-glossary.png)
+
+Handwriting demonstrations of symbols are described in [STROKE-ANIMATION.md](STROKE-ANIMATION.md) (Music); they are measured
+against the engraved shapes and never presented as the engraving.
+
 ## Architecture
 
 ```text

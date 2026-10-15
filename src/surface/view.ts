@@ -8,8 +8,7 @@ import { PresenceEngine } from "../core/signal";
 import { WritingDriver, strokesTarget } from "./writing";
 import type { StrokeCard } from "./strokeCard";
 import { SceneLayer } from "./scene";
-import { strokeSequence } from "../animation/stroke/registry";
-import { compiledFor } from "../animation/control";
+import { compiledFor, sequenceFor } from "../animation/control";
 import { evaluateSequence, STAGE, type CompiledSequence } from "../animation/scene/sequence";
 import { phaseAt, positionAt, type PlaybackState as AnimationPlaybackState } from "../animation/timeline";
 import type { ActivityState } from "../core/state";
@@ -190,7 +189,7 @@ export class PresenceView {
     const target = this.visual.target, presentation = this.snapshot?.presentation;
     const active = target?.visual.kind === "strokes" && this.visual.phase !== "sphere" && presentation?.kind === "writing";
     const frame = this.writing.sample(dt, active);
-    this.strokeCard?.update(active ? this.writing.frame : null);
+    this.strokeCard?.update(this.writing.frame);
     return frame;
   }
 
@@ -229,9 +228,11 @@ export class PresenceView {
   private frame(dt: number): Framing {
     const narrow = innerWidth <= 720 || innerWidth / Math.max(1, innerHeight) <= 0.8;
     const open = this.cardState === "shown" || this.cardState === "loading";
+    // A written word runs wider than other visuals (v0.4.4): it steps further aside and a little smaller.
+    const word = (this.writing.sequence?.items.length ?? 0) > 1;
     const target: Framing = !open ? { x: 0, y: 0, scale: 1 }
-      : narrow ? { x: 0, y: 0.22, scale: 0.72 }
-        : this.wide ? { x: -0.24, y: 0, scale: 0.86 } : { x: -0.17, y: 0, scale: 0.96 };
+      : narrow ? { x: 0, y: 0.22, scale: word ? 0.6 : 0.72 }
+        : word ? { x: -0.25, y: 0, scale: 0.62 } : this.wide ? { x: -0.24, y: 0, scale: 0.86 } : { x: -0.17, y: 0, scale: 0.96 };
     const k = 1 - Math.exp(-2.6 * Math.max(0, Math.min(0.1, dt)));
     this.framed.x += (target.x - this.framed.x) * k;
     this.framed.y += (target.y - this.framed.y) * k;
@@ -328,7 +329,16 @@ export class PresenceView {
       if (!playback) return;
       const performance = { presentation: presentation.id, sequence: compiledFor(presentation.sequence), playback };
       this.performance = performance;
-      this.aion.perform({ frame: () => this.performance === performance ? evaluateSequence(performance.sequence, positionAt(performance.playback, Date.now())).channels : null, stage: STAGE });
+      this.aion.perform({
+        frame: () => this.performance === performance ? evaluateSequence(performance.sequence, positionAt(performance.playback, Date.now())).channels : null,
+        // The scene a moment ago (in its own time, at its speed): its secondary motion is a pure function of the scene.
+        past: secondsAgo => {
+          if (this.performance !== performance) return null;
+          const at = positionAt(performance.playback, Date.now()) - secondsAgo * performance.playback.rate;
+          return at < 0 ? null : evaluateSequence(performance.sequence, at).channels;
+        },
+        stage: STAGE,
+      });
       return;
     }
     const hold = presentation.bodyHold > 0 ? presentation.bodyHold : Infinity;
@@ -356,6 +366,7 @@ export class PresenceView {
       dismiss.addEventListener("click", () => this.dismiss());
       card.replaceChildren(dismiss, content.root);
       this.music = content.music && presentation.kind === "music" ? { rendered: content.music, presentation, sounding: null } : null;
+      this.strokeCard?.dispose?.();
       this.strokeCard = content.writing ?? null;
       // The card's own play button plays it here, at once (the click is also what lets a browser sound).
       content.play?.addEventListener("click", () => this.playCard());
@@ -402,6 +413,7 @@ export class PresenceView {
 
   private closeCard() {
     this.music = null;
+    this.strokeCard?.dispose?.();
     this.strokeCard = null;
     if (this.cardState === "none") return;
     this.cardState = "leaving";
@@ -452,10 +464,10 @@ export class PresenceView {
           motion: { orbit: request.scene.rotation === "none" ? 0 : ORBIT.spin, tilt: (request.scene.tilt ?? 15) * Math.PI / 180 },
         };
       case "writing": {
-        // A symbol to write (v0.4.3): sampled once with each grain's reveal key; the writing uniforms do the rest.
-        const sequence = strokeSequence(request.stroke);
+        // A writing (v0.4.3; v0.4.4 true outlines and words): sampled once with each grain's reveal key; the writing uniforms do the rest.
+        const sequence = sequenceFor(request);
         if (!sequence) throw new Error("stroke-symbol-unknown");
-        return { visual: strokesTarget(sequence), hold, label: sequence.symbol };
+        return { visual: strokesTarget(sequence, request.highlight), hold, label: sequence.symbol };
       }
       case "performance":
         throw new Error("not-a-visual");
