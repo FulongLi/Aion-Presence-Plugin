@@ -31,7 +31,7 @@ import { FigureAnimator, NEUTRAL_POSE, solvePose, unflattenPose } from "../src/c
 import { performedLag, SecondaryMotion, SECONDARY, SECONDARY_WEIGHTS } from "../src/core/figure/secondary";
 import { compileSequence, evaluateSequence, validateSequence, type AnimationSpec } from "../src/animation/scene/sequence";
 import { DEMO_SEQUENCES } from "../src/animation/scene/demos";
-import { toolMetadataReport, TOOL_METADATA_BUDGET } from "../src/host/mcp/budget";
+import { toolMetadataReport, TOOL_METADATA_BUDGET, TOOL_METADATA_TARGET } from "../src/host/mcp/budget";
 import { TOOL_NAMES, TOOL_DESCRIPTIONS } from "../src/host/mcp/server";
 import { hubCommandSchema } from "../src/host/hub/protocol";
 import { loadVoiceSync } from "../src/host/audio/voiceSync";
@@ -501,7 +501,8 @@ test("mcp: every tool is listed with small metadata (Codex budgets it), no outpu
   try {
     const { tools } = await aion.client.listTools();
     assert.deepEqual(tools.map(tool => tool.name).sort(), [...TOOL_NAMES].sort());
-    const report = toolMetadataReport(tools);
+    // Held 10 % inside the budget: a host's own representation of the same tools is a little larger (Codex's: about 2 %).
+    const report = toolMetadataReport(tools, TOOL_METADATA_TARGET);
     assert.ok(report.ok, report.problems.join("; "));
     assert.ok(report.total < TOOL_METADATA_BUDGET.total && report.total < 302_010 / 4, `${report.total} B in all (v0.4.3: 302,010 B)`);
     for (const tool of tools) assert.equal(tool.outputSchema, undefined, tool.name);

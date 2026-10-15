@@ -33,13 +33,13 @@ the server; the host's exposure cut it.
 
 | | v0.4.3 | v0.4.4 |
 | --- | --- | --- |
-| Tool metadata (tools/list JSON) | 302,010 B | **61,744 B** (29 tools) |
-| Largest tool | 28,091 B (`show_scene`) | 4,988 B |
+| Tool metadata (tools/list JSON) | 302,010 B | **57,592 B** (29 tools) |
+| Largest tool | 28,091 B (`show_scene`) | 4,489 B |
 | Output schemas | 29 × 7.9 KB | none (structured results are still returned; the tests check them) |
 | `show_scene`, `play_animation` input | per-type unions (19 KB, 4.4 KB) | one flat object each, validated strictly in the handler |
 | Writing catalogue in the description | 19 characters listed | none: a lookup in the pack (`show_stroke_animation` takes any text) |
 
-- A budget (`src/host/mcp/budget.ts`: 64 KB in all, 5 KB a tool) is enforced by the tests and by `npm run mcp:budget`.
+- A budget (`src/host/mcp/budget.ts`: 64 KB in all, 5 KB a tool) is enforced by `npm run mcp:budget`; the tests hold Aion 10 % inside it (57.6 KB, 4.5 KB a tool), because Codex measures its own representation, about 2 % larger.
 - `npm run codex:verify` installs the plugin into a throwaway Codex and checks, through Codex's own app server, that all
   29 tools arrive and fit the budget.
 - `npm run codex:tools` shows what *your* Codex receives from every MCP server (counts and sizes) and lists Aion's tools.

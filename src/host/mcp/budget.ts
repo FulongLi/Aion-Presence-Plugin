@@ -5,11 +5,14 @@
  * others vanished from some conversations. Aion now stays far inside any such budget; tests and `npm run mcp:budget`
  * hold it there. Measured as the JSON a host receives from tools/list.
  */
+/** Measured on tools/list; a host's own representation adds a little (Codex's: about 2 %), so these leave room for it. */
 export const TOOL_METADATA_BUDGET = { total: 64_000, perTool: 5_000 } as const;
+/** The bounds Aion's own tests hold it to: 10 % inside the budget. */
+export const TOOL_METADATA_TARGET = { total: 57_600, perTool: 4_500 } as const;
 
 interface ListedTool { name: string; description?: string; inputSchema?: unknown; outputSchema?: unknown; [key: string]: unknown }
 
-export function toolMetadataReport(tools: readonly ListedTool[], budget = TOOL_METADATA_BUDGET) {
+export function toolMetadataReport(tools: readonly ListedTool[], budget: { total: number; perTool: number } = TOOL_METADATA_BUDGET) {
   const size = (value: unknown) => value === undefined ? 0 : Buffer.byteLength(JSON.stringify(value));
   const rows = tools.map(tool => ({
     name: tool.name, bytes: size(tool), description: size(tool.description), input: size(tool.inputSchema), output: size(tool.outputSchema),

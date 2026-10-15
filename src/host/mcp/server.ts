@@ -43,6 +43,7 @@ import type { MusicLessonRef } from "../../core/presentation";
 import type { AudioSettings } from "../../audio/settings";
 import { packSymbol, strokeCatalogText } from "../../animation/stroke/registry";
 import { lookupConcept, MUSIC_CONCEPTS } from "../../music/glossary";
+import { MUSIC_FORM_IDS } from "../../music/visual/glyphForms";
 import type { StrokeSequence } from "../../animation/stroke/types";
 import { compiledFor, controlAnimation, sequenceFor, speedRate } from "../../animation/control";
 import { chinesePack, type ChinesePack } from "../writing/chinesePack";
@@ -174,19 +175,14 @@ export function formVariantCatalog(registry: VisualFormRegistry = visualForms): 
  * SCF's, tuned there over many conversations, with "your particle body" read as Aion, Codex's body.
  */
 export const TOOL_DESCRIPTIONS = {
-  show_image: `Form a picture of almost anything with Aion's particle body: a person, vehicle, product, object, animal, building, place, `
-    + `artwork, logo, map or a reference image of an idea. With query, Aion first checks its curated local assets (such as the `
-    + `${AION_IDENTITY.creatorCompany} company logo), then searches open image sources (Wikipedia, Wikimedia Commons, Openverse); no key is needed. `
-    + "With source, it shows an image on this machine instead: one Codex generated, a screenshot, a rendered diagram — as it is, unless the user "
-    + "says it is a portrait (then intent portrait: a heritage portrait, like a looked-up one). Use when seeing it "
-    + "materially helps, e.g. the user asks what something looks like or wants to see it. For a real person's face prefer show_portrait; "
-    + "for Taoist symbols, constellations and zodiac signs always use show_form.",
-  show_portrait: "Form a portrait of a real, recognizable person with Aion's particle body, from public photos (Wikipedia, then other open "
-    + "image sources): by default a heritage portrait, an antique oval of particles with a silver outline, while the original photograph "
-    + "stands beside it. Use when the user wants to see what someone looks like (\"What did Nikola Tesla look like?\", \"Show me Albert "
-    + "Einstein\", \"展示一下牛顿的肖像\"), or when a portrait materially helps the answer. A portrait photograph on this machine (\"show this "
-    + "photo as a portrait\") takes source instead of a lookup and is composed the same way. Leave style out unless the user asks for the "
-    + "classic head-and-shoulders portrait (style \"classic\", \"without the oval\"). Do not call just because a name appears in conversation.",
+  show_image: `Form a picture of almost anything with Aion's particle body (a person, object, animal, building, place, artwork, logo, map or `
+    + `idea). query: Aion's curated assets first (such as the ${AION_IDENTITY.creatorCompany} logo), then open image sources (Wikipedia, Commons, `
+    + "Openverse); source: an image on this machine, shown as it is (intent portrait if the user says it is one). Use when seeing it helps. "
+    + "For a real person's face prefer show_portrait; for Taoist symbols, constellations and zodiac signs use show_form.",
+  show_portrait: "Form a portrait of a real person with Aion's particle body, from public photos (Wikipedia first): by default a heritage portrait (an "
+    + "antique oval of particles) beside the original photograph. Use when the user wants to see what someone looks like (\"What did Nikola Tesla "
+    + "look like?\", \"展示一下牛顿的肖像\"). source: a portrait photograph on this machine instead. style \"classic\" only when asked (\"without the oval\"). "
+    + "Not just because a name appears.",
   show_terrain: "Form the terrain of a real region as a raised relief with Aion's particle body, from real elevation data: mountains rise, "
     + "valleys sink. Use for the terrain, topography, relief or landscape shape of a country, region, island, mountain range or other "
     + "place (\"What is the terrain of Scotland like?\", \"Show me the Swiss Alps\").",
@@ -229,13 +225,10 @@ export const TOOL_DESCRIPTIONS = {
     + "Use it only when the user asks Aion to take a form, e.g. \"show your eyes\", \"take a human form\", \"become a figure\", "
     + "\"become a sphere\", \"go back to your original form\" (the sphere), \"变成人形\", \"回到球体\". It stays until changed; every "
     + "temporary visual returns to it. A figure or eyes are not something to search for: never use show_image or show_portrait for them.",
-  show_scene: "Form a genuine three-dimensional object with Aion's particle body, from simple primitives, when the user asks to see "
-    + "something's 3D shape or spatial structure (\"Show me an Egyptian pyramid in 3D\", \"Can you visualize Saturn?\", \"Show a DNA "
-    + `double helix"). Presets: ${SCENE_PRESET_NAMES.join(", ")}. Otherwise compose your own scene from box, sphere, pyramid, cylinder, cone, `
-    + "torus, ring (flat, horizontal), line, tube, curve and helix, each centred at its position, with rotation (degrees), scale and repeat. "
-    + `At most ${SCENE_LIMITS.objects} objects (${SCENE_LIMITS.instances} after repeats). The object turns slowly; the user can drag it, scroll to `
-    + "zoom and double-click to reset. A conceptual model, not a measured one: say so if precision matters. Not for flat pictures (show_image), "
-    + "people (show_portrait) or terrain (show_terrain), and never force a 3D object where a picture or words serve better.",
+  show_scene: "Form a genuine 3D object with Aion's particle body when the user wants to see something's 3D shape (\"Show me an Egyptian "
+    + `pyramid in 3D", "Visualize Saturn", "a DNA double helix"). Presets: ${SCENE_PRESET_NAMES.join(", ")}; otherwise compose primitives `
+    + `(at most ${SCENE_LIMITS.objects} objects). It turns; the user can drag, zoom, reset. A conceptual model, not measured. Not for `
+    + "pictures, people or terrain.",
   set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
     + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
     + "show_scene object is on show; to leave it, use clear_presentation.",
@@ -251,32 +244,25 @@ export const TOOL_DESCRIPTIONS = {
     + "Start one (\"I want to learn to read music\" → lesson 1), go on (step next, previous, repeat), switch language (language zh or en: the lesson and "
     + "step stay), or check the user's answer to a practice question (answer: \"E\"). Each result has the step's teaching point (music.lesson.text): "
     + "say it in your own words, in the user's language, then wait for them; never read the whole lesson at once.",
-  set_audio_visualizer: "How Aion moves with sound: which source (the user's microphone, your own spoken voice captured on this Mac — Codex Voice "
-    + "Sync, remembered once the user asks: Aion then follows your voice whenever it is open —, another app's "
-    + "music, a shared browser tab, Aion's own music), which form (auto, sphere, spectrum — a circular particle spectrum — or hybrid), how strongly "
-    + "(subtle, balanced, expressive) and how sensitive. Use only when the user asks (\"React to your own voice\" → source codex; \"Visualize the music\" "
-    + "→ mode spectrum (and source system with the app, or tab); \"Make the particles more responsive\" → intensity expressive or sensitivity up; "
-    + "\"Go back to your normal appearance\" → mode sphere; \"Stop listening to system audio\" → stop [system]). Capturing your voice or another app "
-    + "needs macOS and the user's permission; the result says what is really connected — never claim more. Colours stay set_colors.",
+  set_audio_visualizer: "How Aion moves with sound: the source (the user's microphone; your own spoken voice on this Mac — Codex Voice Sync, "
+    + "remembered once asked; another app's music; a shared tab; Aion's own music), the form (auto, sphere, spectrum — a circular particle spectrum — "
+    + "or hybrid), the intensity and sensitivity. Only when asked (\"React to your own voice\" → source codex; \"Visualize the music\" → mode spectrum; "
+    + "\"back to normal\" → mode sphere). Capturing needs macOS and the user's permission; never claim more than the result says is connected.",
   show_stroke_animation: () => "Teach handwriting: Aion's particle body writes a Chinese character or short word, an English letter, word or name, "
     + "a digit, or a music or maths symbol stroke by stroke in the right order, beside a reference card. Chinese: about 9,500 characters, "
     + "simplified and traditional, with their true stroke shapes; the result adds pinyin, meaning, radical and structure. Use when the user wants to "
     + "learn to write something (\"Teach me how to write 永\", \"How do you write 国?\", \"Write HELLO\", \"Write my name\", \"How do I draw a treble clef?\"). "
-    + "Pass the character itself (you know which one \"eternity\" is). Never invent an order: if the data is missing, say so. Then control_animation.",
-  play_animation: "Play a short particle animation of Aion's own figure (rendered locally from Aion's particles, not a video): a curated demo or a short "
-    + "sequence you compose from approved actions — walk, jump (over a box), pick up and put down, point (at a panel), face, gesture (wave, nod, "
-    + "shrug, surprise, think, look-around), react (surprised), crouch, wait — with up to three simple objects (box, ball, panel). Use when the "
-    + "user asks to see an action (\"Show a stick figure jumping over a box\" → demo jump-over-obstacle, \"Animate a figure picking up a ball\", "
-    + "\"Make the figure walk toward the box\"). The body becomes the figure for it and returns afterwards. Keep it short (3–8 s of action); "
-    + "say one sentence before or after it, never a running commentary.",
+    + "Pass the character itself, not its meaning. Never invent an order: if data is missing, say so. Then control_animation.",
+  play_animation: "Play a short particle animation of Aion's own flexible figure (not a video): a curated demo or a sequence of approved actions "
+    + "— walk, jump, pick-up, put-down, point, face, gesture, react, crouch, wait, think, notice, examine, touch — with up to three objects (box, ball, "
+    + "panel, question). \"Show a stick figure jumping over a box\" → demo jump-over-obstacle; \"Animate the figure thinking\" → thinking; \"Make it explore "
+    + "this box\" → exploring. The body becomes the figure and returns. Keep it short; one sentence about it, no running commentary.",
   control_animation: "Control the animation on show — a symbol being written or a figure's action sequence: pause, resume, replay, change speed "
     + "(\"write it more slowly\" → replay with speed slow, \"faster\"), next or previous stroke, repeat a stroke (\"repeat the third stroke\" → "
     + "repeat, stroke 3), complete (\"show the whole character again\"), stop. The result says which stroke is being written and how.",
-  express: "Show an expression or a gesture with Aion's body, briefly. Use it when the user asks for one (\"look happy\", \"show a curious "
-    + "expression\", \"make a surprised face\", \"wave\", \"jump\", \"nod\"), or — rarely — when a small reaction genuinely adds to the "
-    + "moment. Aion Eyes wear the expression; the figure acts it out (a gesture, or the movement nearest an expression); the sphere answers "
-    + "with a brief gathering. It does not change the body (use set_body_form for that) and ends by itself. Aion's state already shows "
-    + "listening, thinking and answering: never call this for those.",
+  express: "Show an expression or a gesture with Aion's body, briefly, when the user asks for one (\"look happy\", \"a curious expression\", "
+    + "\"wave\") or — rarely — when a small reaction adds to the moment. The eyes wear it; the figure acts it out; the sphere gathers. It "
+    + "does not change the body and ends by itself. Aion's state already shows listening, thinking and answering: never call this for those.",
 } as const;
 
 /** The route in a few words, for the tool result. */
@@ -805,6 +791,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     inputSchema: showMusicInput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
+    if (args.symbol !== undefined && !MUSIC_FORM_IDS.includes(args.symbol)) return musicFailure(`symbol must be one of ${MUSIC_FORM_IDS.join(", ")}`);
     if (args.concept) {
       // A concept of the glossary: its curated, validated example, engraved exactly (v0.4.4).
       const concept = lookupConcept(args.concept);

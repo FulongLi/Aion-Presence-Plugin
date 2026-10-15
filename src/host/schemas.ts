@@ -14,7 +14,6 @@ import { DURATIONS, TEMPO } from "../music/theory/rhythm";
 import { SCALE_KINDS, type ScaleKind } from "../music/theory/scales";
 import { CLEFS } from "../music/notation/staff";
 import { BARLINES, DYNAMICS, SCORE_LIMITS } from "../music/notation/score";
-import { MUSIC_FORM_IDS } from "../music/visual/glyphForms";
 import { LANGUAGES, LESSONS } from "../music/lessons/lessons";
 import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES } from "../audio/settings";
 import { WRITING_SYSTEMS, STROKE_LIMITS } from "../animation/stroke/types";
@@ -38,12 +37,11 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
   return clean;
 });
 const hold = z.number().min(0).max(LIMITS.hold.max)
-  .describe(`Seconds to hold the presentation before Aion returns to its body (${LIMITS.hold.min}–${LIMITS.hold.max}; 0 = until cleared). Omit for a sensible default.`);
+  .describe(`Seconds before Aion returns to its body (${LIMITS.hold.min}–${LIMITS.hold.max}; 0 = until cleared). Usually omit.`);
 
 /** How the user should see it (the Presentation Router decides by default; see core/presentationRouter.ts). */
 const presentation = z.enum(PRESENTATION_PREFERENCES).describe(
-  "auto (default, recommended): Aion decides. body: Aion's particle body becomes it. card: a high-fidelity card beside the body. "
-  + "hybrid: both (e.g. a particle portrait and the photograph). Clearly unsuitable choices are overridden (long text never becomes particles).");
+  "auto (default): Aion decides. body: the particles become it. card: an exact card beside the body. hybrid: both.");
 
 /** A free-text field checked by one of SCF's validators after its whitespace is tidied. */
 const checked = (max: number, valid: (value: string) => boolean, what: string) => z.string().max(max * 4).transform((value, ctx) => {
@@ -237,13 +235,13 @@ const vec = z.tuple([num, num, num]);
  */
 const sceneObject = z.object({
   type: z.enum(["box", "sphere", "pyramid", "cylinder", "cone", "torus", "ring", "line", "tube", "curve", "helix"]),
-  position: vec.optional().describe("Centre [x, y, z] (y up, z toward the viewer)."),
-  rotation: vec.optional().describe("Degrees [x, y, z]."),
+  position: vec.optional().describe("Centre [x, y, z], y up."),
+  rotation: vec.optional().describe("Degrees."),
   scale: z.union([num, vec]).optional(),
-  size: vec.optional().describe("box"), radius: num.optional().describe("sphere, cylinder, cone, torus, tube, helix"),
+  size: vec.optional(), radius: num.optional(),
   radiusTop: num.optional(), height: num.optional(), base: num.optional(), sides: num.optional(), tube: num.optional(),
-  inner: num.optional().describe("ring (flat, horizontal)"), outer: num.optional(), from: vec.optional().describe("line"), to: vec.optional(),
-  points: z.array(vec).optional().describe("tube, curve"), closed: z.boolean().optional(), turns: num.optional().describe("helix"), phase: num.optional(),
+  inner: num.optional(), outer: num.optional(), from: vec.optional(), to: vec.optional(),
+  points: z.array(vec).optional(), closed: z.boolean().optional(), turns: num.optional(), phase: num.optional(),
   tone: num.optional().describe("0.2–1"), weight: num.optional(), detail: z.enum(["surface", "edges", "both"]).optional(),
   repeat: z.object({ count: num, offset: vec.optional(), rotation: vec.optional(), scale: num.optional() }).strict().optional()
     .describe(`2–${SCENE_LIMITS.repeat} copies, each one step further (ladder rungs, a helix).`),
@@ -305,10 +303,10 @@ const scoreNoteInput = z.object({
 }).strict();
 
 const scaleInput = z.object({
-  tonic: z.string().max(6).describe("The starting note with its octave, e.g. C4."),
-  kind: z.enum(SCALE_KINDS as [ScaleKind, ...ScaleKind[]]).optional().describe("major (default), natural-minor or harmonic-minor."),
+  tonic: z.string().max(6).describe("e.g. C4."),
+  kind: z.enum(SCALE_KINDS as [ScaleKind, ...ScaleKind[]]).optional(),
   octaves: z.number().int().min(1).max(2).optional(),
-  direction: z.enum(["up", "down", "up-down"]).optional().describe("up (default), down, or up then down."),
+  direction: z.enum(["up", "down", "up-down"]).optional(),
   duration: z.enum(DURATIONS).optional(),
 }).strict();
 
@@ -338,10 +336,11 @@ export const showMusicInput = z.object({
   staff: z.boolean().optional().describe("true with no notes: an empty staff (to explain lines and spaces)."),
   highlight: z.array(highlightInput).max(SCORE_LIMITS.highlights).optional().describe("What to light up: notes by index, a line, a space, the clef or the time signature."),
   caption: line(LIMITS.summary, "caption").optional().describe("One short line under the staff."),
-  symbol: z.enum(MUSIC_FORM_IDS as [string, ...string[]]).optional().describe("A symbol the body forms beside the notation."),
+  // A string (checked against the music forms in the tool) rather than an enum of 14 ids: smaller tool metadata (v0.4.4).
+  symbol: z.string().max(32).optional().describe("A music form the body forms beside it: music.treble-clef, music.quarter-note, music.sharp …"),
   play: z.boolean().optional().describe("Also play it at once, each note lighting up as it sounds."),
   presentation: presentation.optional(),
-  hold_seconds: hold.optional().describe("Default: until cleared or replaced (music is something the user studies)."),
+  hold_seconds: hold.optional(),
 }).strict();
 
 export const playMusicInput = z.object({
