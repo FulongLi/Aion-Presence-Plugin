@@ -4,7 +4,8 @@ import { reliefPixels } from "../visual/relief";
 import { decodeMap, frameBounds } from "../visual/geo/map";
 import { geoToNormal } from "../visual/geo/projection";
 import { highlight, renderScore, type RenderedScore } from "./music/notation";
-import { strokeSequence } from "../animation/stroke/registry";
+import { MUSIC_CONCEPTS } from "../music/glossary";
+import { sequenceFor } from "../animation/control";
 import { buildStrokeCard, type StrokeCard } from "./strokeCard";
 
 /**
@@ -207,9 +208,18 @@ export async function buildCard(presentation: Presentation, sources: CardSources
     }
     case "writing": {
       // The numbered stroke order beside the body that writes it (v0.4.3); it follows the writing (see strokeCard.ts).
-      const sequence = strokeSequence(presentation.stroke);
+      const sequence = sequenceFor(presentation);
       if (!sequence) break;
-      writing = buildStrokeCard(sequence);
+      writing = buildStrokeCard(sequence, { highlight: presentation.highlight, practice: presentation.practice, reference: presentation.route === "card", source: presentation.source });
+      wide = presentation.route === "card" || sequence.items.length > 2;
+      // A music symbol: its engraved form on a staff too (VexFlow + Bravura), the notation reference beside the handwriting (v0.4.4).
+      const concept = sequence.writingSystem === "music" ? MUSIC_CONCEPTS.find(item => item.writing === sequence.id) : undefined;
+      if (concept) {
+        const engraved = el("div", "music-score engraved");
+        const rendered = await renderScore(engraved, concept.score, 300);
+        highlight(rendered, concept.highlight ?? []);
+        writing.root.querySelector(".stroke-head")?.after(engraved, el("p", "caption engraved-caption", `Engraved: ${concept.caption.en}`));
+      }
       root.append(writing.root);
       break;
     }

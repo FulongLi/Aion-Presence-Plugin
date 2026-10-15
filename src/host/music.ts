@@ -1,4 +1,4 @@
-import { checkHighlights, checkScore, playbackEvents, type CheckedScore, type MusicHighlight, type MusicScore, type PlaybackEvent, type ScoreNote } from "../music/notation/score";
+import { checkHighlights, checkScore, playbackEvents, type Barline, type CheckedScore, type MusicHighlight, type MusicScore, type PlaybackEvent, type ScoreNote } from "../music/notation/score";
 import { describePosition, MIDDLE_C, type Clef } from "../music/notation/staff";
 import { frequency, midi, parsePitch, pitchClassName, pitchName, SOLFEGE } from "../music/theory/pitch";
 import { DURATION_NAMES, REST_NAMES, TEMPO, type Duration } from "../music/theory/rhythm";
@@ -11,7 +11,7 @@ import { findLesson, lessonById, LESSONS, type Language, type Lesson, type Lesso
  * an answer is checked. Pure (no hub, no MCP), so the tools stay small and all of it is tested.
  */
 export interface MusicArgs {
-  clef?: Clef; time?: string; notes?: (Omit<ScoreNote, "duration"> & { duration?: Duration })[]; staff?: boolean;
+  clef?: Clef; time?: string; key?: string; end?: Barline; notes?: (Omit<ScoreNote, "duration"> & { duration?: Duration })[]; staff?: boolean;
   scale?: { tonic: string; kind?: ScaleKind; octaves?: number; direction?: "up" | "down" | "up-down"; duration?: Duration };
 }
 
@@ -36,7 +36,7 @@ export function buildScore(args: MusicArgs, title?: string): Built {
   // A clef that suits the notes: bass when every note is below middle C.
   const pitched = notes.map(note => note.pitch && parsePitch(note.pitch)).filter(Boolean) as NonNullable<ReturnType<typeof parsePitch>>[];
   const clef: Clef = args.clef ?? (pitched.length && pitched.every(pitch => midi(pitch) < midi(MIDDLE_C)) ? "bass" : "treble");
-  const check = checkScore({ clef, ...(args.time ? { time: args.time } : {}), notes } satisfies MusicScore);
+  const check = checkScore({ clef, ...(args.time ? { time: args.time } : {}), ...(args.key ? { key: args.key } : {}), ...(args.end ? { end: args.end } : {}), notes } as MusicScore);
   if (!check.ok) return check;
   name ??= pitched.length === 1 ? pitchName(pitched[0]) : pitched.length ? `${pitched.length} notes` : `The ${clef} staff`;
   return { ok: true, score: check.value, title: name };

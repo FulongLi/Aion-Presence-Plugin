@@ -1,4 +1,4 @@
-# Animation (v0.4.3)
+# Animation (v0.4.3; v0.4.4 Figure 3.0 behaviours)
 
 Aion can demonstrate how things happen: a symbol being written ([STROKE-ANIMATION.md](STROKE-ANIMATION.md)) and short
 action scenes performed by its own figure. Both rest on one small Animation Core; each keeps its own semantics.
@@ -72,6 +72,25 @@ positions the renderer's own projection gives (like map markers) — identical i
 object follows the hands (from the solved pose).
 
 ![The figure jumps over a box](media/v0.4.3/figure-jump.gif)
+
+## Figure 3.0 behaviours (v0.4.4)
+
+The figure is now a flexible character ([FIGURE.md](FIGURE.md)); the sequencer gained behaviours that use it. No second
+sequencer: the same declarative actions, validated with hard bounds, compiled onto the same skeleton.
+
+| Action | What the figure does |
+| --- | --- |
+| `walk` (improved) | weight shifts over the planted foot (sway, hip roll), shoulders counter-turn against the hips, the upper body leads into the motion (`curl`), elbows bend more on the forward swing; it slows before stopping and settles back a touch |
+| `think` (`about?`: a `question` object) | a pause, head tilt, weight onto one leg, a hand to the chin and the other across the waist, small searching movements of the head, then the "got it" — the hand up, finger raised, the back straightening — and the question's "?" turns to "!" in the accent |
+| `notice` (an object) | the head snaps toward it, a small start (lift, draw back), then it settles |
+| `examine` (a box or ball) | walks up slowly, leans in and down, looks it over from one side to the other, straightens a little |
+| `touch` (a box or ball) | the near hand reaches slowly (IK), taps, pulls back fast as the body starts back; the object hops and wobbles, glowing briefly in the accent |
+| `jump` (improved) | a deeper, gathered crouch with the arms swinging back, an explosive extension with the back arching, a tuck with the back rounding, a landing that absorbs through the knees with the arms forward, and a recovery that rises a touch past standing |
+
+New object: `question` (a floating "?" above head height). New demos: `thinking` (11.0 s) and `exploring` (15.2 s);
+`walk-and-stop` walks further (7.5 s); `jump-over-obstacle` (7.4 s) and `explain-diagram` use the new body unchanged in
+logic. Bounds: ≤ 18 s (was 16) so a demo can notice, approach, examine and touch; Codex's own sequences stay short.
+Every channel is continuous across primitives (tested at 1/120 s: no snapping).
 
 ## MCP
 

@@ -33,6 +33,12 @@ import { ANCHOR, PROPORTIONS } from "../src/core/figure/skeleton";
 import { AionBody } from "../src/core/body";
 import { discoverSkills } from "../scripts/lib/pluginPackage";
 import { playAnimationInput } from "../src/host/schemas";
+import { ChinesePack } from "../src/host/writing/chinesePack";
+import { resolveWriting } from "../src/host/writing/resolve";
+
+/** v0.4.4: Chinese characters come from the Chinese Writing Pack (the hand-drawn v0.4.3 set is gone). */
+const pack = new ChinesePack(join(import.meta.dirname, "..", "plugins/aion-presence/packs/chinese-writing"));
+const chinese = (text: string) => { const found = resolveWriting({ text }, pack); if (!found.ok) throw new Error(found.problem); return found; };
 
 /** A manual clock: time moves only when the test says so; scheduled callbacks run in order. */
 function manualClock(start = 1_000_000) {
@@ -158,7 +164,8 @@ test("stroke paths: one continuous movement; malformed paths are refused", () =>
   for (const bad of ["L 1 1", "M 0 0 M 1 1", "M 0 0 L 1", "M 0 0 X 1 1", "M 0 0 L 1 NaN", ""]) assert.throws(() => parseStrokePath(bad), /stroke-path-invalid/, bad);
   assert.equal(describeDirection([0, 0, 1, 0]), "right");
   assert.equal(describeDirection([0, 0, 0, -1]), "down");
-  assert.equal(describeDirection([0, 1, -0.4, 0]), "down-left");
+  assert.equal(describeDirection([0, 1, -0.6, 0]), "down-left");
+  assert.equal(describeDirection([0, 1, -0.3, 0]), "down", "eight sectors: within 22.5° of down is down");
   assert.equal(describeDirection([0, 0, 1, 0, 1, -1, 0.9, -0.95]), "right, then down, then a hook up-left");
 });
 
@@ -180,31 +187,27 @@ test("every curated symbol builds, validates and stays inside the stage", () => 
     }
   }
   const catalog = strokeCatalog();
-  assert.equal(catalog.chinese.length, 19);
-  assert.equal(catalog.latin.length, 52, "A–Z and a–z");
-  assert.equal(catalog.digits.length, 10);
-  assert.deepEqual(catalog.music, ["𝄞", "𝄢", "♩", "♪", "♯", "♭", "♮"]);
-  assert.ok(count >= 96);
+  assert.equal(catalog.chinese, undefined, "Chinese comes from the Chinese Writing Pack, not a curated list");
+  assert.equal(catalog.latin!.length, 52, "A–Z and a–z");
+  assert.equal(catalog.digits!.length, 10);
+  assert.deepEqual(catalog.music, ["𝄞", "𝄢", "♩", "♪", "♯", "♭", "♮", "𝄡", "𝅝", "𝅗𝅥", "𝅘𝅥𝅯", "𝄻", "𝄼", "𝄽", "𝄾", "𝄴", "𝄁", "𝄂"]);
+  assert.ok(count >= 88);
 });
 
-test("stroke order: the curated Chinese characters follow the standard order (names and directions)", () => {
-  const names = (symbol: string) => lookupStroke(symbol)!.strokes.map(stroke => stroke.name!.zh);
-  assert.deepEqual(names("永"), ["点", "横折钩", "横撇", "撇", "捺"]);
-  assert.deepEqual(names("水"), ["竖钩", "横撇", "撇", "捺"]);
-  assert.deepEqual(names("火"), ["点", "撇", "撇", "捺"]);
-  assert.deepEqual(names("十"), ["横", "竖"]);
-  assert.deepEqual(names("中"), ["竖", "横折", "横", "竖"]);
-  assert.deepEqual(names("日"), ["竖", "横折", "横", "横"]);
-  assert.deepEqual(names("山"), ["竖", "竖折", "竖"]);
-  const yong = lookupStroke("eternity")!;
-  assert.equal(yong.symbol, "永", "found by meaning");
-  assert.equal(yong.strokes[1].direction, "right, then down, then a hook up-left");
-  assert.equal(lookupStroke("十")!.strokes[0].direction, "right");
-  assert.equal(lookupStroke("十")!.strokes[1].direction, "down");
-  // Horizontal strokes go left to right, vertical ones top to bottom, in every character.
-  for (const spec of STROKE_PACKS[0].symbols) for (const stroke of lookupStroke(spec.symbol)!.strokes) {
-    if (stroke.name!.zh === "横") assert.ok(stroke.endPoint[0] > stroke.startPoint[0], `${spec.symbol}: 横 runs right`);
-    if (stroke.name!.zh === "竖") assert.ok(stroke.endPoint[1] < stroke.startPoint[1], `${spec.symbol}: 竖 runs down`);
+test("stroke order: Chinese characters from the pack keep the data's order, with directions read from each median", () => {
+  const yong = chinese("永").sequence;
+  assert.equal(yong.strokes.length, 5);
+  assert.deepEqual(yong.strokes.map(stroke => stroke.direction), ["down-right", "right, then down, then a hook up-left", "right, then down-left", "down, then down-left", "down-right"]);
+  const shi = chinese("十").sequence;
+  assert.deepEqual(shi.strokes.map(stroke => stroke.direction), ["right", "down"], "十: the horizontal, then the vertical");
+  const zhong = chinese("中").sequence;
+  assert.deepEqual(zhong.strokes.map(stroke => stroke.direction).slice(0, 2), ["down", "right, then down"], "中: 竖, then 横折");
+  // Every stroke's pen path runs inside or along its own true outline.
+  for (const char of "永爱国鬱龍") {
+    for (const stroke of chinese(char).sequence.strokes) {
+      assert.ok(stroke.outline && stroke.outline.length >= 1, `${char}: stroke ${stroke.local} has its outline`);
+      assert.ok(stroke.path.length >= 4);
+    }
   }
 });
 
@@ -218,7 +221,7 @@ test("stroke order: letters, digits, music and maths follow their stated convent
   assert.equal(a.strokes[2].direction, "right");
   assert.match(lookupStroke("o")!.strokes[0].direction, /anticlockwise/, "circles go anticlockwise");
   assert.match(lookupStroke("T")!.note!, /stem first/);
-  for (const spec of STROKE_PACKS[1].symbols.filter(item => item.symbol !== "e")) {
+  for (const spec of STROKE_PACKS.find(item => item.system === "latin")!.symbols.filter(item => item.symbol !== "e")) {
     // Start at the top: in the upper part of the first stroke (a circle starts at about two o'clock).
     const first = lookupStroke(spec.symbol)!.strokes[0];
     const ys = first.path.filter((_, i) => i % 2 === 1), low = Math.min(...ys), high = Math.max(...ys);
@@ -238,7 +241,7 @@ test("stroke order: letters, digits, music and maths follow their stated convent
 });
 
 test("stroke timing: the plan and the writing frame — preview, clear, each stroke in order, finished", () => {
-  const yong = lookupStroke("永")!, plan = writingPlan(yong);
+  const yong = chinese("永").sequence, plan = writingPlan(yong);
   assert.equal(plan.strokes.length, 5);
   for (let i = 1; i < plan.strokes.length; i++) assert.ok(plan.strokes[i].start > plan.strokes[i - 1].end, "a pause between strokes");
   assert.equal(plan.writeStart, WRITING_TIMING.lead + WRITING_TIMING.preview + WRITING_TIMING.clear + WRITING_TIMING.ready);
@@ -267,8 +270,8 @@ test("stroke timing: the plan and the writing frame — preview, clear, each str
 });
 
 test("stroke control: repeat a stroke, next, previous, slower, complete — and what does not apply", () => {
-  const content = { kind: "writing" as const, stroke: "chinese:永" };
-  const plan = planFor(content.stroke)!;
+  const content = { kind: "writing" as const, source: chinese("永").source };
+  const plan = planFor(content)!;
   const playing = startPlayback(plan.duration, 0);
   let result = controlAnimation(content, playing, { action: "repeat", stroke: 3 }, 1_000);
   assert.ok(result.ok && result.stroke === 3);
@@ -292,7 +295,7 @@ test("stroke control: repeat a stroke, next, previous, slower, complete — and 
 });
 
 test("stroke particles: every grain has a reveal key — strokes in order, the pen, the guides — and prefixes keep the whole symbol", () => {
-  const sequence = lookupStroke("永")!;
+  const sequence = chinese("永").sequence;
   const points = createTargetPoints(strokesTarget(sequence), 6000);
   const keys = points.keys!;
   assert.equal(keys.length, 6000);
@@ -339,8 +342,8 @@ test("renderer compatibility: compute stays within WebGPU's eight storage buffer
 
 // ── Scene Sequencer ────────────────────────────────────────────────────────────────────────────────────────────
 
-test("sequences: the five demos validate, compile and stay short", () => {
-  assert.equal(DEMO_NAMES.length, 5);
+test("sequences: the curated demos validate, compile and stay within bounds", () => {
+  assert.deepEqual(DEMO_NAMES, ["walk-and-stop", "thinking", "exploring", "jump-over-obstacle", "pick-up-object", "explain-diagram", "surprised-reaction"]);
   for (const name of DEMO_NAMES) {
     const check = validateSequence(JSON.parse(JSON.stringify(DEMO_SEQUENCES[name])));
     assert.ok(check.ok, `${name}: ${check.ok ? "" : check.problem}`);
@@ -444,7 +447,7 @@ test("a performance borrows the figure without changing the persistent body", ()
 test("store: an animation plays with its presentation; controls re-arm a sequence's lifetime; stop ends it", () => {
   const clock = manualClock();
   const store = new PresenceStore(clock);
-  const writing = store.present({ kind: "writing", stroke: "chinese:永", label: "永" }, 0);
+  const writing = store.present({ kind: "writing", stroke: "chinese:永", label: "永", source: chinese("永").source }, 0);
   assert.equal(store.snapshot().animation?.presentation, writing.id);
   assert.equal(writing.route, "hybrid");
   assert.equal(store.controlAnimation({ action: "repeat", stroke: 2 }).ok, true);
@@ -467,32 +470,37 @@ test("store: an animation plays with its presentation; controls re-arm a sequenc
 
 test("hub protocol: writing and animation content and controls are validated again, whoever sends them", () => {
   const present = (content: unknown) => hubCommandSchema.safeParse({ type: "present", content }).success;
-  assert.ok(present({ kind: "writing", stroke: "chinese:永", label: "永" }));
-  assert.ok(!present({ kind: "writing", stroke: "chinese:龍", label: "龍" }), "no data, no writing");
+  const yong = chinese("永").source;
+  assert.ok(present({ kind: "writing", stroke: "chinese:永", label: "永", source: yong }));
+  assert.ok(!present({ kind: "writing", stroke: "chinese:永", label: "永" }), "no source, no writing");
+  const broken = JSON.parse(JSON.stringify(yong));
+  broken.pieces[0].data.medians.pop();
+  assert.ok(!present({ kind: "writing", stroke: "chinese:永", label: "永", source: broken }), "character data is checked again: one median per outline");
   assert.ok(present({ kind: "animation", sequence: DEMO_SEQUENCES["walk-and-stop"], label: "Walk" }));
   assert.ok(!present({ kind: "animation", sequence: { title: "x", actions: [{ do: "teleport" }] }, label: "x" }));
   assert.ok(hubCommandSchema.safeParse({ type: "animation", action: "repeat", stroke: 3 }).success);
   assert.ok(!hubCommandSchema.safeParse({ type: "animation", action: "explode" }).success);
-  assert.ok(!hubCommandSchema.safeParse({ type: "present", content: { kind: "writing", stroke: "chinese:永", label: "永" }, rate: 99 }).success, "rates are bounded");
+  assert.ok(!hubCommandSchema.safeParse({ type: "present", content: { kind: "writing", stroke: "chinese:永", label: "永", source: yong }, rate: 99 }).success, "rates are bounded");
 });
 
 test("MCP: show_stroke_animation, play_animation and control_animation — honest, structured, never guessed", async () => {
   const aion = await connectAion();
   try {
-    let out = await aion.call("show_stroke_animation", { symbol: "eternity" });
+    let out = await aion.call("show_stroke_animation", { symbol: "永" });
     assert.ok(!out.isError);
-    const writing = (out.structuredContent as Record<string, unknown>).writing as { symbol: string; strokes: { n: number; name: string; direction: string }[]; convention: string };
-    assert.equal(writing.symbol, "永");
-    assert.deepEqual(writing.strokes.map(s => s.n), [1, 2, 3, 4, 5]);
-    assert.match(writing.strokes[1].name, /横折钩/);
-    assert.match(writing.convention, /Mainland China/);
+    const writing = (out.structuredContent as Record<string, unknown>).writing as { text: string; symbols: { symbol: string; strokes: string[]; pinyin?: string[] }[]; convention: string };
+    assert.equal(writing.text, "永");
+    assert.equal(writing.symbols[0].strokes.length, 5);
+    assert.equal(writing.symbols[0].strokes[1], "right, then down, then a hook up-left");
+    assert.deepEqual(writing.symbols[0].pinyin, ["yǒng"]);
+    assert.match(writing.convention, /Make Me a Hanzi/);
     assert.equal(((out.structuredContent as Record<string, unknown>).presentation as { route: string }).route, "hybrid");
     out = await aion.call("control_animation", { action: "repeat", stroke: 3 });
-    assert.match((out.content as { text: string }[])[0].text, /stroke 3 of 5.*横撇/);
+    assert.match((out.content as { text: string }[])[0].text, /stroke 3 of 5: right, then down-left/);
     out = await aion.call("control_animation", { action: "repeat", stroke: 8 });
-    assert.ok(out.isError && /there are 5 strokes/.test((out.content as { text: string }[])[0].text));
-    out = await aion.call("show_stroke_animation", { symbol: "龍" });
-    assert.ok(out.isError && /stroke-data-unavailable/.test((out.content as { text: string }[])[0].text) && /never guesses/.test((out.content as { text: string }[])[0].text));
+    assert.ok(out.isError && /has 5 strokes/.test((out.content as { text: string }[])[0].text));
+    out = await aion.call("show_stroke_animation", { symbol: "\u{20000}" });
+    assert.ok(out.isError && /character-not-in-pack/.test((out.content as { text: string }[])[0].text) && /never guesses/.test((out.content as { text: string }[])[0].text));
     out = await aion.call("play_animation", { demo: "jump-over-obstacle", speed: "slow" });
     assert.ok(!out.isError);
     const animation = (out.structuredContent as Record<string, unknown>).animation as { title: string; actions: string[]; speed: number };

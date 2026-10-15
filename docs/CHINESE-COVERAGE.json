@@ -1,0 +1,2323 @@
+{
+ "pack": "1.0.0",
+ "generated": "2026-10-14",
+ "counts": {
+  "characters": 9574,
+  "composed": 9574,
+  "failed": 0,
+  "composeSeconds": 4
+ },
+ "failures": [],
+ "shape": {
+  "sample": 255,
+  "method": "96 × 96 rasters of the reference outlines (Hanzi Writer's geometry) and of the particle grains",
+  "insideMean": 0.9935,
+  "insideMin": 0.9888,
+  "coverage6000Mean": 1,
+  "coverage35000Mean": 1,
+  "coverage35000Min": 1,
+  "iou35000Mean": 0.5992,
+  "iou35000Min": 0.5362
+ },
+ "yong": {
+  "v043": 0.2447,
+  "v044": 0.623
+ },
+ "rows": [
+  {
+   "char": "永",
+   "strokes": 5,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.623
+  },
+  {
+   "char": "爱",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5944
+  },
+  {
+   "char": "国",
+   "strokes": 8,
+   "form": "simplified",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6071
+  },
+  {
+   "char": "鬱",
+   "strokes": 29,
+   "form": "traditional",
+   "inside": 0.9888,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5362
+  },
+  {
+   "char": "龍",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.99,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.589
+  },
+  {
+   "char": "鑫",
+   "strokes": 24,
+   "form": "shared",
+   "inside": 0.9904,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5644
+  },
+  {
+   "char": "謝",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6124
+  },
+  {
+   "char": "學",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5798
+  },
+  {
+   "char": "體",
+   "strokes": 23,
+   "form": "traditional",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5773
+  },
+  {
+   "char": "藝",
+   "strokes": 19,
+   "form": "traditional",
+   "inside": 0.9891,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5617
+  },
+  {
+   "char": "靈",
+   "strokes": 24,
+   "form": "traditional",
+   "inside": 0.9902,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5543
+  },
+  {
+   "char": "書",
+   "strokes": 10,
+   "form": "traditional",
+   "inside": 0.99,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6064
+  },
+  {
+   "char": "飛",
+   "strokes": 9,
+   "form": "traditional",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6115
+  },
+  {
+   "char": "馬",
+   "strokes": 10,
+   "form": "traditional",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6111
+  },
+  {
+   "char": "鳥",
+   "strokes": 11,
+   "form": "traditional",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6073
+  },
+  {
+   "char": "一",
+   "strokes": 1,
+   "form": "shared",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6587
+  },
+  {
+   "char": "人",
+   "strokes": 2,
+   "form": "shared",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6458
+  },
+  {
+   "char": "大",
+   "strokes": 3,
+   "form": "shared",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.648
+  },
+  {
+   "char": "中",
+   "strokes": 4,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6276
+  },
+  {
+   "char": "水",
+   "strokes": 4,
+   "form": "shared",
+   "inside": 0.9958,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6238
+  },
+  {
+   "char": "火",
+   "strokes": 4,
+   "form": "shared",
+   "inside": 0.9956,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6354
+  },
+  {
+   "char": "⺀",
+   "strokes": 2,
+   "form": "component",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6207
+  },
+  {
+   "char": "丁",
+   "strokes": 2,
+   "form": "shared",
+   "inside": 0.9958,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6277
+  },
+  {
+   "char": "临",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9969,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6279
+  },
+  {
+   "char": "乱",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6195
+  },
+  {
+   "char": "亳",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9904,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5847
+  },
+  {
+   "char": "们",
+   "strokes": 5,
+   "form": "simplified",
+   "inside": 0.9966,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6204
+  },
+  {
+   "char": "伺",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9955,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6116
+  },
+  {
+   "char": "佽",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6035
+  },
+  {
+   "char": "俐",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6162
+  },
+  {
+   "char": "倞",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6161
+  },
+  {
+   "char": "傑",
+   "strokes": 12,
+   "form": "traditional",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5819
+  },
+  {
+   "char": "僻",
+   "strokes": 15,
+   "form": "shared",
+   "inside": 0.9927,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5946
+  },
+  {
+   "char": "兗",
+   "strokes": 9,
+   "form": "traditional",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6081
+  },
+  {
+   "char": "冕",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5949
+  },
+  {
+   "char": "凝",
+   "strokes": 16,
+   "form": "shared",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5719
+  },
+  {
+   "char": "判",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9956,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6071
+  },
+  {
+   "char": "剮",
+   "strokes": 11,
+   "form": "traditional",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6074
+  },
+  {
+   "char": "势",
+   "strokes": 8,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6138
+  },
+  {
+   "char": "匙",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6141
+  },
+  {
+   "char": "博",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.604
+  },
+  {
+   "char": "厝",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6072
+  },
+  {
+   "char": "叢",
+   "strokes": 18,
+   "form": "traditional",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5926
+  },
+  {
+   "char": "吓",
+   "strokes": 6,
+   "form": "simplified",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5986
+  },
+  {
+   "char": "呒",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6053
+  },
+  {
+   "char": "咙",
+   "strokes": 8,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6228
+  },
+  {
+   "char": "哒",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6012
+  },
+  {
+   "char": "唠",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.602
+  },
+  {
+   "char": "啫",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6183
+  },
+  {
+   "char": "喵",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6162
+  },
+  {
+   "char": "嗶",
+   "strokes": 13,
+   "form": "traditional",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6054
+  },
+  {
+   "char": "嘽",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6026
+  },
+  {
+   "char": "嚣",
+   "strokes": 18,
+   "form": "simplified",
+   "inside": 0.9902,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5609
+  },
+  {
+   "char": "圃",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6022
+  },
+  {
+   "char": "坑",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6115
+  },
+  {
+   "char": "垤",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6147
+  },
+  {
+   "char": "埽",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5774
+  },
+  {
+   "char": "塵",
+   "strokes": 14,
+   "form": "traditional",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5995
+  },
+  {
+   "char": "壴",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6255
+  },
+  {
+   "char": "夹",
+   "strokes": 6,
+   "form": "simplified",
+   "inside": 0.9907,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6102
+  },
+  {
+   "char": "妆",
+   "strokes": 6,
+   "form": "simplified",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6095
+  },
+  {
+   "char": "姥",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6188
+  },
+  {
+   "char": "婚",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9955,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6041
+  },
+  {
+   "char": "嫩",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5944
+  },
+  {
+   "char": "孩",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6177
+  },
+  {
+   "char": "宫",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6055
+  },
+  {
+   "char": "寻",
+   "strokes": 6,
+   "form": "simplified",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5946
+  },
+  {
+   "char": "尻",
+   "strokes": 5,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6166
+  },
+  {
+   "char": "屹",
+   "strokes": 6,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6212
+  },
+  {
+   "char": "峥",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6187
+  },
+  {
+   "char": "嵝",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6165
+  },
+  {
+   "char": "差",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.598
+  },
+  {
+   "char": "帶",
+   "strokes": 11,
+   "form": "traditional",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.594
+  },
+  {
+   "char": "序",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5954
+  },
+  {
+   "char": "廠",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6022
+  },
+  {
+   "char": "弭",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6338
+  },
+  {
+   "char": "彳",
+   "strokes": 3,
+   "form": "shared",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6237
+  },
+  {
+   "char": "心",
+   "strokes": 4,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6295
+  },
+  {
+   "char": "怍",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6257
+  },
+  {
+   "char": "恤",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5989
+  },
+  {
+   "char": "悭",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5969
+  },
+  {
+   "char": "惶",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5897
+  },
+  {
+   "char": "慣",
+   "strokes": 14,
+   "form": "traditional",
+   "inside": 0.9962,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6025
+  },
+  {
+   "char": "懒",
+   "strokes": 16,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5751
+  },
+  {
+   "char": "戡",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6017
+  },
+  {
+   "char": "扪",
+   "strokes": 6,
+   "form": "simplified",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6248
+  },
+  {
+   "char": "抽",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6228
+  },
+  {
+   "char": "拶",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6149
+  },
+  {
+   "char": "捍",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.618
+  },
+  {
+   "char": "探",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9927,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6069
+  },
+  {
+   "char": "揶",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6016
+  },
+  {
+   "char": "摒",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9958,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6018
+  },
+  {
+   "char": "撷",
+   "strokes": 15,
+   "form": "simplified",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5886
+  },
+  {
+   "char": "攀",
+   "strokes": 19,
+   "form": "shared",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5535
+  },
+  {
+   "char": "敛",
+   "strokes": 11,
+   "form": "simplified",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5992
+  },
+  {
+   "char": "斲",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5978
+  },
+  {
+   "char": "昇",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.603
+  },
+  {
+   "char": "晚",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6087
+  },
+  {
+   "char": "曇",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9895,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5628
+  },
+  {
+   "char": "未",
+   "strokes": 5,
+   "form": "shared",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6479
+  },
+  {
+   "char": "杷",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6279
+  },
+  {
+   "char": "柑",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.645
+  },
+  {
+   "char": "栱",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9956,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6187
+  },
+  {
+   "char": "桷",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6081
+  },
+  {
+   "char": "棧",
+   "strokes": 12,
+   "form": "traditional",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6048
+  },
+  {
+   "char": "楣",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9927,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6079
+  },
+  {
+   "char": "構",
+   "strokes": 14,
+   "form": "traditional",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6266
+  },
+  {
+   "char": "樺",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5952
+  },
+  {
+   "char": "櫆",
+   "strokes": 18,
+   "form": "shared",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5887
+  },
+  {
+   "char": "歔",
+   "strokes": 16,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5867
+  },
+  {
+   "char": "殫",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9955,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5955
+  },
+  {
+   "char": "毽",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5921
+  },
+  {
+   "char": "氽",
+   "strokes": 6,
+   "form": "shared",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6002
+  },
+  {
+   "char": "沈",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9971,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6055
+  },
+  {
+   "char": "泓",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6133
+  },
+  {
+   "char": "洞",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6136
+  },
+  {
+   "char": "浠",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5937
+  },
+  {
+   "char": "液",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.599
+  },
+  {
+   "char": "清",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5998
+  },
+  {
+   "char": "湞",
+   "strokes": 12,
+   "form": "traditional",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5937
+  },
+  {
+   "char": "滇",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5921
+  },
+  {
+   "char": "漠",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9891,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5799
+  },
+  {
+   "char": "潼",
+   "strokes": 15,
+   "form": "shared",
+   "inside": 0.9904,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5813
+  },
+  {
+   "char": "濰",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9909,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.565
+  },
+  {
+   "char": "炅",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6115
+  },
+  {
+   "char": "烟",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5925
+  },
+  {
+   "char": "煢",
+   "strokes": 13,
+   "form": "traditional",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5735
+  },
+  {
+   "char": "燜",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5707
+  },
+  {
+   "char": "版",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6173
+  },
+  {
+   "char": "犪",
+   "strokes": 25,
+   "form": "shared",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5569
+  },
+  {
+   "char": "狸",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6176
+  },
+  {
+   "char": "猿",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6031
+  },
+  {
+   "char": "玷",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6291
+  },
+  {
+   "char": "琴",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5875
+  },
+  {
+   "char": "環",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5938
+  },
+  {
+   "char": "甫",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6291
+  },
+  {
+   "char": "畴",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5968
+  },
+  {
+   "char": "疹",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9909,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5842
+  },
+  {
+   "char": "瘅",
+   "strokes": 13,
+   "form": "simplified",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5915
+  },
+  {
+   "char": "癒",
+   "strokes": 18,
+   "form": "traditional",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5642
+  },
+  {
+   "char": "皚",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5918
+  },
+  {
+   "char": "直",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6045
+  },
+  {
+   "char": "睑",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5959
+  },
+  {
+   "char": "瞬",
+   "strokes": 17,
+   "form": "shared",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.561
+  },
+  {
+   "char": "砑",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6227
+  },
+  {
+   "char": "硫",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5873
+  },
+  {
+   "char": "磕",
+   "strokes": 15,
+   "form": "shared",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6104
+  },
+  {
+   "char": "祟",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6024
+  },
+  {
+   "char": "秆",
+   "strokes": 8,
+   "form": "simplified",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6136
+  },
+  {
+   "char": "種",
+   "strokes": 14,
+   "form": "traditional",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6119
+  },
+  {
+   "char": "窗",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.584
+  },
+  {
+   "char": "竽",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5888
+  },
+  {
+   "char": "筑",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.582
+  },
+  {
+   "char": "箫",
+   "strokes": 14,
+   "form": "simplified",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5686
+  },
+  {
+   "char": "簡",
+   "strokes": 18,
+   "form": "traditional",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5784
+  },
+  {
+   "char": "粤",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5695
+  },
+  {
+   "char": "約",
+   "strokes": 9,
+   "form": "traditional",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6086
+  },
+  {
+   "char": "絜",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5887
+  },
+  {
+   "char": "緝",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9902,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5788
+  },
+  {
+   "char": "繡",
+   "strokes": 19,
+   "form": "traditional",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5732
+  },
+  {
+   "char": "纳",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6024
+  },
+  {
+   "char": "统",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5926
+  },
+  {
+   "char": "缋",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5777
+  },
+  {
+   "char": "缶",
+   "strokes": 6,
+   "form": "shared",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6291
+  },
+  {
+   "char": "羍",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6018
+  },
+  {
+   "char": "翱",
+   "strokes": 16,
+   "form": "shared",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5723
+  },
+  {
+   "char": "耻",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6277
+  },
+  {
+   "char": "肙",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6193
+  },
+  {
+   "char": "胜",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9958,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6126
+  },
+  {
+   "char": "脚",
+   "strokes": 11,
+   "form": "simplified",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6144
+  },
+  {
+   "char": "腴",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.602
+  },
+  {
+   "char": "臉",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6015
+  },
+  {
+   "char": "舐",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9962,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6205
+  },
+  {
+   "char": "艨",
+   "strokes": 19,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5753
+  },
+  {
+   "char": "芭",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6141
+  },
+  {
+   "char": "苫",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6164
+  },
+  {
+   "char": "茹",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9927,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6158
+  },
+  {
+   "char": "莆",
+   "strokes": 10,
+   "form": "shared",
+   "inside": 0.9907,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.593
+  },
+  {
+   "char": "菘",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6023
+  },
+  {
+   "char": "葄",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5894
+  },
+  {
+   "char": "蒯",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9964,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5926
+  },
+  {
+   "char": "蔟",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5838
+  },
+  {
+   "char": "薄",
+   "strokes": 16,
+   "form": "shared",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5746
+  },
+  {
+   "char": "藭",
+   "strokes": 19,
+   "form": "traditional",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5741
+  },
+  {
+   "char": "虧",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5736
+  },
+  {
+   "char": "蛆",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6149
+  },
+  {
+   "char": "蜓",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9917,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5873
+  },
+  {
+   "char": "蝼",
+   "strokes": 15,
+   "form": "simplified",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.616
+  },
+  {
+   "char": "蟠",
+   "strokes": 18,
+   "form": "shared",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5942
+  },
+  {
+   "char": "行",
+   "strokes": 6,
+   "form": "shared",
+   "inside": 0.9956,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6236
+  },
+  {
+   "char": "袤",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.576
+  },
+  {
+   "char": "褂",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6086
+  },
+  {
+   "char": "覃",
+   "strokes": 12,
+   "form": "shared",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6017
+  },
+  {
+   "char": "觯",
+   "strokes": 15,
+   "form": "simplified",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5822
+  },
+  {
+   "char": "詞",
+   "strokes": 12,
+   "form": "traditional",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5757
+  },
+  {
+   "char": "課",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6004
+  },
+  {
+   "char": "謙",
+   "strokes": 17,
+   "form": "traditional",
+   "inside": 0.9909,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5961
+  },
+  {
+   "char": "讣",
+   "strokes": 4,
+   "form": "simplified",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6344
+  },
+  {
+   "char": "诏",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6072
+  },
+  {
+   "char": "诺",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5965
+  },
+  {
+   "char": "谥",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5747
+  },
+  {
+   "char": "豱",
+   "strokes": 17,
+   "form": "shared",
+   "inside": 0.9927,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5927
+  },
+  {
+   "char": "賃",
+   "strokes": 13,
+   "form": "traditional",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5933
+  },
+  {
+   "char": "财",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6128
+  },
+  {
+   "char": "赋",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9956,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5951
+  },
+  {
+   "char": "趔",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5886
+  },
+  {
+   "char": "跳",
+   "strokes": 13,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6058
+  },
+  {
+   "char": "蹉",
+   "strokes": 16,
+   "form": "shared",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.588
+  },
+  {
+   "char": "躞",
+   "strokes": 24,
+   "form": "shared",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5588
+  },
+  {
+   "char": "輬",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6016
+  },
+  {
+   "char": "载",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6065
+  },
+  {
+   "char": "辯",
+   "strokes": 21,
+   "form": "traditional",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5559
+  },
+  {
+   "char": "迶",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6086
+  },
+  {
+   "char": "逶",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6021
+  },
+  {
+   "char": "遼",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9922,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.589
+  },
+  {
+   "char": "邾",
+   "strokes": 8,
+   "form": "shared",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6208
+  },
+  {
+   "char": "鄦",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.996,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5914
+  },
+  {
+   "char": "酵",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.599
+  },
+  {
+   "char": "釋",
+   "strokes": 20,
+   "form": "traditional",
+   "inside": 0.9906,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5849
+  },
+  {
+   "char": "鉚",
+   "strokes": 13,
+   "form": "traditional",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5971
+  },
+  {
+   "char": "鋰",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6073
+  },
+  {
+   "char": "鎬",
+   "strokes": 18,
+   "form": "traditional",
+   "inside": 0.9904,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5769
+  },
+  {
+   "char": "钊",
+   "strokes": 7,
+   "form": "simplified",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6221
+  },
+  {
+   "char": "钶",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9929,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5972
+  },
+  {
+   "char": "铣",
+   "strokes": 11,
+   "form": "simplified",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.602
+  },
+  {
+   "char": "锎",
+   "strokes": 12,
+   "form": "simplified",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6008
+  },
+  {
+   "char": "锻",
+   "strokes": 14,
+   "form": "simplified",
+   "inside": 0.992,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5878
+  },
+  {
+   "char": "镨",
+   "strokes": 17,
+   "form": "simplified",
+   "inside": 0.9926,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5903
+  },
+  {
+   "char": "閹",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9924,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5828
+  },
+  {
+   "char": "阂",
+   "strokes": 9,
+   "form": "simplified",
+   "inside": 0.9955,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5827
+  },
+  {
+   "char": "陀",
+   "strokes": 7,
+   "form": "shared",
+   "inside": 0.9946,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6028
+  },
+  {
+   "char": "隆",
+   "strokes": 11,
+   "form": "shared",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.591
+  },
+  {
+   "char": "雌",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5986
+  },
+  {
+   "char": "霑",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5559
+  },
+  {
+   "char": "鞏",
+   "strokes": 15,
+   "form": "traditional",
+   "inside": 0.9904,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.572
+  },
+  {
+   "char": "須",
+   "strokes": 12,
+   "form": "traditional",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5848
+  },
+  {
+   "char": "顶",
+   "strokes": 8,
+   "form": "simplified",
+   "inside": 0.9949,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6098
+  },
+  {
+   "char": "颥",
+   "strokes": 20,
+   "form": "simplified",
+   "inside": 0.9944,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5702
+  },
+  {
+   "char": "餃",
+   "strokes": 14,
+   "form": "traditional",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6088
+  },
+  {
+   "char": "饥",
+   "strokes": 5,
+   "form": "simplified",
+   "inside": 0.9958,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6023
+  },
+  {
+   "char": "首",
+   "strokes": 9,
+   "form": "shared",
+   "inside": 0.994,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6094
+  },
+  {
+   "char": "驌",
+   "strokes": 23,
+   "form": "traditional",
+   "inside": 0.9953,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5616
+  },
+  {
+   "char": "验",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9935,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.597
+  },
+  {
+   "char": "髓",
+   "strokes": 21,
+   "form": "shared",
+   "inside": 0.9915,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5554
+  },
+  {
+   "char": "魄",
+   "strokes": 14,
+   "form": "shared",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5953
+  },
+  {
+   "char": "鯷",
+   "strokes": 20,
+   "form": "traditional",
+   "inside": 0.9913,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5767
+  },
+  {
+   "char": "鲇",
+   "strokes": 13,
+   "form": "simplified",
+   "inside": 0.9933,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.6115
+  },
+  {
+   "char": "鲻",
+   "strokes": 16,
+   "form": "simplified",
+   "inside": 0.9937,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5901
+  },
+  {
+   "char": "鴒",
+   "strokes": 16,
+   "form": "traditional",
+   "inside": 0.9951,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5737
+  },
+  {
+   "char": "鶻",
+   "strokes": 21,
+   "form": "traditional",
+   "inside": 0.9931,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5783
+  },
+  {
+   "char": "鸰",
+   "strokes": 10,
+   "form": "simplified",
+   "inside": 0.9947,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5975
+  },
+  {
+   "char": "鹡",
+   "strokes": 15,
+   "form": "simplified",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5822
+  },
+  {
+   "char": "麽",
+   "strokes": 14,
+   "form": "simplified",
+   "inside": 0.9938,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5756
+  },
+  {
+   "char": "鼗",
+   "strokes": 19,
+   "form": "shared",
+   "inside": 0.9918,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5771
+  },
+  {
+   "char": "龆",
+   "strokes": 13,
+   "form": "simplified",
+   "inside": 0.9942,
+   "coverage6000": 1,
+   "coverage35000": 1,
+   "iou35000": 0.5884
+  }
+ ]
+}

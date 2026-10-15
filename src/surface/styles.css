@@ -65,18 +65,39 @@ body { overflow: hidden; background: #090e16; }
 .card .stroke-head { display: flex; align-items: baseline; gap: 12px; }
 .card .stroke-symbol { font-size: 30px; line-height: 1; color: #eef3f8; }
 .card .stroke-head h2 { margin: 0; }
-.card .stroke-diagram { display: block; width: min(100%, 230px); height: auto; margin: 12px auto 6px; }
-.card .stroke-guide { fill: none; stroke: rgba(170, 190, 210, .22); stroke-width: .8; }
+.card .stroke-diagram { display: block; width: min(100%, 250px); max-height: 46vh; height: auto; margin: 12px auto 6px; }
+.card[data-route="card"] .stroke-diagram, .card.wide .stroke-diagram { width: min(100%, 520px); }
+.card .stroke-card.reference .stroke-diagram { width: min(100%, 420px); }
+.card .stroke-guide { fill: none; stroke: rgba(170, 190, 210, .22); stroke-width: .8; vector-effect: non-scaling-stroke; }
+/* Chinese strokes: the true outline as a faint ghost, solid ink once written, a brush along the median while written. */
+.card .stroke-ghost { fill: rgba(205, 220, 236, .12); }
+.card .stroke-ink { fill: rgba(226, 236, 246, .9); transition: fill .3s ease, opacity .3s ease; }
+.card .stroke-ink.waiting, .card .stroke-ink.current { opacity: 0; }
+.card .stroke-ink.current.written { opacity: 1; fill: var(--accent, #e8eff6); }
+.card .stroke-brush { fill: none; stroke: var(--accent, #e8eff6); stroke-linecap: round; stroke-linejoin: round; opacity: 0; }
+.card .stroke-brush.current { opacity: 1; filter: drop-shadow(0 0 3px rgba(214, 230, 244, .5)); }
+.card .stroke-ghost.radical { fill: rgba(255, 210, 122, .16); }
+.card .stroke-ink.radical { fill: #ffd27a; }
+.card .stroke-ink.radical.current.written, .card .stroke-brush.radical { fill: #ffe2a8; stroke: #ffe2a8; }
+/* Pen strokes (letters, digits, music, mathematics): round-ended lines revealed along their length. */
 .card .stroke-line { fill: none; stroke-linecap: round; stroke-linejoin: round; transition: stroke .35s ease, opacity .35s ease; }
-.card .stroke-line.waiting { stroke: rgba(205, 220, 236, .16); }
-.card .stroke-line.written { stroke: rgba(226, 236, 246, .86); }
+.card .stroke-line.ghost { stroke: rgba(205, 220, 236, .14); }
+.card .stroke-line.waiting { stroke: transparent; }
+.card .stroke-line.written { stroke: rgba(226, 236, 246, .9); }
 .card .stroke-line.current { stroke: var(--accent, #e8eff6); filter: drop-shadow(0 0 4px rgba(214, 230, 244, .55)); }
-.card .stroke-badge { fill: rgba(10, 14, 22, .82); stroke: rgba(205, 220, 236, .55); stroke-width: .8; }
-.card .stroke-number { fill: #e6eef6; font: 600 9.5px system-ui, -apple-system, sans-serif; text-anchor: middle; }
-.card .stroke-list { margin: 6px 0 0; padding-left: 22px; font-size: 13px; line-height: 1.55; color: rgba(214, 226, 238, .62); }
+.card .stroke-line.radical.written { stroke: #ffd27a; }
+.card .stroke-badge-group.hidden { display: none; }
+.card .stroke-badge { fill: rgba(10, 14, 22, .82); stroke: rgba(205, 220, 236, .55); stroke-width: .8; vector-effect: non-scaling-stroke; }
+.card .stroke-number { fill: #e6eef6; font-family: system-ui, -apple-system, sans-serif; font-weight: 600; text-anchor: middle; }
+.card .stroke-item { margin: 2px 0 0; font-size: 14px; color: rgba(226, 236, 246, .82); }
+.card .stroke-list { margin: 6px 0 0; padding-left: 22px; font-size: 13px; line-height: 1.55; color: rgba(214, 226, 238, .62); max-height: 30vh; overflow: auto; }
 .card .stroke-list li { transition: color .35s ease; }
 .card .stroke-list li.written { color: rgba(226, 236, 246, .86); }
 .card .stroke-list li.current { color: var(--accent, #ffffff); }
+.card .stroke-practice { margin: 12px 0 4px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.card .practice-target { border-radius: 14px; background: rgba(205, 220, 236, .05); box-shadow: inset 0 0 0 1px rgba(205, 220, 236, .14); touch-action: none; }
+.card .practice-status { margin: 0; font-size: 13px; color: rgba(226, 236, 246, .8); }
+.card .caption.credit { opacity: .55; font-size: 11px; }
 .card .music-score .sounding { color: #ffffff; filter: drop-shadow(0 0 9px rgba(214, 230, 244, .85)); }
 .card .music-score .lit.sounding { color: var(--accent, #ffffff); }
 .card .music-score .staff-mark { fill: var(--accent, #a8bed1); opacity: .32; }
@@ -149,3 +170,8 @@ body { overflow: hidden; background: #090e16; }
   .card { right: 7vw; width: min(440px, 30vw); } .card.wide { width: min(680px, 40vw); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+.card .music-score.engraved { max-width: 280px; margin: 6px auto 0; }
+.card .engraved-caption { margin: 0 0 4px; text-align: center; opacity: .7; }
+.card[data-kind="writing"][data-route="card"] { width: min(560px, calc(100vw - 48px)); }
+.card .stroke-card.practicing .stroke-diagram { width: min(100%, 170px); }
+.card .stroke-card.practicing .stroke-list { max-height: 18vh; }

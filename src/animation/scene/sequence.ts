@@ -18,7 +18,7 @@ import { ANCHOR, PROPORTIONS } from "../../core/figure/skeleton";
  * Space: the figure's normalized frame (x right, y up; the ground is at the feet, y = −0.9; the figure is about 1.8
  * tall). The stage shows x within ±STAGE.reach. Walking is planned as footsteps: a planted foot never slides.
  */
-export const OBJECT_TYPES = ["box", "ball", "panel"] as const;
+export const OBJECT_TYPES = ["box", "ball", "panel", "question"] as const;
 export type ObjectType = typeof OBJECT_TYPES[number];
 export const OBJECT_SIZES = ["small", "medium", "large"] as const;
 export type ObjectSize = typeof OBJECT_SIZES[number];
@@ -28,7 +28,7 @@ export const FACINGS = ["left", "right", "viewer"] as const;
 export type Facing = typeof FACINGS[number];
 export const SCENE_GESTURES = ["wave", "nod", "shrug", "surprise", "think", "look-around"] as const;
 export type SceneGesture = typeof SCENE_GESTURES[number];
-export const ACTIONS = ["walk", "jump", "pick-up", "put-down", "point", "face", "gesture", "react", "crouch", "wait"] as const;
+export const ACTIONS = ["walk", "jump", "pick-up", "put-down", "point", "face", "gesture", "react", "crouch", "wait", "think", "notice", "examine", "touch"] as const;
 export type ActionName = typeof ACTIONS[number];
 
 export interface SceneObjectSpec {
@@ -52,7 +52,15 @@ export type ActionSpec =
   | { do: "gesture"; name: SceneGesture }
   | { do: "react"; to?: string }
   | { do: "crouch" }
-  | { do: "wait"; seconds: number };
+  | { do: "wait"; seconds: number }
+  /** v0.4.4 (Figure 3.0): pause and think it over — head tilt, weight shift, hand to the chin, small searching movements, then the "got it" (a question object above it turns to "!"). */
+  | { do: "think"; about?: string }
+  /** v0.4.4: notice something — the head leads toward it, a small start, the body follows. */
+  | { do: "notice"; object: string }
+  /** v0.4.4: walk up to an object cautiously and examine it — lean in, crouch, look it over from side to side. */
+  | { do: "examine"; object: string }
+  /** v0.4.4: reach out and touch an object; it reacts (a hop and a wobble) and the figure starts back a little. */
+  | { do: "touch"; object: string };
 
 export interface AnimationSpec {
   title: string;
@@ -62,7 +70,7 @@ export interface AnimationSpec {
 }
 
 /** Bounds every sequence respects (the validator enforces them; the compiler's own durations are checked too). */
-export const SEQUENCE_LIMITS = { objects: 3, actions: 12, seconds: 16, reach: 1.25, title: 60, wait: 3 } as const;
+export const SEQUENCE_LIMITS = { objects: 3, actions: 12, seconds: 18, reach: 1.25, title: 60, wait: 3 } as const;
 /** How the stage is drawn: the figure smaller and lower than at rest, so it can travel and jump (see the surface). */
 export const STAGE = { scale: 0.62, y: -0.2, reach: SEQUENCE_LIMITS.reach } as const;
 export const GROUND = PROPORTIONS.footY;
@@ -73,6 +81,7 @@ const OBJECT_DIMENSIONS: Record<ObjectType, Record<ObjectSize, { w: number; h: n
   box: { small: { w: 0.3, h: 0.26 }, medium: { w: 0.4, h: 0.34 }, large: { w: 0.5, h: 0.42 } },
   ball: { small: { w: 0.18, h: 0.18 }, medium: { w: 0.24, h: 0.24 }, large: { w: 0.32, h: 0.32 } },
   panel: { small: { w: 0.62, h: 0.44 }, medium: { w: 0.8, h: 0.56 }, large: { w: 0.98, h: 0.68 } },
+  question: { small: { w: 0.18, h: 0.26 }, medium: { w: 0.24, h: 0.34 }, large: { w: 0.3, h: 0.42 } },
 };
 /** A panel (a diagram card) stands in the air beside the figure, its centre at about shoulder height. */
 const PANEL_CENTRE_Y = 0.3;
@@ -82,7 +91,8 @@ export const objectDimensions = (type: ObjectType, size: ObjectSize = "medium") 
 /** Where an object rests (its centre) before anything moves it. */
 export function restingCentre(object: SceneObjectSpec): [number, number] {
   const { h } = objectDimensions(object.type, object.size);
-  return [object.x, object.type === "panel" ? PANEL_CENTRE_Y : GROUND - 0.02 + h / 2];
+  // A question mark floats above head height (v0.4.4); a panel stands at shoulder height; the rest stand on the ground.
+  return [object.x, object.type === "panel" ? PANEL_CENTRE_Y : object.type === "question" ? 0.95 : GROUND - 0.02 + h / 2];
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -115,6 +125,8 @@ export function validateSequence(input: unknown): Checked {
   if (start.facing !== undefined && !(FACINGS as readonly string[]).includes(start.facing)) return fail("start.facing is left, right or viewer");
   if (!Array.isArray(spec.actions) || !spec.actions.length || spec.actions.length > SEQUENCE_LIMITS.actions) return fail(`actions: 1–${SEQUENCE_LIMITS.actions}`);
   const known = (id: unknown) => typeof id === "string" && ids.has(id);
+  /** A box or a ball: something standing on the ground (not a panel or a floating question mark). */
+  const grounded = (id: string) => { const type = objects.find(o => o.id === id)!.type; return type === "box" || type === "ball"; };
   for (const [index, action] of spec.actions.entries()) {
     const where = `action ${index + 1}`;
     if (typeof action !== "object" || action === null || !(ACTIONS as readonly string[]).includes(action.do)) return fail(`${where}: do is one of ${ACTIONS.join(", ")}`);
@@ -124,10 +136,19 @@ export function validateSequence(input: unknown): Checked {
         if (action.speed !== undefined && !(WALK_SPEEDS as readonly string[]).includes(action.speed)) return fail(`${where}: speed is slow, normal or brisk`);
         break;
       case "jump":
-        if (action.over !== undefined && !(known(action.over) && objects.find(o => o.id === action.over)!.type !== "panel")) return fail(`${where}: jump over a box or a ball by id`);
+        if (action.over !== undefined && !(known(action.over) && grounded(action.over))) return fail(`${where}: jump over a box or a ball by id`);
+        break;
+      case "think":
+        if (action.about !== undefined && !known(action.about)) return fail(`${where}: think about an object id`);
+        break;
+      case "notice":
+        if (!known(action.object)) return fail(`${where}: notice an object by id`);
+        break;
+      case "examine": case "touch":
+        if (!known(action.object) || !grounded(action.object)) return fail(`${where}: ${action.do} a box or a ball by id`);
         break;
       case "pick-up":
-        if (!known(action.object) || objects.find(o => o.id === action.object)!.type === "panel") return fail(`${where}: pick up a box or a ball by id`);
+        if (!known(action.object) || !grounded(action.object)) return fail(`${where}: pick up a box or a ball by id`);
         break;
       case "point":
         if (!known(action.at) && !(Array.isArray(action.at) && action.at.length === 2 && action.at.every(finite) && Math.abs(action.at[0]) <= 1.6 && action.at[1] >= -1 && action.at[1] <= 1.2)) {
@@ -179,6 +200,10 @@ interface Primitive {
   hold?: { object: string; from: number; to?: number; release?: [number, number] };
   /** A point on a panel highlighted while pointing (world of the figure, normalized). */
   pointAt?: [number, number];
+  /** v0.4.4: an object touched at local time `at` (it hops and wobbles). */
+  poke?: { object: string; at: number };
+  /** v0.4.4: a question object answered at local time `at` (its "?" becomes "!"). */
+  solve?: { object: string; at: number };
 }
 
 export interface CompiledSequence {
@@ -284,25 +309,39 @@ function walk(state: StageState, to: number, speed: WalkSpeed): Primitive | null
       const zl = (left.x - root) * dir, zr = (right.x - root) * dir;
       const bob = [left, right].reduce((sum, f) => sum + (f.swing > 0 ? 0.014 * (1 - Math.sin(Math.PI * f.swing)) : 0), 0);
       const swing = (z: number) => Math.max(-0.2, Math.min(0.2, z * 0.9));
+      // Figure 3.0: the weight shifts over the planted foot, the shoulders counter-turn against the hips, the upper body
+      // leads into the motion, and after the last step it settles back a touch before standing still (follow-through).
+      const stance = left.swing > 0 ? -1 : right.swing > 0 ? 1 : 0;
+      const settle = t > moving ? Math.sin(Math.PI * Math.min(1, (t - moving) / 0.5)) * Math.exp(-(t - moving) * 2) : 0;
+      const pace = Math.min(1, speedNow * 1.2);
       return {
         rootX: root, heading,
         "footLeft.z": zl, "footLeft.y": left.y, "footRight.z": zr, "footRight.y": right.y,
-        crouch: bob * Math.min(1, speedNow * 1.4), lean: 0.03 * speedNow,
+        crouch: bob * Math.min(1, speedNow * 1.4), lean: 0.05 * speedNow - 0.03 * settle, curl: 0.22 * pace - 0.12 * settle,
+        sway: 0.016 * stance * pace, hipTilt: -0.03 * stance * pace, twist: Math.max(-0.16, Math.min(0.16, (zl - zr) * 0.45)) * pace,
+        nod: 0.05 * pace, tilt: -0.02 * stance * pace,
         ...(holding ? reachBoth(1, ...CARRY) : {
           "left.forward": REST_ARM.forward + swing(zr), "right.forward": REST_ARM.forward + swing(zl),
-          "left.raise": REST_ARM.raise * 0.6, "right.raise": REST_ARM.raise * 0.6, "left.bend": 0.18, "right.bend": 0.18,
+          "left.raise": REST_ARM.raise * 0.6, "right.raise": REST_ARM.raise * 0.6,
+          // The elbow bends more as the arm swings forward.
+          "left.bend": 0.16 + Math.max(0, swing(zr)) * 1.4, "right.bend": 0.16 + Math.max(0, swing(zl)) * 1.4,
         }),
       };
     },
   };
 }
 
-/** A running jump over an object: crouch (anticipation), launch, tuck over it, land soft, stand. */
+/**
+ * A running jump over an object (v0.4.3; v0.4.4 Figure 3.0 timing and body): a deep, gathered crouch with the arms
+ * swinging back (anticipation), an explosive extension with the arms thrown up and the back arching, a tuck over it with
+ * the knees up and the back rounding, a landing that absorbs through the knees with the arms forward for balance, and a
+ * recovery that rises a touch past standing before it settles.
+ */
 function jumpOver(state: StageState, objectX: number, half: number, height: number): Primitive {
   const dir = Math.sign(Math.sin(state.heading)) || 1;
   const takeoff = state.x, landing = objectX + dir * (half + 0.3);
-  const A = 0.42, F = 0.62, L = 0.32, R = 0.5, duration = A + F + L + R;
-  const H = height + 0.07, tuck = 0.13;
+  const A = 0.5, F = 0.62, L = 0.34, R = 0.62, duration = A + F + L + R;
+  const H = height + 0.07, tuck = 0.15;
   const heading = state.heading;
   state.x = landing;
   return {
@@ -310,22 +349,29 @@ function jumpOver(state: StageState, objectX: number, half: number, height: numb
     pose: t => {
       if (t < A) {
         const k = ease("inOut", t / A);
-        return { rootX: takeoff, heading, crouch: 0.1 * k, lean: 0.05 * k, nod: 0.1 * k, "footLeft.z": 0.04, "footRight.z": -0.04, ...arms(0.3 * k + REST_ARM.raise * (1 - k), 0.2, -0.14 * k) };
+        return { rootX: takeoff, heading, crouch: 0.15 * k, lean: 0.07 * k, curl: 0.45 * k, nod: 0.12 * k, "footLeft.z": 0.04, "footRight.z": -0.04,
+          ...arms(REST_ARM.raise + (0.42 - REST_ARM.raise) * k, 0.25, -0.24 * k) };
       }
       if (t < A + F) {
-        const u = (t - A) / F, arc = Math.sin(Math.PI * u);
+        const u = (t - A) / F, arc = Math.sin(Math.PI * u), launch = 1 - smooth(Math.min(1, u * 3.2));
+        // Every channel continues from the crouch at take-off and arrives where the landing begins.
+        const arch = Math.sin(Math.PI * Math.min(1, u / 0.42)) * (u < 0.42 ? 1 : 0), tuckIn = Math.sin(Math.PI * Math.max(0, (u - 0.3) / 0.7));
         return {
-          rootX: lerp(takeoff, landing, u), heading, jump: 4 * H * u * (1 - u), crouch: 0.1 * (1 - smooth(u * 3)), lean: 0.05 - 0.03 * arc, nod: -0.1 * arc,
-          "footLeft.y": tuck * arc, "footRight.y": tuck * arc, "footLeft.z": 0.04 + 0.1 * arc, "footRight.z": -0.04 - 0.05 * arc,
-          ...arms(0.3 + 0.9 * arc, 0.3, -0.14 + 0.36 * smooth(u * 2)),
+          rootX: lerp(takeoff, landing, u), heading, jump: 4 * H * u * (1 - u), crouch: 0.15 * launch, lean: 0.07 - 0.04 * arc,
+          // Arching as it extends, rounding into the tuck over the top.
+          curl: 0.45 * launch - 0.35 * arch + 0.35 * tuckIn, nod: 0.12 * launch - 0.12 * arc,
+          "footLeft.y": tuck * arc, "footRight.y": tuck * arc * 0.9, "footLeft.z": 0.04 + 0.13 * arc, "footRight.z": -0.04 - 0.04 * arc,
+          ...arms(0.42 + 1.25 * Math.sin(Math.PI * Math.min(1, u * 1.6)), 0.25 + 0.05 * smooth(u * 2), -0.24 + 0.46 * smooth(u * 2)),
         };
       }
       if (t < A + F + L) {
         const k = ease("out", (t - A - F) / L);
-        return { rootX: landing, heading, crouch: 0.11 * k, lean: 0.05, nod: 0.12 * k, "footLeft.z": 0.04, "footRight.z": -0.04, ...arms(0.5 - 0.15 * k, 0.4, 0.22 - 0.08 * k) };
+        return { rootX: landing, heading, crouch: 0.16 * k, lean: 0.07 + 0.01 * k, curl: 0.4 * k, nod: 0.14 * k, "footLeft.z": 0.04, "footRight.z": -0.04, ...arms(0.42 + 0.15 * k, 0.3 + 0.15 * k, 0.22 - 0.02 * k) };
       }
-      const k = ease("inOut", (t - A - F - L) / R);
-      return { rootX: landing, heading, crouch: 0.11 * (1 - k), lean: 0.05 * (1 - k), nod: 0.12 * (1 - k), "footLeft.z": 0.04 * (1 - k), "footRight.z": -0.04 * (1 - k), ...arms(lerp(0.35, REST_ARM.raise, k), lerp(0.4, REST_ARM.bend, k), lerp(0.14, REST_ARM.forward, k)) };
+      // Rising back up, a touch past standing (follow-through), then settling.
+      const k = ease("back", (t - A - F - L) / R);
+      return { rootX: landing, heading, crouch: 0.16 * (1 - k), lean: 0.08 * (1 - k), curl: 0.4 * (1 - k), nod: 0.14 * (1 - k), "footLeft.z": 0.04 * (1 - k), "footRight.z": -0.04 * (1 - k),
+        ...arms(lerp(0.57, REST_ARM.raise, k), lerp(0.45, REST_ARM.bend, k), lerp(0.2, REST_ARM.forward, k)) };
     },
   };
 }
@@ -468,6 +514,95 @@ function wait(state: StageState, seconds: number): Primitive {
   return { name: "wait", duration: seconds, pose: () => ({ ...base, ...(holding ? reachBoth(1, ...CARRY) : {}) }) };
 }
 
+// ── Figure 3.0 behaviours (v0.4.4) ─────────────────────────────────────────────────────────────────────────────
+
+/** Channels for one arm as raise / bend / forward (the figure's "left" is the viewer's right). */
+const armOf = (side: "left" | "right", raise: number, bend: number, forward: number): Channels =>
+  ({ [`${side}.raise`]: raise, [`${side}.bend`]: bend, [`${side}.forward`]: forward });
+const restOf = (side: "left" | "right") => armOf(side, REST_ARM.raise, REST_ARM.bend, REST_ARM.forward);
+
+/**
+ * Thinking it over: a pause, the head tilting, the weight shifting onto one leg, a hand coming up to the chin and the
+ * other folding across the waist, small searching movements of the head, then the "got it" — the hand lifts with a raised
+ * finger, the head comes up — and a calm return. With `about` (a question object), its "?" turns to "!" at that moment.
+ */
+function think(state: StageState, about?: string): Primitive {
+  const base = standing(state);
+  const keys: { at: number; v: Channels; ease: "inOut" | "back" | "linear" | "out" }[] = [
+    { at: 0.6, v: { tilt: 0.06, nod: -0.06, curl: -0.15 }, ease: "inOut" },
+    { at: 1.3, v: { tilt: 0.16, sway: -0.018, hipTilt: -0.04, nod: 0.05 }, ease: "inOut" },
+    { at: 2.1, v: { "right.chin": 1, ...armOf("left", 0.08, -1.25, 0.12), curl: -0.25, lean: -0.012 }, ease: "inOut" },
+    { at: 2.7, v: { turn: 0.22, tilt: 0.08, nod: -0.1 }, ease: "inOut" },
+    { at: 3.3, v: { turn: -0.12, tilt: 0.18, nod: -0.04 }, ease: "inOut" },
+    { at: 3.8, v: { turn: 0.05, tilt: 0.12, nod: 0.06 }, ease: "inOut" },
+    // The idea: the chin hand rises, finger up, the back straightens and leans in, the head lifts.
+    { at: 4.25, v: { "right.chin": 0, ...armOf("right", 1.7, 1.45, 0.16), curl: 0.3, lean: 0.03, nod: -0.14, tilt: 0.02, turn: 0, sway: 0, hipTilt: 0 }, ease: "back" },
+    { at: 4.9, v: { ...armOf("right", 1.65, 1.4, 0.16) }, ease: "linear" },
+    { at: 5.8, v: { ...restOf("right"), ...restOf("left"), curl: 0, lean: 0, nod: 0, tilt: 0 }, ease: "inOut" },
+  ];
+  const clip: Clip = { name: "think", duration: 5.8, fadeIn: 0.15, fadeOut: 0.4, keys };
+  return {
+    name: "think", duration: clip.duration, ...(about ? { focus: about, solve: { object: about, at: 4.1 } } : {}),
+    pose: t => { const channels: Channels = { ...flatten(), ...base }; applyClip(channels, clip, t); return channels; },
+  };
+}
+
+/** Noticing something: the head snaps toward it, a small start (the body lifts and draws back a little), then settles. */
+function notice(state: StageState, objectX: number, object: string): Primitive {
+  const base = standing(state);
+  const toward = objectX >= state.x ? 1 : -1;
+  // Facing the viewer the head turns toward it; in profile it lifts instead (the object is ahead or behind).
+  const facingViewer = Math.abs(Math.sin(state.heading)) < 0.5;
+  const look = facingViewer ? 0.7 * toward : 0;
+  const keys: { at: number; v: Channels; ease: "inOut" | "back" | "out" }[] = [
+    { at: 0.22, v: { turn: look, nod: -0.12, lift: 0.012, curl: -0.25, lean: -0.02 }, ease: "out" },
+    { at: 0.7, v: { turn: look * 0.95, nod: -0.04, lift: 0, curl: -0.1, lean: 0 }, ease: "inOut" },
+    { at: 1.3, v: { turn: look * 0.9, nod: 0.02, curl: 0.12, lean: 0.015 }, ease: "inOut" },
+  ];
+  const clip: Clip = { name: "notice", duration: 1.3, fadeIn: 0.05, fadeOut: 0.5, keys };
+  return { name: "notice", duration: clip.duration, focus: object, pose: t => { const channels: Channels = { ...flatten(), ...base }; applyClip(channels, clip, t); return channels; } };
+}
+
+/** Examining an object close up: leaning in and down, the head looking it over from one side to the other, then straightening a little. */
+function examine(state: StageState, object: string): Primitive {
+  const base = standing(state);
+  const keys: { at: number; v: Channels; ease: "inOut" | "linear" }[] = [
+    { at: 0.9, v: { crouch: 0.1, lean: 0.12, curl: 0.55, nod: 0.3, ...armOf("left", 0.2, 0.7, 0.1), ...armOf("right", 0.2, 0.7, 0.1) }, ease: "inOut" },
+    { at: 1.6, v: { tilt: 0.2, turn: 0.12 }, ease: "inOut" },
+    { at: 2.3, v: { tilt: -0.18, turn: -0.1 }, ease: "inOut" },
+    { at: 2.8, v: { tilt: 0.04, turn: 0 }, ease: "inOut" },
+    { at: 3.4, v: { crouch: 0.03, lean: 0.05, curl: 0.25, nod: 0.18 }, ease: "inOut" },
+  ];
+  const clip: Clip = { name: "examine", duration: 3.4, fadeIn: 0.1, fadeOut: 0.3, keys };
+  return { name: "examine", duration: clip.duration, focus: object, pose: t => { const channels: Channels = { ...flatten(), ...base }; applyClip(channels, clip, t); return channels; } };
+}
+
+/**
+ * Touching an object: the near hand reaches out slowly (IK to its top), taps it, and pulls back quickly as the figure starts
+ * back a little; the object hops and wobbles from the moment of the touch.
+ */
+function touch(state: StageState, object: string, top: [number, number]): Primitive {
+  const heading = state.heading, x = state.x;
+  const local = toLocal(top, x, heading);
+  // In profile the arm toward the object is the near one; facing the viewer, the one on its side.
+  const side: "left" | "right" = local[0] >= 0 ? "left" : "right";
+  const target = { [`${side}.reachX`]: local[0], [`${side}.reachY`]: local[1] + 0.02, [`${side}.reachZ`]: Math.max(0.1, local[2]) };
+  const TAP = 1.15;
+  const keys: { at: number; v: Channels; ease: "inOut" | "back" | "out" | "linear" }[] = [
+    { at: 0.5, v: { lean: 0.06, curl: 0.35, nod: 0.2, crouch: 0.05, [`${side}.reach`]: 0, ...target }, ease: "inOut" },
+    { at: TAP - 0.1, v: { [`${side}.reach`]: 0.92, lean: 0.08 }, ease: "inOut" },
+    { at: TAP, v: { [`${side}.reach`]: 1 }, ease: "out" },
+    // The start back: the hand withdraws fast, the body draws back, the head lifts.
+    { at: TAP + 0.28, v: { [`${side}.reach`]: 0, ...armOf(side, 0.45, 1.2, 0.12), lean: -0.03, curl: -0.25, nod: -0.08, crouch: 0.02, lift: 0.01 }, ease: "out" },
+    { at: TAP + 1.1, v: { ...restOf(side), lean: 0, curl: 0, nod: 0.06, crouch: 0, lift: 0 }, ease: "inOut" },
+  ];
+  const clip: Clip = { name: "touch", duration: TAP + 1.1, fadeIn: 0.1, fadeOut: 0.3, keys };
+  return {
+    name: "touch", duration: clip.duration, focus: object, poke: { object, at: TAP },
+    pose: t => { const channels: Channels = { ...flatten(), rootX: x, heading }; applyClip(channels, clip, t); return channels; },
+  };
+}
+
 const NEUTRAL = flattenPose(NEUTRAL_POSE);
 const flatten = (): Channels => ({ ...NEUTRAL });
 
@@ -556,6 +691,21 @@ function compileUnchecked(spec: AnimationSpec): Compiled {
       case "react": push(react(state, action.to ? centreOf(action.to)[0] : null)); break;
       case "crouch": push(crouch(state)); break;
       case "wait": push(wait(state, action.seconds)); break;
+      case "think": push(think(state, action.about)); break;
+      case "notice": push(notice(state, centreOf(action.object)[0], action.object)); break;
+      case "examine": {
+        // Up to it slowly, then a close look.
+        approach(action.object, 0.16, "slow");
+        push(examine(state, action.object));
+        break;
+      }
+      case "touch": {
+        if (state.holding) return { ok: false, problem: "touch: put the object down first" };
+        const object = objects.get(action.object)!, c = centreOf(action.object);
+        if (Math.abs(c[0] - state.x) > half(action.object) + 0.4) approach(action.object, 0.14, "slow");
+        push(touch(state, action.object, [c[0], c[1] + objectDimensions(object.type, object.size).h / 2]));
+        break;
+      }
     }
     if (Math.abs(state.x) > SEQUENCE_LIMITS.reach + 0.05) return { ok: false, problem: "the figure would leave the stage" };
   }
@@ -583,6 +733,12 @@ export interface ObjectFrame {
   /** A point on a panel being pointed at (normalized), or null. */
   mark: [number, number] | null;
   label?: string;
+  /** v0.4.4: a touched object's wobble (radians), its hop (normalized) and a brief glow (0…1). */
+  tilt: number;
+  hop: number;
+  glow: number;
+  /** v0.4.4: a question object's answer, 0 ("?") … 1 ("!"). */
+  solved: number;
 }
 
 export interface SequenceFrame {
@@ -628,7 +784,21 @@ export function evaluateSequence(sequence: CompiledSequence, time: number): Sequ
     const focused = segment.value.focus === object.id ? smooth(Math.min(local, segment.value.duration - local) / 0.35) : 0;
     const mark = segment.value.pointAt && segment.value.focus === object.id && object.type === "panel"
       ? (local > 0.9 && local < 2.5 ? segment.value.pointAt : null) : null;
-    return { id: object.id, type: object.type, size, x, y, w, h, spin: -travelled / (w / 2), focus: focused, mark, ...(object.label ? { label: object.label } : {}) };
+    // Touched: a hop and a decaying wobble from the moment of the touch; answered: "?" turns to "!".
+    let tilt = 0, hop = 0, glow = 0, solved = 0;
+    for (const s of sequence.segments) {
+      if (s.value.poke?.object === object.id && t >= s.start + s.value.poke.at) {
+        const e = t - s.start - s.value.poke.at;
+        tilt += 0.2 * Math.exp(-3.2 * e) * Math.sin(15 * e);
+        hop += e < 0.36 ? 0.07 * Math.sin(Math.PI * e / 0.36) : 0;
+        glow = Math.max(glow, Math.exp(-2.2 * e));
+      }
+      if (s.value.solve?.object === object.id && t >= s.start + s.value.solve.at) solved = Math.max(solved, smooth(Math.min(1, (t - s.start - s.value.solve.at) / 0.35)));
+    }
+    return {
+      id: object.id, type: object.type, size, x, y: y + hop, w, h, spin: -travelled / (w / 2), focus: focused, mark, tilt, hop, glow, solved,
+      ...(object.label ? { label: object.label } : {}),
+    };
   });
   return { channels, objects, action: segment.value.name };
 }

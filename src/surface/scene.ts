@@ -47,8 +47,20 @@ const SHAPES = (() => {
       ...outline([[-0.4, -0.36], [0.4, -0.36]], 0.03, 0.45, next),
     ],
     ground: outline([[-1.6, 0], [1.6, 0]], 0.018, 0.32, next),
+    // v0.4.4: a floating question mark, and the "!" it becomes when the figure gets it.
+    question: [
+      ...outline(Array.from({ length: 28 }, (_, i) => { const a = Math.PI * (1.05 - 1.45 * i / 27); return [Math.cos(a) * 0.3, 0.2 + Math.sin(a) * 0.26] as [number, number]; }), 0.02, 1, next),
+      ...outline([[0.08, -0.02], [0.0, -0.12], [0.0, -0.22]], 0.02, 1, next),
+      ...Array.from({ length: 10 }, (_, i) => ({ x: Math.cos(i) * 0.04, y: -0.42 + Math.sin(i) * 0.04, light: 1, phase: i })),
+    ],
+    answer: [
+      ...outline([[0, 0.48], [0, -0.2]], 0.02, 1, next),
+      ...Array.from({ length: 10 }, (_, i) => ({ x: Math.cos(i) * 0.045, y: -0.42 + Math.sin(i) * 0.045, light: 1, phase: i })),
+    ],
   };
 })();
+
+const mixRgb = (a: Rgb, b: Rgb, k: number): Rgb => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k] as Rgb;
 
 export class SceneLayer {
   private readonly context: CanvasRenderingContext2D;
@@ -101,10 +113,18 @@ export class SceneLayer {
     for (const object of frame.objects) {
       const alpha = frame.visible * (0.82 + 0.18 * object.focus);
       const c = Math.cos(object.spin), s = Math.sin(object.spin);
+      // A touched box wobbles about its bottom edge (v0.4.4); a ball rolls; the rest stand as they are.
+      const tc = Math.cos(object.tilt), ts = Math.sin(object.tilt);
       const place = (x: number, y: number): [number, number] => object.type === "ball"
         ? [object.x + (x * c - y * s) * object.w, object.y + (x * s + y * c) * object.h]
-        : [object.x + x * object.w, object.y + y * object.h];
-      grains(SHAPES[object.type], place, alpha, rgb, 2.1);
+        : object.type === "box" ? [object.x + (x * tc - (y + 0.5) * ts) * object.w, object.y + ((x * ts + (y + 0.5) * tc) - 0.5) * object.h]
+          : [object.x + x * object.w, object.y + y * object.h];
+      const lit = alpha * (1 + object.glow * 0.6);
+      if (object.type === "question") {
+        // "?" fading into "!" (in the accent) when the figure gets it, with a soft pulse at that moment.
+        if (object.solved < 1) grains(SHAPES.question, place, lit * (1 - object.solved), rgb, 2.1);
+        if (object.solved > 0) grains(SHAPES.answer, place, lit * object.solved * (1 + 0.5 * Math.sin(Math.PI * object.solved)), mark, 2.4);
+      } else grains(SHAPES[object.type], place, lit, object.glow > 0.05 ? mixRgb(rgb, mark, object.glow * 0.6) : rgb, 2.1);
       const centre = this.sources.project(this.world(object.x, object.y));
       if (centre) this.drawn.set(object.id, { x: centre[0], y: centre[1], visible: alpha });
       // The mark being pointed at: a soft pulse in the accent colour.

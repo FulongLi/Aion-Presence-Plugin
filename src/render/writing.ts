@@ -24,7 +24,7 @@ export const REVEAL_RAMP = 0.02;
 /** How long, in strokes, a just-written grain glows. */
 export const WRITING_GLOW = 0.08;
 /** Light of the faint ghost of what is still to be written. */
-export const GHOST_LIGHT = 0.09;
+export const GHOST_LIGHT = 0.075;
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 

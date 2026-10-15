@@ -7,19 +7,22 @@ import { diatonic, fromDiatonic, parsePitch, type Pitch } from "../theory/pitch"
  *
  *   treble clef (G clef): its curl circles the second line, G4. Lines E4 G4 B4 D5 F5, spaces F4 A4 C5 E5.
  *   bass clef (F clef): its two dots surround the fourth line, F3. Lines G2 B2 D3 F3 A3, spaces A2 C3 E3 G3.
- *   middle C (C4) sits on the first ledger line below the treble staff and the first above the bass staff.
+ *   alto clef (C clef, v0.4.4): its centre marks the middle (third) line, C4. Lines F3 A3 C4 E4 G4, spaces G3 B3 D4 F4.
+ *   middle C (C4) sits on the first ledger line below the treble staff, the first above the bass staff, and the middle
+ *   line of the alto staff.
  */
-export const CLEFS = ["treble", "bass"] as const;
+export const CLEFS = ["treble", "bass", "alto"] as const;
 export type Clef = typeof CLEFS[number];
 
 /** The pitch on each clef's bottom line. */
-const BOTTOM_LINE: Record<Clef, Pitch> = { treble: { letter: "E", accidental: 0, octave: 4 }, bass: { letter: "G", accidental: 0, octave: 2 } };
+const BOTTOM_LINE: Record<Clef, Pitch> = { treble: { letter: "E", accidental: 0, octave: 4 }, bass: { letter: "G", accidental: 0, octave: 2 }, alto: { letter: "F", accidental: 0, octave: 3 } };
 /** The line each clef marks (staff position) and the pitch it names: the G clef curls round G4, the F clef's dots frame F3. */
-export const CLEF_REFERENCE: Record<Clef, { position: number; pitch: string }> = { treble: { position: 2, pitch: "G4" }, bass: { position: 6, pitch: "F3" } };
+export const CLEF_REFERENCE: Record<Clef, { position: number; pitch: string }> = { treble: { position: 2, pitch: "G4" }, bass: { position: 6, pitch: "F3" }, alto: { position: 4, pitch: "C4" } };
 
 export const CLEF_NAMES: Record<Clef, { en: string; zh: string; other: { en: string; zh: string } }> = {
   treble: { en: "treble clef", zh: "高音谱号", other: { en: "G clef", zh: "G谱号" } },
   bass: { en: "bass clef", zh: "低音谱号", other: { en: "F clef", zh: "F谱号" } },
+  alto: { en: "alto clef", zh: "中音谱号", other: { en: "C clef", zh: "C谱号" } },
 };
 
 /** Staff position of a pitch in a clef (accidentals do not move a note: C♯4 sits where C4 does). */

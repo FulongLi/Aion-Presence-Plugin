@@ -13,12 +13,12 @@ import { isSingleEmojiGrapheme, normalizeClockTime, tidy, validNumber, validPers
 import { DURATIONS, TEMPO } from "../music/theory/rhythm";
 import { SCALE_KINDS, type ScaleKind } from "../music/theory/scales";
 import { CLEFS } from "../music/notation/staff";
-import { SCORE_LIMITS } from "../music/notation/score";
+import { BARLINES, DYNAMICS, SCORE_LIMITS } from "../music/notation/score";
 import { MUSIC_FORM_IDS } from "../music/visual/glyphForms";
 import { LANGUAGES, LESSONS } from "../music/lessons/lessons";
 import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES } from "../audio/settings";
 import { WRITING_SYSTEMS, STROKE_LIMITS } from "../animation/stroke/types";
-import { FACINGS, OBJECT_SIZES, OBJECT_TYPES, SCENE_GESTURES, SEQUENCE_LIMITS, WALK_SPEEDS } from "../animation/scene/sequence";
+import { ACTIONS, FACINGS, OBJECT_SIZES, OBJECT_TYPES, SCENE_GESTURES, SEQUENCE_LIMITS, WALK_SPEEDS } from "../animation/scene/sequence";
 import { DEMO_NAMES, type DemoName } from "../animation/scene/demos";
 import { ANIMATION_ACTIONS, ANIMATION_SPEEDS } from "../animation/control";
 
@@ -231,29 +231,23 @@ export const showArtifactInput = z.object({
  */
 const num = z.number();
 const vec = z.tuple([num, num, num]);
-const sceneCommon = {
-  position: vec.optional().describe("Centre [x, y, z] (y up, z toward the viewer). Default [0, 0, 0]."),
-  rotation: vec.optional().describe("Euler angles in degrees [x, y, z]."),
+/**
+ * One flat object for every primitive (not a union per type): the schema stays small enough for hosts that budget tool
+ * metadata (v0.4.4, see docs/MCP-TOOLS.md). Which fields a type needs is checked strictly by checkScene.
+ */
+const sceneObject = z.object({
+  type: z.enum(["box", "sphere", "pyramid", "cylinder", "cone", "torus", "ring", "line", "tube", "curve", "helix"]),
+  position: vec.optional().describe("Centre [x, y, z] (y up, z toward the viewer)."),
+  rotation: vec.optional().describe("Degrees [x, y, z]."),
   scale: z.union([num, vec]).optional(),
-  tone: num.optional().describe("Brightness 0.2–1 (default 0.85)."),
-  weight: num.optional().describe("Relative share of particles (default 1)."),
-  detail: z.enum(["surface", "edges", "both"]).optional().describe("Draw surfaces, edges, or both (default by type)."),
+  size: vec.optional().describe("box"), radius: num.optional().describe("sphere, cylinder, cone, torus, tube, helix"),
+  radiusTop: num.optional(), height: num.optional(), base: num.optional(), sides: num.optional(), tube: num.optional(),
+  inner: num.optional().describe("ring (flat, horizontal)"), outer: num.optional(), from: vec.optional().describe("line"), to: vec.optional(),
+  points: z.array(vec).optional().describe("tube, curve"), closed: z.boolean().optional(), turns: num.optional().describe("helix"), phase: num.optional(),
+  tone: num.optional().describe("0.2–1"), weight: num.optional(), detail: z.enum(["surface", "edges", "both"]).optional(),
   repeat: z.object({ count: num, offset: vec.optional(), rotation: vec.optional(), scale: num.optional() }).strict().optional()
-    .describe(`Copies (2–${SCENE_LIMITS.repeat}), each offset and turned by one more step than the last (e.g. the rungs of a ladder or a helix).`),
-};
-const sceneObject = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("box"), size: vec, ...sceneCommon }).strict(),
-  z.object({ type: z.literal("sphere"), radius: num, ...sceneCommon }).strict(),
-  z.object({ type: z.literal("pyramid"), base: num, height: num, sides: num.optional(), ...sceneCommon }).strict(),
-  z.object({ type: z.literal("cylinder"), radius: num, height: num, radiusTop: num.optional(), ...sceneCommon }).strict(),
-  z.object({ type: z.literal("cone"), radius: num, height: num, ...sceneCommon }).strict(),
-  z.object({ type: z.literal("torus"), radius: num, tube: num, ...sceneCommon }).strict(),
-  z.object({ type: z.literal("ring"), inner: num, outer: num, ...sceneCommon }).strict().describe("A flat annulus in the horizontal plane (planetary rings)."),
-  z.object({ type: z.literal("line"), from: vec, to: vec, ...sceneCommon }).strict(),
-  z.object({ type: z.literal("tube"), points: z.array(vec), radius: num, closed: z.boolean().optional(), ...sceneCommon }).strict(),
-  z.object({ type: z.literal("curve"), points: z.array(vec), closed: z.boolean().optional(), ...sceneCommon }).strict(),
-  z.object({ type: z.literal("helix"), radius: num, height: num, turns: num, phase: num.optional(), ...sceneCommon }).strict(),
-]);
+    .describe(`2–${SCENE_LIMITS.repeat} copies, each one step further (ladder rungs, a helix).`),
+}).strict();
 export const sceneInput = z.object({
   title: z.string().describe("What it shows, e.g. \"Water molecule\" (≤ 60 characters)."),
   objects: z.array(sceneObject).describe(`1–${SCENE_LIMITS.objects} primitives, each centred at its position.`),
@@ -302,10 +296,12 @@ export function svgSource(markup: string): string | null {
 // ── v0.4.2: music and sound ────────────────────────────────────────────────────────────────────────────────────
 
 const scoreNoteInput = z.object({
-  pitch: z.string().max(8).optional().describe("Scientific pitch: C4 is middle C, A4 = 440 Hz; sharps and flats as C#4, Bb3. Omit for a rest."),
-  duration: z.enum(DURATIONS).optional().describe("whole, half, quarter (default), eighth or sixteenth."),
+  pitch: z.string().max(8).optional().describe("C4 is middle C; C#4, Bb3. Omit for a rest."),
+  duration: z.enum(DURATIONS).optional().describe("Default quarter."),
   dotted: z.boolean().optional(),
-  label: z.string().max(SCORE_LIMITS.label).optional().describe("A short label under the note (\"C\", \"do\", \"middle C\")."),
+  label: z.string().max(SCORE_LIMITS.label).optional().describe("Under the note (\"C\", \"do\")."),
+  tie: z.boolean().optional().describe("To the next note."), slur: z.enum(["start", "end"]).optional(),
+  dynamic: z.enum(DYNAMICS).optional(), stem: z.enum(["up", "down"]).optional(),
 }).strict();
 
 const scaleInput = z.object({
@@ -317,27 +313,32 @@ const scaleInput = z.object({
 }).strict();
 
 const highlightInput = z.object({
-  note: z.number().int().min(0).optional().describe("A note by its index, from 0."),
-  line: z.number().int().min(1).max(5).optional().describe("A staff line, 1 (bottom) … 5 (top)."),
-  space: z.number().int().min(1).max(4).optional().describe("A staff space, 1 (bottom) … 4 (top)."),
-  clef: z.literal(true).optional(), time: z.literal(true).optional(),
+  note: z.number().int().min(0).optional().describe("Index from 0."),
+  line: z.number().int().min(1).max(5).optional().describe("1 = bottom."),
+  space: z.number().int().min(1).max(4).optional(),
+  clef: z.literal(true).optional(), time: z.literal(true).optional(), key: z.literal(true).optional(),
 }).strict();
 
 const musicCommon = {
-  clef: z.enum(CLEFS).optional().describe("treble or bass. Omit: treble, or bass when every note is below middle C."),
-  time: z.string().max(4).optional().describe("A time signature (4/4, 3/4, 2/4, 6/8, C…) when rhythm matters; omit for scales and single notes. Every bar must be full."),
+  clef: z.enum(CLEFS).optional().describe("treble, bass or alto. Omit: treble, or bass when every note is below middle C."),
+  key: z.string().max(4).optional().describe("Key signature: G, D, F, Bb, Am …"),
+  end: z.enum(BARLINES).optional().describe("The last bar line."),
+  time: z.string().max(4).optional().describe("4/4, 3/4, 2/4, 6/8, C… when rhythm matters (every bar full); omit for scales."),
   notes: z.array(scoreNoteInput).max(SCORE_LIMITS.notes).optional().describe("The notes, in order."),
   scale: scaleInput.optional().describe("Instead of notes: a scale, spelled correctly."),
   tempo: z.number().min(TEMPO.min).max(TEMPO.max).optional().describe(`Quarter notes a minute when played (default ${TEMPO.default}).`),
 };
 
 export const showMusicInput = z.object({
+  concept: z.string().max(40).optional().describe("Instead of notes, a glossary concept with its example: a clef, rest, note value, accidental, time signature, "
+    + "ledger lines, bar lines, stems, beams, dots, key signature, tie, slur, repeat sign, dynamics."),
+  language: z.enum(["en", "zh"]).optional().describe("The card's language (default en)."),
   title: line(LIMITS.title, "title").optional().describe("What it shows, e.g. \"C major scale\", \"Middle C\"."),
   ...musicCommon,
   staff: z.boolean().optional().describe("true with no notes: an empty staff (to explain lines and spaces)."),
   highlight: z.array(highlightInput).max(SCORE_LIMITS.highlights).optional().describe("What to light up: notes by index, a line, a space, the clef or the time signature."),
   caption: line(LIMITS.summary, "caption").optional().describe("One short line under the staff."),
-  symbol: z.enum(MUSIC_FORM_IDS as [string, ...string[]]).optional().describe(`A symbol Aion's body forms beside the notation while you explain it: ${MUSIC_FORM_IDS.join(", ")}.`),
+  symbol: z.enum(MUSIC_FORM_IDS as [string, ...string[]]).optional().describe("A symbol the body forms beside the notation."),
   play: z.boolean().optional().describe("Also play it at once, each note lighting up as it sounds."),
   presentation: presentation.optional(),
   hold_seconds: hold.optional().describe("Default: until cleared or replaced (music is something the user studies)."),
@@ -379,35 +380,41 @@ export const setAudioVisualizerInput = z.object({
 const speed = z.enum(["slow", "normal", "fast"]).describe("slow (half speed: for a learner, or \"write it more slowly\"), normal (default) or fast.");
 
 export const showStrokeAnimationInput = z.object({
-  symbol: z.string().min(1).max(40).describe("What to write: the character, letter, digit or symbol itself (\"永\", \"A\", \"a\", \"7\", \"π\", \"𝄞\") or its name "
-    + "(\"eternity\", \"treble clef\", \"高音谱号\", \"capital A\", \"integral\"). Letters are case-sensitive: \"a\" and \"A\" differ."),
-  system: z.enum(WRITING_SYSTEMS).optional().describe("Narrows the search when a symbol could belong to more than one: chinese, latin, digits, music, math."),
+  text: z.string().min(1).max(40).optional().describe("What to write: a Chinese character or word (≤ 4: \"永\", \"爱国\"), an English letter, digit, word or name "
+    + "(≤ 16 letters: \"A\", \"g\", \"HELLO\"; case matters), or a music or maths symbol or its name (\"treble clef\", \"sharp\", \"π\")."),
+  symbol: z.string().min(1).max(40).optional().describe("Same as text (v0.4.3 name)."),
+  system: z.enum(WRITING_SYSTEMS).optional().describe("Only to disambiguate (\"7\" as digits)."),
+  form: z.enum(["simplified", "traditional"]).optional().describe("Chinese: write the simplified or traditional form (\"show the traditional form\" → traditional)."),
+  highlight: z.literal("radical").optional().describe("Chinese: light the radical's strokes (explaining structure)."),
+  practice: z.boolean().optional().describe("Tracing practice on the reference card (the user writes; strokes are checked)."),
   speed: speed.optional(),
-  presentation: presentation.optional().describe("auto (default): the body writes it while a card shows the numbered stroke order. body: the body only."),
-  hold_seconds: hold.optional().describe("Default: until cleared or replaced (the user is learning it)."),
+  presentation: presentation.optional().describe("auto: the body writes it beside a reference card. body: the body only. card: a large reference view."),
+  hold_seconds: hold.optional().describe("Default: until cleared or replaced."),
 }).strict();
 
 const sceneObjectInput = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,23}$/).describe("A short id the actions refer to, e.g. \"box\"."),
-  type: z.enum(OBJECT_TYPES).describe("box, ball, or panel (a diagram card standing in the air, to point at)."),
-  x: z.number().min(-SEQUENCE_LIMITS.reach).max(SEQUENCE_LIMITS.reach).describe(`Where it stands on the stage, −${SEQUENCE_LIMITS.reach} (left) … ${SEQUENCE_LIMITS.reach} (right).`),
+  type: z.enum(OBJECT_TYPES).describe("box, ball, panel (a diagram card in the air, to point at) or question (a floating ?, for think)."),
+  x: z.number().min(-SEQUENCE_LIMITS.reach).max(SEQUENCE_LIMITS.reach).describe(`On the stage, −${SEQUENCE_LIMITS.reach} (left) … ${SEQUENCE_LIMITS.reach} (right).`),
   size: z.enum(OBJECT_SIZES).optional(),
-  from: z.number().optional().describe("A ball only: it rolls in from this x at the start."),
+  from: z.number().optional().describe("A ball only: it rolls in from this x."),
   label: z.string().max(24).optional(),
 }).strict();
 
-const actionInput = z.discriminatedUnion("do", [
-  z.object({ do: z.literal("walk"), to: z.union([z.number(), z.string()]).describe("An x on the stage, or an object id (it stops in front of it)."), speed: z.enum(WALK_SPEEDS).optional() }).strict(),
-  z.object({ do: z.literal("jump"), over: z.string().optional().describe("An object id to jump over (it runs up first); omit for a jump on the spot.") }).strict(),
-  z.object({ do: z.literal("pick-up"), object: z.string().describe("A box or ball id: it walks to it, squats, lifts it.") }).strict(),
-  z.object({ do: z.literal("put-down") }).strict(),
-  z.object({ do: z.literal("point"), at: z.union([z.string(), z.tuple([z.number(), z.number()])]).describe("An object id (a panel's mark), or [x, y] on the stage.") }).strict(),
-  z.object({ do: z.literal("face"), toward: z.string().describe("left, right, viewer, or an object id.") }).strict(),
-  z.object({ do: z.literal("gesture"), name: z.enum(SCENE_GESTURES) }).strict(),
-  z.object({ do: z.literal("react"), to: z.string().optional().describe("Surprise: a start back away from this object, then recovery.") }).strict(),
-  z.object({ do: z.literal("crouch") }).strict(),
-  z.object({ do: z.literal("wait"), seconds: z.number().min(0.2).max(SEQUENCE_LIMITS.wait) }).strict(),
-]);
+/**
+ * One flat object for every action (not a union per action), so the schema stays small for hosts that budget tool
+ * metadata (v0.4.4); which fields an action takes is checked strictly by validateSequence.
+ */
+const actionInput = z.object({
+  do: z.enum(ACTIONS).describe("walk (to), jump (over?), pick-up (object), put-down, point (at), face (toward), gesture (name), react (to?), crouch, "
+    + "wait (seconds), think (about?: a question object), notice (object), examine (object: walks up slowly, looks it over), touch (object: it reacts)."),
+  to: z.union([z.number(), z.string()]).optional().describe("walk: an x, or an object id; react: an object id."),
+  speed: z.enum(WALK_SPEEDS).optional(),
+  over: z.string().optional(), object: z.string().optional(), about: z.string().optional(),
+  at: z.union([z.string(), z.tuple([z.number(), z.number()])]).optional().describe("point: an object id or [x, y]."),
+  toward: z.string().optional().describe("face: left, right, viewer or an object id."),
+  name: z.enum(SCENE_GESTURES).optional(), seconds: z.number().min(0.2).max(SEQUENCE_LIMITS.wait).optional(),
+}).strict();
 
 export const animationSequenceInput = z.object({
   title: z.string().min(1).max(SEQUENCE_LIMITS.title).describe("What it shows, e.g. \"Jump over a box\"."),
@@ -427,6 +434,7 @@ export const playAnimationInput = z.object({
 export const controlAnimationInput = z.object({
   action: z.enum(ANIMATION_ACTIONS).describe("pause, resume (or play), replay, speed (with speed), next / previous (stroke), repeat (a stroke: with stroke, or the current one), "
     + "complete (show the finished symbol), stop (end the animation)."),
-  stroke: z.number().int().min(1).max(STROKE_LIMITS.strokes).optional().describe("For repeat: which stroke, from 1 (\"repeat the third stroke\" → 3)."),
+  stroke: z.number().int().min(1).max(STROKE_LIMITS.symbolStrokes).optional().describe("For repeat: which stroke of the character, from 1 (\"repeat the third stroke\" → 3)."),
+  character: z.number().int().min(1).max(STROKE_LIMITS.items).optional().describe("In a word: which character or letter, from 1 (repeat alone writes it again)."),
   speed: z.enum(ANIMATION_SPEEDS).optional().describe("slow, normal, fast, or slower / faster than now (\"write it more slowly\" → slower, or replay with slow)."),
 }).strict();

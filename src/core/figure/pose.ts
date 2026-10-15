@@ -1,6 +1,9 @@
 import { sanitizeState, type AionState } from "../state";
 import { applyClip, applyStateMotion, clipWeight, REST_ARM, type Channels, type Clip } from "./motion";
-import { ANCHOR, ANCHOR_COUNT, FIGURE_SCALE, PROPORTIONS as P } from "./skeleton";
+import { ANCHOR, ANCHOR_COUNT, FIGURE_SCALE, FIGURE_SLOTS, LIMB_MIDDLES, LIMB_SLOT, PROPORTIONS as P } from "./skeleton";
+import { performedLag, SECONDARY, SecondaryMotion } from "./secondary";
+
+const SECONDARY_TAPS = SECONDARY.taps, SECONDARY_STEP = SECONDARY.step;
 
 /**
  * Body language (Figure 2.0): a pose is a set of joint parameters solved into anchor positions with forward
@@ -37,6 +40,8 @@ export interface PoseParams {
   bend: number;
   /** Torso turn about the vertical (radians): the shoulders and hips rotate in depth. */
   twist: number;
+  /** v0.4.4: the torso's arc toward where the figure faces (a curious lean of the upper back; negative arches back). */
+  curl: number;
   /** Pelvis roll (radians, positive raises the left hip): the relaxed leg's knee softens. */
   hipTilt: number;
   /** Head roll (radians, positive toward the figure's left). */
@@ -66,11 +71,11 @@ export const arm = (raise: number, bend: number, forward: number, extra: Partial
 const REST = arm(REST_ARM.raise, REST_ARM.bend, REST_ARM.forward);
 const FOOT: FootOffset = { x: 0, y: 0, z: 0 };
 export const NEUTRAL_POSE: PoseParams = {
-  sway: 0, crouch: 0, lean: 0, bend: 0, twist: 0, hipTilt: 0, tilt: 0, nod: 0, turn: 0, lift: 0, jump: 0, rootX: 0, heading: 0,
+  sway: 0, crouch: 0, lean: 0, bend: 0, twist: 0, curl: 0, hipTilt: 0, tilt: 0, nod: 0, turn: 0, lift: 0, jump: 0, rootX: 0, heading: 0,
   left: REST, right: REST, footLeft: FOOT, footRight: FOOT,
 };
 
-const SCALARS = ["sway", "crouch", "lean", "bend", "twist", "hipTilt", "tilt", "nod", "turn", "lift", "jump", "rootX", "heading"] as const;
+const SCALARS = ["sway", "crouch", "lean", "bend", "twist", "curl", "hipTilt", "tilt", "nod", "turn", "lift", "jump", "rootX", "heading"] as const;
 const ARM_KEYS = ["raise", "bend", "forward", "reach", "reachX", "reachY", "reachZ", "chin"] as const;
 const FOOT_KEYS = ["x", "y", "z"] as const;
 
@@ -198,6 +203,14 @@ export function solvePose(pose: PoseParams, out = new Float32Array(ANCHOR_COUNT 
   const neck: Vec = [pelvis[0] - f(pose.sway) * 0.5 + Math.sin(bend) * P.torso, pelvis[1] + Math.cos(bend) * P.torso - stoop + f(pose.lift) * 0.5, lean];
   set(ANCHOR.spine, pelvis);
   set(ANCHOR.neck, neck);
+  // Figure 3.0: the middle of the spine, so the torso is one curve. A side bend arcs it (convex away from the bend), a
+  // lean carries the upper back forward a little ahead of the neck, and `curl` arcs it toward where the figure faces.
+  {
+    const chord: Vec = sub(neck, pelvis), mid = lerp3(pelvis, neck, 0.5);
+    const side = unit([chord[1], -chord[0], 0], [1, 0, 0]);
+    const bow = -bend * P.torso * 0.22, forward = lean * 0.18 + f(pose.curl) * 0.09;
+    set(ANCHOR.chest, [mid[0] + side[0] * bow, mid[1] + side[1] * bow - Math.abs(f(pose.curl)) * 0.01, mid[2] + forward]);
+  }
   // Head: rolls about the neck with the torso, turns (leads) toward what it looks at, dips forward in a nod.
   const tilt = f(pose.tilt) + bend * 0.5, nod = f(pose.nod), turn = Math.max(-1.2, Math.min(1.2, f(pose.turn)));
   const headLength = P.neck - nod * 0.02;
@@ -293,7 +306,14 @@ class Springs {
  * (x, y, z, 0 per anchor) for the particle runtime.
  */
 export class FigureAnimator {
-  readonly anchors = new Float32Array(ANCHOR_COUNT * 4);
+  /** World-space anchors (vec4 each), then each limb's secondary-motion offset (skeleton.ts LIMB_SLOT). */
+  readonly anchors = new Float32Array(FIGURE_SLOTS * 4);
+  private readonly secondary = new SecondaryMotion();
+  private readonly pastNormalized = new Float32Array(ANCHOR_COUNT * 3);
+  /** v0.4.4: a performance's pose at earlier moments (seconds of real time ago), for its time-pure secondary motion. */
+  private past: ((secondsAgo: number) => Channels | null) | null = null;
+  /** The latest secondary-motion offsets (normalized), for tests and diagnostics. */
+  lag: [number, number, number][] = [];
   private readonly normalized = new Float32Array(ANCHOR_COUNT * 3);
   private readonly base = new Springs();
   private readonly final = new Springs();
@@ -314,7 +334,10 @@ export class FigureAnimator {
   private stage: { scale: number; y: number } = { scale: 1, y: 0 };
 
   /** Drives the pose from a performance this frame (null: back to the state's own motion, eased). */
-  perform(channels: Channels | null, stage: { scale: number; y: number } = { scale: 1, y: 0 }) { this.performance = channels; if (channels) this.stage = stage; }
+  perform(channels: Channels | null, stage: { scale: number; y: number } = { scale: 1, y: 0 }, past?: (secondsAgo: number) => Channels | null) {
+    this.performance = channels;
+    if (channels) { this.stage = stage; this.past = past ?? null; } else this.past = null;
+  }
 
   /** Plays a one-shot clip above the state's own motion (it fades the state's clips while it runs). */
   cue(clip: Clip) { this.cueClip = { clip, t: 0 }; }
@@ -369,6 +392,24 @@ export class FigureAnimator {
       this.anchors[i * 4 + 2] = this.normalized[i * 3 + 2] * scale;
       this.anchors[i * 4 + 3] = 0;
     }
+    // Secondary motion (v0.4.4): live, from a fixed-rate follower; while performing, from the scene's own past poses.
+    const middle = (from: Float32Array) => LIMB_MIDDLES.map(name => [from[ANCHOR[name] * 3], from[ANCHOR[name] * 3 + 1], from[ANCHOR[name] * 3 + 2]] as [number, number, number]);
+    const middles = middle(this.normalized);
+    let lag = this.secondary.update(step, middles);
+    if (w > 0 && this.past && this.performance) {
+      const now = middle(solvePose(unflattenPose(this.performance), this.pastNormalized));
+      const past = Array.from({ length: SECONDARY_TAPS }, (_, k) => {
+        const channels = this.past!((k + 1) * SECONDARY_STEP);
+        return channels ? middle(solvePose(unflattenPose(channels), this.pastNormalized)) : null;
+      });
+      const performed = performedLag(now, past);
+      lag = lag.map((live, limb) => [0, 1, 2].map(i => live[i] + (performed[limb][i] - live[i]) * w) as [number, number, number]);
+    }
+    this.lag = lag;
+    lag.forEach((offset, limb) => {
+      for (let i = 0; i < 3; i++) this.anchors[(LIMB_SLOT + limb) * 4 + i] = offset[i] * (calm ? 0.4 : 1) * scale;
+      this.anchors[(LIMB_SLOT + limb) * 4 + 3] = 0;
+    });
     return this.anchors;
   }
 }

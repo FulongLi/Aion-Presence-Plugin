@@ -129,7 +129,7 @@ test("scores are validated strictly: real, writable pitches; exact bars; highlig
   assert.ok(!checkScore({ clef: "treble", notes: [{ pitch: "C1", duration: "quarter" }] }).ok, "too far below the treble staff");
   assert.ok(checkScore({ clef: "bass", notes: [{ pitch: "C2", duration: "quarter" }] }).ok, "but fine in the bass clef");
   assert.ok(!checkScore({ clef: "treble", notes: [{ pitch: "H4", duration: "quarter" }] }).ok);
-  assert.ok(!checkScore({ clef: "alto", notes: [] }).ok);
+  assert.ok(!checkScore({ clef: "tenor", notes: [] }).ok, "the alto clef is supported (v0.4.4); the tenor clef is not");
   assert.ok(!checkScore({ clef: "treble", notes: [{ pitch: "C4", duration: "breve" }] }).ok);
   assert.ok(checkScore({ clef: "treble", notes: [] }).ok, "an empty staff");
   assert.ok(!checkScore({ clef: "treble", notes: Array.from({ length: 49 }, () => ({ pitch: "C4", duration: "quarter" })) }).ok);

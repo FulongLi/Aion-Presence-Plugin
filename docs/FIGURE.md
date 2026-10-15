@@ -1,4 +1,53 @@
-# Figure 2.0
+# Figure 3.0 (v0.4.4) and Figure 2.0
+
+## Figure 3.0: a flexible character
+
+Figure 2.0 drew each limb as straight bones between visible joint beads: it read as a skeleton. Figure 3.0 keeps the same
+skeleton, poses, two-bone IK and motion system — the joints are still the animation's control points — and changes what
+is drawn between them and how it moves.
+
+![Figure 2.0 and Figure 3.0 walking](media/v0.4.4/walk-figure2-vs-figure3.gif)
+
+| | Figure 2.0 (v0.4–v0.4.3) | Figure 3.0 (v0.4.4) |
+| --- | --- | --- |
+| Limbs | straight bones shoulder → elbow → hand, hip → knee → foot | one continuous curve per limb: neck ⌒ shoulder ⌒ elbow ⌒ hand; pelvis ⌒ knee ⌒ foot |
+| Torso | a straight neck → pelvis line | a curve through a new `chest` anchor: it bends to the side, leans and arcs (`curl`) |
+| Joints | luminous beads (16 % of the particles) | none; their particles went to the curves (limbs 79 %, head 15 %, hand/foot ends 3 %, glow 3 %) |
+| Thickness | even | a little fuller at the root, finer toward the hand or foot |
+| Motion | the pose | the pose + restrained secondary motion (the limb's middle lags fast movement and settles) |
+
+```text
+Behaviour / Animation Command ─► Motion Controller (motion.ts, scene sequencer) ─► Skeleton + IK (pose.ts)
+   ─► Flexible Curve Solver (layout.ts limbCurve; GPU physics/figure.ts) ─► Secondary Motion (secondary.ts)
+   ─► Particle Layout ─► Aion Renderer (WebGPU and Canvas)
+```
+
+**The curve.** Each span between two anchors is a cubic Hermite segment whose tangents are the average of the
+neighbouring directions, scaled to the span's own length (`limbCurve`, evaluated identically on the GPU and by the CPU
+reference). The curve passes exactly through every anchor with a continuous direction — no corner at an elbow, knee or
+shoulder — never overshoots a short span (the shoulder), and is perfectly straight when the limb is straight. At strongly
+bent joints the tangents shorten (`tight`), so a folded arm keeps a tight, natural turn instead of a rubbery loop. Legs
+leave the pelvis together as a clean V (the hip anchors only steer the IK); arms flow from the neck over the shoulder.
+
+**Secondary motion.** Each limb's middle lags a little behind fast movement and settles with a soft, slightly elastic
+response (ω 9.5 rad/s, ζ 0.6), applied along the limb with a sin(πs) profile — so hands, feet, the neck and the pelvis
+stay exactly where the pose puts them (contacts, IK and planted feet are untouched). Live motion uses an underdamped
+follower integrated at a fixed 240 Hz (frame-rate independent: 30 and 120 fps give the same lag, tested). During a scene
+the lag is a pure function of the scene's own past poses (a 14-tap filter with the same impulse response), so a replay, a
+pause or a seek always shows exactly the same frame. Bounded to 0.05 of the figure's height; reduced motion lowers it.
+
+**Uniforms.** The 16 anchors (the chest is the 16th — exactly the 4-bit packing's limit) and five limb offsets share one
+uniform array; no storage buffer was added (the compute stage stays within WebGPU's default eight).
+
+![thinking](media/v0.4.4/figure-thinking.gif) ![exploring](media/v0.4.4/figure-exploring.gif)
+
+![Figure 2.0 and Figure 3.0 jumping](media/v0.4.4/jump-figure2-vs-figure3.gif)
+
+The behaviours (natural walking, thinking, exploring, the improved jump, explaining) are in [ANIMATION.md](ANIMATION.md).
+
+---
+
+# Figure 2.0 (v0.4)
 
 The Particle Figure, redrawn and re-animated in v0.4: a clean, readable, expressive stick figure made of Aion's
 particles (never SVG lines or a separate animation), for gesture, explanation and demonstration.

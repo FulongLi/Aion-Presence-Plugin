@@ -62,8 +62,11 @@ export interface StrokePack {
   symbols: readonly SymbolSpec[];
 }
 
-/** Normalized geometry: x right, y up, the symbol within [−LIMIT, LIMIT]. */
-export const STROKE_SPACE = { limit: 0.86 } as const;
+/**
+ * Normalized geometry: x right, y up. A single symbol fits within [−limit, limit]; a word may run wider, up to
+ * ±halfWidth, at the same height (v0.4.4).
+ */
+export const STROKE_SPACE = { limit: 0.86, halfWidth: 1.5 } as const;
 
 /** One stroke, ready to animate: its ordered centre line in normalized units and what it is. */
 export interface Stroke {
@@ -83,6 +86,30 @@ export interface Stroke {
   /** Pen width at its start and end (normalized). */
   width: [number, number];
   name?: StrokeName;
+  /** v0.4.4: which symbol of the writing it belongs to (0-based) and its number within that symbol (1-based). */
+  item: number;
+  local: number;
+  /** v0.4.4: seconds the pen travels (lifted) before this stroke, at normal speed; 0 for the first. */
+  pause: number;
+  /**
+   * v0.4.4: the stroke's true filled outline (rings of flat [x, y, …], normalized), when the data has one (Chinese
+   * characters). The particles fill it exactly; `path` is then the stroke's median, which only orders the reveal.
+   * Without an outline the stroke is a pen line of `width` along `path` (round ends).
+   */
+  outline?: number[][];
+}
+
+/** One symbol inside a writing (a character of a word, a letter of a name). */
+export interface WritingItem {
+  symbol: string;
+  title: string;
+  /** Index of its first stroke in the sequence, and how many it has. */
+  first: number;
+  count: number;
+  /** Its square or letter box [left, bottom, right, top], normalized. */
+  box: [number, number, number, number];
+  /** Strokes that form its radical (0-based, within the item), when the data says. */
+  radical?: number[];
 }
 
 /** A symbol's complete writing sequence. */
@@ -98,9 +125,11 @@ export interface StrokeSequence {
   strokes: Stroke[];
   /** Faint context lines (flat point lists, normalized), never part of the order. */
   guides: number[][];
+  /** v0.4.4: the symbols written, in order (one for a single symbol). Strokes keep each symbol's own order. */
+  items: WritingItem[];
   /** Seconds of writing (strokes and the pauses between them) at normal speed. */
   totalDuration: number;
 }
 
 /** Bounds a sequence must respect (checked by validateSequence). */
-export const STROKE_LIMITS = { strokes: 40, vertices: 4000, minLength: 0.004, width: { min: 0.008, max: 0.2 } } as const;
+export const STROKE_LIMITS = { strokes: 160, symbolStrokes: 64, items: 12, vertices: 60_000, minLength: 0.002, width: { min: 0.004, max: 0.2 } } as const;

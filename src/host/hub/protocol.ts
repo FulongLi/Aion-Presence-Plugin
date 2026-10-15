@@ -21,8 +21,11 @@ import { AUDIO_INTENSITIES, AUDIO_MODES, AUDIO_SOURCE_PREFERENCES, BRIDGE_SOURCE
 import { TEMPO } from "../../music/theory/rhythm";
 import { ANIMATION_ACTIONS, ANIMATION_SPEEDS, type AnimationCommand } from "../../animation/control";
 import { RATE_LIMITS } from "../../animation/timeline";
-import { strokeSequence } from "../../animation/stroke/registry";
-import { STROKE_LIMITS } from "../../animation/stroke/types";
+import { writingSequence } from "../../animation/stroke/registry";
+import { STROKE_LIMITS, WRITING_SYSTEMS } from "../../animation/stroke/types";
+import type { WritingSource } from "../../animation/stroke/compose";
+import { checkHanziData, type HanziData } from "../../writing/hanzi/codec";
+import { validateHanzi } from "../../writing/hanzi/geometry";
 import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
 import { DEMO_NAMES, type DemoName } from "../../animation/scene/demos";
 
@@ -110,6 +113,26 @@ export const markerSchema = z.object({
 const markers = z.array(markerSchema).max(MARKER_LIMITS.markers);
 const namedColor = z.object({ hex, name: clean(cleanLine, 40) }).strict();
 
+/**
+ * A writing's source (v0.4.4): curated symbols by id, Chinese characters with their Hanzi Writer data. Every receiver
+ * checks each character with the same geometry rules the pack was built with, and composes it, before accepting it.
+ */
+const hanziPiece = z.object({
+  type: z.literal("hanzi"), char: z.string().refine(value => Array.from(value).length === 1, "one character"),
+  data: z.custom<HanziData>(value => {
+    try { return validateHanzi(checkHanziData(value)).length === 0; } catch { return false; }
+  }, "valid character data"),
+  title: clean(cleanLine, LIMITS.title).optional(),
+}).strict();
+const writingSource = z.object({
+  system: z.enum(WRITING_SYSTEMS), text: clean(cleanLine, 40), title: clean(cleanLine, LIMITS.title),
+  pieces: z.array(z.discriminatedUnion("type", [
+    z.object({ type: z.literal("symbol"), id: z.string().max(40) }).strict(),
+    hanziPiece,
+    z.object({ type: z.literal("space") }).strict(),
+  ])).min(1).max(STROKE_LIMITS.items * 2),
+}).strict().refine(source => { try { writingSequence(source as WritingSource); return true; } catch { return false; } }, "a writing that can be composed");
+
 const presentationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("form"), form: z.string().regex(/^[a-z][a-z0-9]*\.[a-z0-9]+(?:-[a-z0-9]+)*$/), variant: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(), label: clean(cleanLine, 120) }).strict(),
   z.object({
@@ -155,7 +178,10 @@ const presentationSchema = z.discriminatedUnion("kind", [
     const score = checkScore(value.score);
     return score.ok && checkHighlights(value.highlight, score.value).ok;
   }, "highlights must name notes, lines or spaces of the score"),
-  z.object({ kind: z.literal("writing"), stroke: z.string().max(40).refine(id => strokeSequence(id) !== null, "a known writing sequence"), label: clean(cleanLine, LIMITS.title) }).strict(),
+  z.object({
+    kind: z.literal("writing"), stroke: z.string().max(80), label: clean(cleanLine, LIMITS.title), source: writingSource,
+    highlight: z.literal("radical").optional(), practice: z.boolean().optional(),
+  }).strict(),
   z.object({
     kind: z.literal("animation"), sequence: z.custom<AnimationSpec>(value => validateSequence(value).ok, "a valid action sequence"), label: clean(cleanLine, LIMITS.title),
     demo: z.enum(DEMO_NAMES as [DemoName, ...DemoName[]]).optional(),
@@ -212,7 +238,8 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({ type: z.literal("stop-music") }).strict(),
   z.object({
-    type: z.literal("animation"), action: z.enum(ANIMATION_ACTIONS), stroke: z.number().int().min(1).max(STROKE_LIMITS.strokes).optional(),
+    type: z.literal("animation"), action: z.enum(ANIMATION_ACTIONS), stroke: z.number().int().min(1).max(STROKE_LIMITS.symbolStrokes).optional(),
+    character: z.number().int().min(1).max(STROKE_LIMITS.items).optional(),
     speed: z.enum(ANIMATION_SPEEDS).optional(),
   }).strict(),
 ]);

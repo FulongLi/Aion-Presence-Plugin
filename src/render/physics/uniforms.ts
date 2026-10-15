@@ -1,6 +1,6 @@
 import { SPECTRUM_BANDS } from "../../core/audio";
 import { Color, Vector3, Vector4 } from "three";
-import { ANCHOR_COUNT } from "../../core/figure/skeleton";
+import { FIGURE_SLOTS } from "../../core/figure/skeleton";
 import { EYE_PARAMS } from "../../core/eyes/layout";
 import { uniform, uniformArray } from "three/tsl";
 import { RING_BANDS, RING_LAYOUTS } from "../ring";
@@ -48,7 +48,8 @@ export function createUniforms(config: ParticleConfig) {
     // Aion's persistent body (see aion/body.ts): the figure layer's weight, its skeleton anchors (world
     // units, vec4 each) and the halo's accumulated turn. Weight 0 leaves the sphere exactly as before.
     bodyMorph: uniform(0),
-    anchors: uniformArray(Array.from({ length: ANCHOR_COUNT }, () => new Vector4()), "vec4"),
+    // v0.4.4: the anchors, then each limb's secondary-motion offset (core/figure/skeleton.ts LIMB_SLOT).
+    anchors: uniformArray(Array.from({ length: FIGURE_SLOTS }, () => new Vector4()), "vec4"),
     figureOrbit: uniform(0),
     // Aion Eyes (see core/eyes): the eyes layer's weight and the two eyes' live shape (four vec4 per eye).
     eyesMorph: uniform(0),

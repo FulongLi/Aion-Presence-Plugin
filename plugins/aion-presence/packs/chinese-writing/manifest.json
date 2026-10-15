@@ -1,0 +1,98 @@
+{
+ "name": "aion-chinese-writing-pack",
+ "version": "1.0.0",
+ "built": "2026-10-14",
+ "builder": "scripts/chinese/build-pack.ts",
+ "convention": "Stroke order and shapes as in Make Me a Hanzi / Hanzi Writer data (derived from Arphic PL KaitiM GB and UKai fonts; order follows the mainland standard for simplified forms and the data's own order for traditional forms).",
+ "counts": {
+  "upstreamFiles": 9574,
+  "imported": 9574,
+  "validated": 9574,
+  "failed": 0,
+  "missingStrokeData": 0,
+  "storedVerbatim": 23,
+  "withoutRadicalStrokes": 556,
+  "dictionaryEntries": 9574,
+  "forms": {
+   "simplifiedOnly": 2305,
+   "traditionalOnly": 2100,
+   "shared": 5160,
+   "componentForms": 9
+  },
+  "simplifiedCoverage": 7465,
+  "traditionalCoverage": 7260
+ },
+ "upstream": {
+  "hanziWriterDataVersion": "2.0.1",
+  "makemeahanziCommit": "bddc96d41bef78427ed0e034e9f7e31d71fd1b92",
+  "openccVersion": "ver.1.4.2",
+  "files": {
+   "hanziWriterData": {
+    "file": "hanzi-writer-data-2.0.1.tgz",
+    "url": "https://registry.npmjs.org/hanzi-writer-data/-/hanzi-writer-data-2.0.1.tgz",
+    "sha256": "72baf3d82b114e60d6e40ea05f24d2262a05cd39d544e2f322ba2fceb7beff15",
+    "license": "Arphic Public License"
+   },
+   "arphicLicense": {
+    "file": "ARPHICPL.TXT",
+    "url": "https://raw.githubusercontent.com/chanind/hanzi-writer-data/68d10a4b21150cae5e1ebbd223eed289cf32d90c/ARPHICPL.TXT",
+    "sha256": "5590533436c70f10f2f524ee61456238c290175c6662fbe1c700b5f038a6d328",
+    "license": "Arphic Public License (text)"
+   },
+   "dictionary": {
+    "file": "dictionary.txt",
+    "url": "https://raw.githubusercontent.com/skishore/makemeahanzi/bddc96d41bef78427ed0e034e9f7e31d71fd1b92/dictionary.txt",
+    "sha256": "744bb05d5b0742e9ee35c37791f94d56a173349b3367569e7ca11e510364d203",
+    "license": "LGPL-3.0-or-later"
+   },
+   "mmahCopying": {
+    "file": "COPYING",
+    "url": "https://raw.githubusercontent.com/skishore/makemeahanzi/bddc96d41bef78427ed0e034e9f7e31d71fd1b92/COPYING",
+    "sha256": "26fa6b699b32401de4b75a4af574c2e0a99b3df6cb12df9313d257ee4634359c",
+    "license": "Make Me a Hanzi licensing statement"
+   },
+   "lgpl": {
+    "file": "LGPL",
+    "url": "https://raw.githubusercontent.com/skishore/makemeahanzi/bddc96d41bef78427ed0e034e9f7e31d71fd1b92/LGPL",
+    "sha256": "eeb6fd06beac4a94a12ffb66876ecd6af68d5b6f38650d5f11aa90125933098b",
+    "license": "LGPL-3.0 text with the Unicode notice"
+   },
+   "gpl": {
+    "file": "gpl-3.0.txt",
+    "url": "https://www.gnu.org/licenses/gpl-3.0.txt",
+    "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+    "license": "GPL-3.0 text (the LGPL incorporates it)"
+   },
+   "openccST": {
+    "file": "STCharacters.txt",
+    "url": "https://raw.githubusercontent.com/BYVoid/OpenCC/ver.1.4.2/data/dictionary/STCharacters.txt",
+    "sha256": "a0ca1601c70648cf48b33c3c6210ccbecc5c7eead4b4c3daf76587ba2c03582b",
+    "license": "Apache-2.0"
+   },
+   "openccTS": {
+    "file": "TSCharacters.txt",
+    "url": "https://raw.githubusercontent.com/BYVoid/OpenCC/ver.1.4.2/data/dictionary/TSCharacters.txt",
+    "sha256": "737c21c66f55a419dd6956cb3089476cdefc5a36877452631617696df1e5d925",
+    "license": "Apache-2.0"
+   },
+   "openccLicense": {
+    "file": "OpenCC-LICENSE",
+    "url": "https://raw.githubusercontent.com/BYVoid/OpenCC/ver.1.4.2/LICENSE",
+    "sha256": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308",
+    "license": "Apache-2.0 (text)"
+   }
+  }
+ },
+ "files": {
+  "strokes.ahpk": "00d5322d0bdcb65068bff8cd19f32504ac013e61c6383db2b746fb74e2e9fc15",
+  "dictionary.ahpk": "976f0aaf684064ea2d9fbce6efedddd0849b93821d52e534eae6700b6d0b7cd2",
+  "variants.json": "0c128f7032299791af64ab13c30a7ede1eacf13859c4f81b0783d86b8dd8e1f7",
+  "coverage.json": "6b0c36fc7ace47052d7ecb3fc715363da26fe6a84e9431161a5a978618a50175",
+  "ARPHICPL.TXT": "5590533436c70f10f2f524ee61456238c290175c6662fbe1c700b5f038a6d328",
+  "LGPL-MakeMeAHanzi.txt": "eeb6fd06beac4a94a12ffb66876ecd6af68d5b6f38650d5f11aa90125933098b",
+  "GPL-3.0.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+  "COPYING-MakeMeAHanzi.txt": "26fa6b699b32401de4b75a4af574c2e0a99b3df6cb12df9313d257ee4634359c",
+  "LICENSE-OpenCC.txt": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308",
+  "NOTICE.md": "7a75f5dc683c0cbe1e07757b80055264b613620ec07b61e9170a92e75aca2843"
+ }
+}

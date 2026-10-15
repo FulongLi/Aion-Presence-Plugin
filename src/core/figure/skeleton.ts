@@ -12,6 +12,8 @@ export const ANCHORS = [
   /** The base of the spine (pelvis centre). */
   "spine",
   "hipLeft", "hipRight", "kneeLeft", "kneeRight", "footLeft", "footRight",
+  /** v0.4.4: the middle of the spine, so the torso can bend as one curve (Figure 3.0). */
+  "chest",
 ] as const;
 export type AnchorName = typeof ANCHORS[number];
 export const ANCHOR_COUNT = ANCHORS.length;
@@ -43,7 +45,36 @@ export const PROPORTIONS = {
   footY: -0.9,
 };
 
-/** Bones the particle layout draws as fine lines: [from, to, relative density, tone]. */
+/**
+ * Figure 3.0 (v0.4.4): the limbs the layout draws, each one continuous curve through four anchors (the curve passes
+ * through every anchor, smoothly: no corner at an elbow, a knee or a shoulder). The anchors stay the animation's
+ * control points — poses and IK move them exactly as before — only the drawing between them changed. `lengths` are the
+ * neutral lengths of the three spans (they spread the grains evenly); a repeated last anchor ends a chain early.
+ * Each limb's secondary motion (its flesh lagging a little behind fast movement) is uploaded in slot LIMB_SLOT + index.
+ */
+export const LIMBS: readonly { name: string; chain: readonly [AnchorName, AnchorName, AnchorName, AnchorName]; lengths: readonly [number, number, number]; tone: number }[] = [
+  { name: "torso", chain: ["neck", "chest", "spine", "spine"], lengths: [PROPORTIONS.torso / 2, PROPORTIONS.torso / 2, 0], tone: 0.82 },
+  { name: "armLeft", chain: ["neck", "shoulderLeft", "elbowLeft", "handLeft"], lengths: [PROPORTIONS.shoulderWidth, PROPORTIONS.upperArm, PROPORTIONS.forearm], tone: 0.8 },
+  { name: "armRight", chain: ["neck", "shoulderRight", "elbowRight", "handRight"], lengths: [PROPORTIONS.shoulderWidth, PROPORTIONS.upperArm, PROPORTIONS.forearm], tone: 0.8 },
+  // Legs leave the pelvis together, as a clean V (the hip anchors only steer the IK); arms flow from the neck over the shoulder.
+  { name: "legLeft", chain: ["spine", "kneeLeft", "footLeft", "footLeft"], lengths: [PROPORTIONS.thigh, PROPORTIONS.shin, 0], tone: 0.8 },
+  { name: "legRight", chain: ["spine", "kneeRight", "footRight", "footRight"], lengths: [PROPORTIONS.thigh, PROPORTIONS.shin, 0], tone: 0.8 },
+];
+/** The anchor at the middle of each limb, whose motion its secondary motion follows. */
+export const LIMB_MIDDLES: readonly AnchorName[] = ["chest", "elbowLeft", "elbowRight", "kneeLeft", "kneeRight"];
+/** Uniform slots: the anchors, then one secondary-motion offset per limb (world units). */
+export const LIMB_SLOT = ANCHOR_COUNT;
+export const FIGURE_SLOTS = ANCHOR_COUNT + LIMBS.length;
+
+/**
+ * Hands and feet end in a small, soft round (the same light as the limbs) so the ends of the limbs read; Figure 3.0
+ * has no joint beads.
+ */
+export const TIPS: readonly [AnchorName, number, number][] = [
+  ["handLeft", 0.011, 0.84], ["handRight", 0.011, 0.84], ["footLeft", 0.012, 0.84], ["footRight", 0.012, 0.84],
+];
+
+/** Figure 2.0's straight bones (kept as the reference skeleton for tests and diagnostics): [from, to, relative density, tone]. */
 export const BONES: readonly [AnchorName, AnchorName, number, number][] = [
   ["neck", "spine", 1, 0.8],
   ["neck", "shoulderLeft", 1, 0.78], ["neck", "shoulderRight", 1, 0.78],
@@ -55,7 +86,7 @@ export const BONES: readonly [AnchorName, AnchorName, number, number][] = [
 ];
 
 /**
- * Joints, drawn as small luminous beads: [anchor, radius (normalized), tone]. Shoulders, elbows, hips and knees are
+ * Figure 2.0's joint beads (no longer drawn; kept for reference): [anchor, radius (normalized), tone]. Shoulders, elbows, hips and knees are
  * clear points; hands and feet a little larger, so the ends of the limbs read.
  */
 export const JOINTS: readonly [AnchorName, number, number][] = [

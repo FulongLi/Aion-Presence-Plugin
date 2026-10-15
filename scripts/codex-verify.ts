@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { chromium } from "playwright-core";
-import { findCodex, MARKETPLACE_NAME, PLUGIN_ID } from "./lib/codex";
+import { codexToolInventory, findCodex, MARKETPLACE_NAME, PLUGIN_ID } from "./lib/codex";
+import { toolMetadataReport } from "../src/host/mcp/budget";
+import { TOOL_NAMES } from "../src/host/mcp/toolNames";
 import { CODEX_HOOK_EVENTS, REPO_ROOT } from "./lib/pluginPackage";
 
 /**
@@ -82,6 +84,17 @@ try {
   const files = existsSync(cache) ? readdirSync(cache) : [];
   check(["plugin.json", "mcp.json", "skills", "hooks", "assets", "runtime"].every(file => files.includes(file)), "the installed copy holds the whole package, runtime included");
   check(!files.includes("node_modules") && !files.includes("src"), "and nothing from the repository besides it");
+  // v0.4.4: the Chinese Writing Pack is installed with the plugin, intact (offline teaching needs no download).
+  const packManifest = join(cache, "packs", "chinese-writing", "manifest.json");
+  check(existsSync(packManifest) && readFileSync(packManifest, "utf8") === readFileSync(join(REPO_ROOT, "plugins", "aion-presence", "packs", "chinese-writing", "manifest.json"), "utf8"),
+    "the Chinese Writing Pack is installed with the plugin (manifest identical)");
+  // v0.4.4: tool discovery as Codex itself sees it — every Aion tool, small enough for its metadata budget.
+  const inventory = await codexToolInventory(codex, { ...process.env, CODEX_HOME: home, HOME: home });
+  const listed = inventory.find(item => item.name === "aion-presence");
+  const listedNames = Object.keys(listed?.tools ?? {});
+  check(TOOL_NAMES.every(name => listedNames.includes(name)), `Codex's MCP layer receives all ${TOOL_NAMES.length} Aion tools (${listedNames.length})`);
+  const budget = toolMetadataReport(Object.entries(listed?.tools ?? {}).map(([name, tool]) => ({ name, ...tool })));
+  check(budget.ok, `their metadata stays inside the budget (${budget.total} B; v0.4.3 sent 302,010 B and Codex dropped 8 tools)`);
 
   const servers = JSON.parse(cx("mcp", "list", "--json")) as { name: string; enabled: boolean; transport: { command: string; args: string[]; env: Record<string, string>; cwd: string } }[];
   const server = servers.find(item => item.name === "aion-presence");
@@ -120,7 +133,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 500));
     check(existsSync(join(pluginData, "first-run-complete")), "the first session after installation is recorded as the first run");
     const tools = (await client.listTools()).tools.map(tool => tool.name);
-    check(["open_presence", "show_portrait", "show_terrain", "show_form", "show_clock", "show_emoji", "show_result"].every(name => tools.includes(name)), `${tools.length} tools`);
+    check(TOOL_NAMES.every(name => tools.includes(name)), `${tools.length} tools, every one registered`);
     const opened = (await call("open_presence", { body: "figure" })).structuredContent as { surface: { mode: string }; url?: string; greeting: { due: boolean; line?: string } };
     check(opened.surface.mode === "companion", "open_presence: companion mode (Codex declares no MCP Apps rendering)");
     check(opened.greeting.due && /^Hi, I'm Aion/.test(opened.greeting.line ?? ""), "the greeting is due, with Aion's introduction");
@@ -157,10 +170,19 @@ try {
         check(engraved === 8, `the installed runtime engraves its eight notes (${engraved})`);
         await page.screenshot({ path: join(E2E, "verify-music.png") });
         // v0.4.3: stroke animation and an action sequence from the installed runtime.
-        const writing = await call("show_stroke_animation", { symbol: "永" });
-        check(!writing.isError && (writing.structuredContent as { writing?: { strokes: unknown[] } } | undefined)?.writing?.strokes.length === 5, "show_stroke_animation: 永, five strokes in order");
+        const writing = await call("show_stroke_animation", { text: "永" });
+        check(!writing.isError && (writing.structuredContent as { writing?: { symbols: { strokes: unknown[] }[] } } | undefined)?.writing?.symbols[0].strokes.length === 5, "show_stroke_animation: 永 from the installed Chinese Writing Pack, five strokes in order");
         check(await until(/writing stroke · stroke [1-5]/, 12_000), "the installed runtime writes it stroke by stroke");
+        const word = await call("show_stroke_animation", { text: "国", form: "traditional" });
+        check(!word.isError && (word.structuredContent as { writing?: { text: string } } | undefined)?.writing?.text === "國", "the traditional form, offline (国 → 國)");
+        const hello = await call("show_stroke_animation", { text: "HELLO", presentation: "body" });
+        check(!hello.isError && (hello.structuredContent as { writing?: { symbols: unknown[] } } | undefined)?.writing?.symbols.length === 5, "English: HELLO, five letters");
+        const concept = await call("show_music", { concept: "tie" });
+        check(!concept.isError, "the music glossary: a tie, engraved");
         await page.screenshot({ path: join(E2E, "verify-writing.png") });
+        const thinking = await call("play_animation", { demo: "thinking" });
+        check(!thinking.isError, "Figure 3.0: the thinking demo");
+        await new Promise(r => setTimeout(r, 1_500));
         const scene = await call("play_animation", { demo: "jump-over-obstacle" });
         check(!scene.isError && (scene.structuredContent as { animation?: { title: string } } | undefined)?.animation?.title === "Jump over a box", "play_animation: jump over a box");
         check(await until(/figure jump/, 10_000), "the figure performs the jump");

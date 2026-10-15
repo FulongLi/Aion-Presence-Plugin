@@ -25,7 +25,7 @@ function random(seed: number) {
 
 /** The `count` questions of practice `seed` in a clef. */
 export function readingQuestions(seed: number, clef: Clef, count = 8): ReadingQuestion[] {
-  const next = random(seed * 7919 + (clef === "bass" ? 17 : 3));
+  const next = random(seed * 7919 + (clef === "bass" ? 17 : clef === "alto" ? 11 : 3));
   const out: ReadingQuestion[] = [];
   let last = Infinity;
   while (out.length < count) {

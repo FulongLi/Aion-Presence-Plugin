@@ -4,10 +4,10 @@ import { Aion } from "../src/core/aion";
 import { AionBody, bodyTransition } from "../src/core/body";
 import { EYE_GEOMETRY, EYE_PARAMS } from "../src/core/eyes/layout";
 import { EYE_EXPRESSIONS, EyesAnimator, STATE_EXPRESSION } from "../src/core/eyes/expression";
-import { createFigureLayout, FIGURE_KINDS, FIGURE_SHARES, figurePoint, figureStroke, unpackAnchors } from "../src/core/figure/layout";
+import { createFigureLayout, FIGURE_KINDS, FIGURE_SHARES, figurePoint, figureStroke, limbCurve, unpackAnchors } from "../src/core/figure/layout";
 import { applyClip, clipWeight, EXPLAIN, FIGURE_GESTURES, gestureClip, sampleClip, stateTrack, WAVE, type Clip } from "../src/core/figure/motion";
 import { FigureAnimator, flattenPose, NEUTRAL_POSE, solvePose, twoBone, unflattenPose } from "../src/core/figure/pose";
-import { ANCHOR, ANCHOR_COUNT, FIGURE_SCALE } from "../src/core/figure/skeleton";
+import { ANCHOR, ANCHOR_COUNT, FIGURE_SCALE, LIMB_SLOT } from "../src/core/figure/skeleton";
 import { createSignal } from "../src/core/signal";
 import { AION_STATES } from "../src/core/state";
 import { PresenceStore } from "../src/core/store";
@@ -114,19 +114,22 @@ test("heritage sampling of a drawing on pale paper follows the ink, not the pape
 
 // ── Figure 2.0 ────────────────────────────────────────────────────────────────────────────────────────
 
-test("Figure 2.0 particle allocation: strokes, head and joints; no dust, halo or veil", () => {
+test("Figure 3.0 particle allocation: continuous limbs, the head and small hand/foot ends; no joint beads, dust, halo or veil", () => {
   assert.equal(FIGURE_SHARES.dust, 0); assert.equal(FIGURE_SHARES.halo, 0); assert.equal(FIGURE_SHARES.veil, 0);
   assert.ok(FIGURE_SHARES.aura <= 0.05, "at most a thin glow");
-  assert.ok(FIGURE_SHARES.bone + FIGURE_SHARES.ring + FIGURE_SHARES.joint >= 0.95);
+  assert.equal(FIGURE_SHARES.bone, 0, "no straight bones: every limb is one curve");
+  assert.ok(FIGURE_SHARES.joint <= 0.04, "only the small ends of the hands and feet, no joint beads");
+  assert.ok(FIGURE_SHARES.limb + FIGURE_SHARES.ring + FIGURE_SHARES.joint >= 0.95);
   assert.ok(Math.abs(Object.values(FIGURE_SHARES).reduce((a, b) => a + b, 0) - 1) < 1e-9);
   const layout = createFigureLayout(20_000);
   const counts = new Map<number, number>();
   for (let i = 0; i < layout.count; i++) { const kind = unpackAnchors(layout.bind[i * 4]).kind; counts.set(kind, (counts.get(kind) ?? 0) + 1); }
-  assert.ok((counts.get(FIGURE_KINDS.bone) ?? 0) / layout.count > 0.6);
+  assert.ok((counts.get(FIGURE_KINDS.limb) ?? 0) / layout.count > 0.75);
+  assert.equal(counts.get(FIGURE_KINDS.bone) ?? 0, 0);
   assert.equal(counts.get(FIGURE_KINDS.dust) ?? 0, 0);
 });
 
-test("Figure 2.0 strokes are precise: every grain stays within a few line widths of its bone, and limbs connect at the joints", () => {
+test("Figure 3.0 limbs are precise: every grain stays within a few line widths of its limb's curve, which passes through the joints", () => {
   const layout = createFigureLayout(12_000);
   const animator = new FigureAnimator();
   for (const [state, t] of [["idle", 0], ["responding", 3.2], ["thinking", 2], ["greeting", 1.2]] as const) {
@@ -134,18 +137,29 @@ test("Figure 2.0 strokes are precise: every grain stays within a few line widths
     const anchors = animator.anchors;
     const at = (i: number) => [anchors[i * 4], anchors[i * 4 + 1], anchors[i * 4 + 2]];
     for (let i = 0; i < layout.count; i += 3) {
-      const { a, b, kind } = unpackAnchors(layout.bind[i * 4]);
-      if (kind !== FIGURE_KINDS.bone) continue;
+      const { a, b, c, d, kind } = unpackAnchors(layout.bind[i * 4]);
+      if (kind !== FIGURE_KINDS.limb || layout.bind[i * 4 + 3] < 0.3) continue;
       const p = figurePoint(layout, i, anchors, { clock: t, orbit: 0, thinking: 0 }).position;
-      const A = at(a), B = at(b), AB = A.map((v, n) => B[n] - v), AP = A.map((v, n) => p[n] - v);
-      const s = Math.max(0, Math.min(1, AB.reduce((sum, v, n) => sum + v * AP[n], 0) / AB.reduce((sum, v) => sum + v * v, 0)));
-      const distance = Math.hypot(...AP.map((v, n) => v - AB[n] * s));
-      assert.ok(distance < figureStroke.width * FIGURE_SCALE * 6, `${state}: grain ${i} on its bone (${distance.toFixed(4)})`);
+      // The nearest point of the limb's curve (sampled densely), without the limb's secondary-motion offset.
+      const chain = [a, b, c, d].map(at);
+      let best = Infinity;
+      for (let k = 0; k < 3; k++) for (let u = 0; u <= 1; u += 0.02) {
+        const q = limbCurve(chain, k, u).point;
+        best = Math.min(best, Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]));
+      }
+      const lag = Math.hypot(...[0, 1, 2].map(n => anchors[(LIMB_SLOT + layout.bind[i * 4 + 2]) * 4 + n]));
+      assert.ok(best < figureStroke.width * FIGURE_SCALE * 7 + lag, `${state}: grain ${i} on its limb (${best.toFixed(4)})`);
     }
   }
-  // Connected bones share their joint anchor exactly (no gaps between limbs).
+  // The curve passes exactly through every anchor of its chain (the joints are control points, not corners).
   const pose = solvePose(NEUTRAL_POSE);
   assert.ok(finite(pose));
+  const p = (name: keyof typeof ANCHOR) => [pose[ANCHOR[name] * 3], pose[ANCHOR[name] * 3 + 1], pose[ANCHOR[name] * 3 + 2]];
+  const arm = [p("neck"), p("shoulderLeft"), p("elbowLeft"), p("handLeft")];
+  for (const [k, u, anchor] of [[0, 0, 0], [1, 0, 1], [2, 0, 2], [2, 1, 3]] as const) {
+    const q = limbCurve(arm, k, u).point;
+    assert.ok(Math.hypot(q[0] - arm[anchor][0], q[1] - arm[anchor][1], q[2] - arm[anchor][2]) < 1e-9);
+  }
 });
 
 test("two-bone IK keeps limb lengths and points straight at a target out of reach", () => {
