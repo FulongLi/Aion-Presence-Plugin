@@ -107,7 +107,9 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
 - **Visual Resolver** (`resolver/`): SCF's resolver moved from the browser into Node. `net.ts` is the only path to
   the network: HTTPS to a fixed allowlist, no redirects, timeouts, byte limits, type and magic-byte checks, an
   identifying User-Agent. Images: curated local assets (the Spirit Connect logo), then Wikipedia → Commons →
-  Openverse by intent, ranked as in SCF, dimensions checked from the header. Terrain: the region (see Geography) → its
+  Openverse by intent, ranked as in SCF, dimensions checked from the header. An article without a lead image falls
+  back to the image its Wikidata item names (only the item id is sent); a portrait never takes something named after
+  the person (a museum, a company, a statue). Terrain: the region (see Geography) → its
   equal-area frame → AWS terrarium tiles (decoded exactly by a small PNG decoder) resampled into that frame → SCF's height
   field, carrying its frame → compact bytes. Results become
   local media; the surface never contacts a remote host.

@@ -233,7 +233,7 @@ hooks Aion still works; the Skill then sets the main states itself.
 - **Network**: the hub listens on `127.0.0.1` only (per-user token, loopback `Host` check). Countries, continents, their
   named parts and about 1,250 cities are known offline (Natural Earth, bundled). When Codex asks for a portrait,
   picture, terrain or a place the offline world does not know, the MCP process sends only the name, search phrase or region to public data
-  providers on a fixed allowlist (Wikipedia, Wikimedia Commons, Openverse, OpenStreetMap Nominatim, Photon, the
+  providers on a fixed allowlist (Wikipedia, Wikimedia Commons, Wikidata, Openverse, OpenStreetMap Nominatim, Photon, the
   public AWS elevation tiles), identifying itself by User-Agent. Downloads are size-limited and checked by their
   bytes before the surface sees them; the surface itself never contacts a remote host. Repository and
   conversation content is never sent anywhere. An optional keyed image search

@@ -11,7 +11,18 @@ const RELIABILITY: Record<string, number> = { wikipedia: 1, web: 0.9, commons: 0
 export { PORTRAIT_INTENTS };
 const OFF_TOPIC = ["signature", "autograph", "logo", "coat", "arms", "flag", "seal", "grave", "tomb", "plaque",
   "map", "diagram", "chart", "graph", "stamp", "banknote", "coin", "icon", "screenshot", "text", "document"];
+/** Things named after a person: a picture of one is never that person's portrait. */
+const NAMESAKE = ["museum", "memorial", "award", "prize", "medal", "institute", "university", "college", "school", "academy",
+  "foundation", "society", "center", "centre", "airport", "station", "street", "avenue", "boulevard", "bridge", "park", "square",
+  "statue", "monument", "bust", "library", "hospital", "stadium", "festival", "film", "album", "song", "company", "inc", "ltd",
+  "corporation", "motors", "crater", "asteroid", "ship", "coil"];
 export const MIN_SIDE = 160;
+
+/** A title naming something after the person asked for ("Nikola Tesla Museum", "Statue of Einstein"). */
+export function namedAfter(query: string, title: string): boolean {
+  const asked = new Set(tokens(query));
+  return tokens(title).some(word => NAMESAKE.includes(word) && !asked.has(word));
+}
 export const MIN_RELEVANCE = 0.34;
 
 function aspectScore(aspect: number, intent: ImageIntent) {
@@ -26,6 +37,7 @@ function aspectScore(aspect: number, intent: ImageIntent) {
 export function scoreCandidate(candidate: ImageCandidate, query: string, intent: ImageIntent): number | null {
   if (candidate.mime && !(IMAGE_MIME as readonly string[]).includes(candidate.mime)) return null;
   if (candidate.relevance < MIN_RELEVANCE) return null;
+  if (PORTRAIT_INTENTS.includes(intent) && namedAfter(query, candidate.title)) return null;
   let size = 0.6, shape = 0.7;
   if (candidate.width && candidate.height) {
     const aspect = candidate.width / candidate.height;

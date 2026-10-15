@@ -69,7 +69,7 @@ test("network: the loopback hub, plus public data through one guarded module wit
   const hosts = ALLOWED_HOSTS.map(String).join(" ");
   assert.doesNotMatch(hosts, /openai|anthropic|googleapis|azure|chatgpt|huggingface|cohere|mistral/i);
   assert.deepEqual(ALLOWED_HOSTS.map(String), [
-    String(/^[a-z][a-z-]{1,11}\.wikipedia\.org$/), "commons.wikimedia.org", "upload.wikimedia.org", "thumb.wikimedia.org", "api.openverse.org",
+    String(/^[a-z][a-z-]{1,11}\.wikipedia\.org$/), "commons.wikimedia.org", "www.wikidata.org", "upload.wikimedia.org", "thumb.wikimedia.org", "api.openverse.org",
     "nominatim.openstreetmap.org", "photon.komoot.io", "s3.amazonaws.com", "api.search.brave.com", "imgs.search.brave.com",
   ]);
   // The surface (embedded or companion) never reaches a remote host: it only talks to its own hub or host.
