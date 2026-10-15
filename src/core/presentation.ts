@@ -4,6 +4,9 @@ import type { MusicHighlight, MusicScore } from "../music/notation/score";
 import type { AnimationSpec } from "../animation/scene/sequence";
 import type { WritingSource } from "../animation/stroke/compose";
 import { animationDuration } from "../animation/control";
+import type { CardLayout } from "../cards/manifest";
+import type { CardAssetRef } from "../cards/state";
+import type { CardValue } from "../cards/values";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -59,6 +62,8 @@ export const HOLD_SECONDS = {
   form: 10, scene: 30, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
   /** Writing stays until cleared or replaced (something the user studies, like notation); an action sequence, as long as it plays. */
   writing: 0, animation: 10,
+  /** v0.4.5: an interactive card's body form (hybrid) is a moment; the card itself stays until closed or replaced. */
+  interactive: 20,
   /** A map is something the user keeps working with ("add New York", "make it blue"); each change holds it again. */
   map: 60, markedTerrain: 60,
 } as const;
@@ -127,7 +132,15 @@ export type PresentationContent =
    * A short action sequence of Aion's figure (v0.4.3): a validated declarative spec (animation/scene); `demo` names a
    * curated one. The body itself performs it; playback is the snapshot's `animation`.
    */
-  | { kind: "animation"; sequence: AnimationSpec; label: string; demo?: string };
+  | { kind: "animation"; sequence: AnimationSpec; label: string; demo?: string }
+  /**
+   * An interactive card (v0.4.5): a registered application (src/cards/registry.ts) running in an isolated frame beside the
+   * body. `instance` is its card's id (kept when the same application is shown again, e.g. a new model in the open
+   * viewer); `asset` a validated model it loads; `config` its launch settings, checked against its manifest. `bodyScene`:
+   * the application's particle form, present only when it was asked for as a hybrid. Its live state is the snapshot's
+   * `card`.
+   */
+  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D };
 
 export type PresentationKind = PresentationContent["kind"];
 
@@ -188,6 +201,7 @@ function bodySeconds(content: PresentationContent): number {
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
     case "terrain": return content.markers?.length ? HOLD_SECONDS.markedTerrain : HOLD_SECONDS.terrain;
     case "result": case "artifact": return HOLD_SECONDS.image;
+    case "interactive": return HOLD_SECONDS.interactive;
     // As long as the sequence plays, and a moment after it.
     case "animation": return Math.ceil(animationDuration(content) + 1.5);
     default: return HOLD_SECONDS[content.kind];
@@ -201,7 +215,8 @@ function bodySeconds(content: PresentationContent): number {
  */
 export function holdsFor(content: PresentationContent, route: PresentationRoute, requested?: number): { total: number; body: number; card: number } {
   const asked = requested === undefined || !Number.isFinite(requested) ? undefined : requested === 0 ? 0 : clampHold(requested);
-  const bodyDefault = bodySeconds(content), cardDefault = cardSeconds(content) || HOLD_SECONDS.image;
+  // An interactive card stays until it is closed or replaced (unless a lifetime was asked for).
+  const bodyDefault = bodySeconds(content), cardDefault = content.kind === "interactive" ? 0 : cardSeconds(content) || HOLD_SECONDS.image;
   if (route === "body") { const body = asked ?? bodyDefault; return { total: body, body, card: 0 }; }
   const card = asked ?? cardDefault;
   if (route === "card") return { total: card, body: 0, card };
@@ -264,6 +279,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
     case "writing": return { type: "writing", stroke: presentation.stroke, source: presentation.source, ...(presentation.highlight ? { highlight: presentation.highlight } : {}) };
     case "animation": return { type: "performance" };
+    case "interactive": return presentation.bodyScene ? { type: "scene", scene: presentation.bodyScene } : { type: "none" };
   }
 }
 
@@ -294,6 +310,7 @@ export function describePresentation(presentation: PresentationContent): string 
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
     case "writing": return `writing: ${presentation.label}`;
     case "animation": return `animation: ${presentation.label}`;
+    case "interactive": return `interactive card: ${presentation.title}`;
   }
 }
 

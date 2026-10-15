@@ -36,6 +36,8 @@ export type RouteReason =
   | "notation-hybrid"
   /** auto (v0.4.3): the body writes the symbol while a card shows its numbered stroke order. */
   | "writing-hybrid"
+  /** auto (v0.4.5): an interactive application is a card; the body stays alive beside it. */
+  | "interactive"
   /** auto: a looked-up, high-resolution picture — a particle impression and the picture itself. */
   | "picture-hybrid"
   /** auto: the picture is too small to be worth a card of its own. */
@@ -80,6 +82,8 @@ export function bodyCapable(content: PresentationContent): boolean {
     case "result": return content.status !== "info";
     case "music": return content.symbol !== undefined;
     case "artifact": return (content.type === "svg" || content.type === "image") && content.media !== undefined;
+    // Only an application with a particle form (and only as a hybrid: the application itself is never particles).
+    case "interactive": return content.bodyScene !== undefined;
   }
 }
 
@@ -94,6 +98,8 @@ function automatic(content: PresentationContent, detail: boolean): { route: Pres
       return { route: "body", reason: "body-native" };
     case "writing":
       return { route: "hybrid", reason: "writing-hybrid" };
+    case "interactive":
+      return { route: "card", reason: "interactive" };
     case "text":
       return bodyCapable(content) ? { route: "body", reason: "body-native" } : { route: "card", reason: "fidelity" };
     case "result": case "artifact":
@@ -136,6 +142,8 @@ export function routePresentation(request: RouteRequest): RouteDecision {
     // Every content has a body or a card form; a surface with neither still gets the body.
     return { route: "body", reason: "surface-limited", preference };
   };
+  // An interactive application is never the body alone: asked for the body, it is a card (or a hybrid with its form).
+  if (content.kind === "interactive" && preference === "body") return fit(body && card ? "hybrid" : "card", "too-detailed-for-body");
   if (preference === "auto") {
     const choice = automatic(content, detail);
     return fit(choice.route, choice.reason);

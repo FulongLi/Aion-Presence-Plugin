@@ -1,6 +1,7 @@
 import { App, type McpUiDisplayMode, type McpUiHostContext } from "@modelcontextprotocol/ext-apps";
 import type { HubSnapshot } from "../../host/hub/protocol";
 import type { ConnectionState, PresenceTransport } from "./types";
+import type { CardReport } from "../../cards/state";
 
 /**
  * Embedded in an MCP Apps host (the standard io.modelcontextprotocol/ui bridge, via the official
@@ -13,6 +14,8 @@ export class McpAppsTransport implements PresenceTransport {
   onDisplayChange?: () => void;
   private context: McpUiHostContext | undefined;
   private stopped = false;
+  /** This view's own id, so the hub can rate-limit its card reports (v0.4.5). */
+  readonly windowId = Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => (byte % 36).toString(36)).join("");
 
   constructor(private readonly app: App) {
     app.onhostcontextchanged = params => {
@@ -72,6 +75,14 @@ export class McpAppsTransport implements PresenceTransport {
 
   async dismiss() {
     await this.app.callServerTool({ name: "clear_presentation", arguments: {} });
+  }
+
+  /**
+   * The interactive card's meaningful state (v0.4.5), through the app-only presence_card tool: this view talks to its MCP
+   * Apps host; the card inside it talks only to this view (the Card Bridge), never to the host or to any tool.
+   */
+  async cardReport(report: Omit<CardReport, "window">) {
+    await this.app.callServerTool({ name: "presence_card", arguments: { report: { window: this.windowId, ...report } } }).catch(() => {});
   }
 
   async requestFullscreen() {

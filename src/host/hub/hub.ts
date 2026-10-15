@@ -7,6 +7,7 @@ import type { MediaRef } from "../../core/presentation";
 import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
+import { GLB_MIME } from "../../cards/assets/gltf";
 import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
 import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
@@ -14,6 +15,9 @@ import { NativeAudioBridge, type BridgeOptions } from "../audio/bridge";
 import { VoiceSyncController } from "../audio/voiceSync";
 import { encodeFeatures } from "../../audio/wire";
 import { AUDIO_INTENSITIES, AUDIO_MODES, DEFAULT_AUDIO_SETTINGS, type AudioSettings } from "../../audio/settings";
+import { CARD_REPORT_BYTES, checkCardReport } from "../../cards/state";
+import { RateLimiter } from "../../cards/protocol";
+import { cardRegistry } from "../../core/cards";
 
 export interface HubOptions {
   /** Runtime directory (hub.json, token, hook heartbeat). Default: presenceHome(). */
@@ -30,7 +34,11 @@ export interface HubOptions {
 export interface HubDiscovery { version: 1; pid: number; port: number; hub: string; url: string; startedAt: number }
 
 const JSON_LIMIT = 64 * 1024;
-const MEDIA_LIMIT = 12 * 1024 * 1024;
+/** Base64 of the largest media: a 16 MB model (v0.4.5); images stay limited to 8 MB. */
+const MEDIA_LIMIT = 23 * 1024 * 1024;
+const IMAGE_BYTES = 8 * 1024 * 1024, MODEL_BYTES = 16 * 1024 * 1024;
+/** Card reports per window: a burst and a steady rate (a flooding page is refused, never queued). */
+const CARD_REPORT_RATE = { burst: 40, perSecond: 12 };
 
 /** A model-set work state outranks a generic hook-derived "working" for this long. */
 const MODEL_PRECEDENCE_MS = 120_000;
@@ -53,6 +61,7 @@ export const NEW_TOPIC_SECONDS = 15;
  *   POST /api/media     images handed over by other Aion MCP processes
  *   GET  /media/:id     image bytes for a surface
  *   POST /api/hook      Codex lifecycle hook events
+ *   POST /api/card      a companion window's report about the interactive card it shows (v0.4.5)
  *   GET  /health        identity check for discovery
  *
  * The event stream also carries `audio` events (v0.4.2): features of Codex's voice or another app's sound, analysed here
@@ -76,6 +85,8 @@ export class PresenceHub {
   private readonly reports = new Map<string, SurfaceReport>();
   /** The latest ?debug=1 diagnostics per window (debug pages only), kept in memory for `npm run diagnose`. */
   private readonly diagnostics = new Map<string, { at: number; lines: Record<string, string> }>();
+  /** Card reports rate-limited per window (v0.4.5). */
+  private readonly cardLimits = new Map<string, RateLimiter>();
   /** Windows to retire once a newer one connects (see the supersede command). */
   private retiring: Set<string> | null = null;
   private readonly waiters = new Set<() => void>();
@@ -238,8 +249,31 @@ export class PresenceHub {
       case "play": this.store.play({ events: command.events, tempo: command.tempo, volume: command.volume, ...(command.presentation ? { presentation: command.presentation } : {}) }); break;
       case "stop-music": if (this.store.snapshot().playback && !this.store.snapshot().playback!.stop) this.store.play({ events: [], tempo: 60, volume: 0, stop: true }); break;
       case "animation": { const { type: _type, ...control } = command; this.store.controlAnimation(control); break; }
+      case "card": this.store.cardCommand(command.command, command.value); break;
     }
     return this.snapshot();
+  }
+
+  /**
+   * A surface reports the interactive card it shows (v0.4.5). Refused when it is about another instance (a closed,
+   * replaced or obsolete card — including one from before this hub started), malformed, or more often than the rate.
+   */
+  cardReport(raw: unknown, window?: string): { ok: true } | { ok: false; status: number; problem: string } {
+    const key = window ?? (raw as { window?: unknown } | null)?.window;
+    if (typeof key === "string") {
+      let limit = this.cardLimits.get(key);
+      if (!limit) {
+        limit = new RateLimiter(CARD_REPORT_RATE.burst, CARD_REPORT_RATE.perSecond, () => this.clock.now());
+        this.cardLimits.set(key, limit);
+        while (this.cardLimits.size > 32) this.cardLimits.delete(this.cardLimits.keys().next().value!);
+      }
+      if (!limit.take()) return { ok: false, status: 429, problem: "too many card reports" };
+    }
+    const card = this.store.snapshot().card;
+    const checked = checkCardReport(raw, card, card ? cardRegistry.get(card.app) : undefined);
+    if (!checked.ok) return { ok: false, status: checked.stale ? 409 : 400, problem: checked.problem };
+    this.store.cardReport(checked.report);
+    return { ok: true };
   }
 
   /** Whether a connected companion window is in front, or in true fullscreen, by its own latest report. */
@@ -398,7 +432,7 @@ export class PresenceHub {
         if (!upload.success) return send(res, 400, { error: "invalid-media" });
         const data = Buffer.from(upload.data.data, "base64");
         const mime = sniffMedia(data);
-        if (!mime || data.length > 8 * 1024 * 1024) return send(res, 400, { error: "invalid-media" });
+        if (!mime || data.length > (mime === GLB_MIME ? MODEL_BYTES : IMAGE_BYTES)) return send(res, 400, { error: "invalid-media" });
         return send(res, 200, this.addMedia(data, mime));
       }
       if (req.method === "POST" && url.pathname === "/api/diagnostics") {
@@ -416,6 +450,12 @@ export class PresenceHub {
         const report = surfaceReportSchema.safeParse(await readJson(req, JSON_LIMIT));
         if (!report.success) return send(res, 400, { error: "invalid-surface" });
         this.report(report.data);
+        res.writeHead(204);
+        return res.end();
+      }
+      if (req.method === "POST" && url.pathname === "/api/card") {
+        const outcome = this.cardReport(await readJson(req, CARD_REPORT_BYTES));
+        if (!outcome.ok) return send(res, outcome.status, { error: outcome.problem });
         res.writeHead(204);
         return res.end();
       }

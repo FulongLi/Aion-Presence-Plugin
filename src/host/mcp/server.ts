@@ -8,6 +8,7 @@ import {
 } from "../../core/presentation";
 import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
 import type { TerrainStyle } from "../../visual/types";
+import type { Scene3D as Scene3DType } from "../../visual/scene3d/types";
 import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
 import { errorCode } from "../../visual/errors";
@@ -34,6 +35,7 @@ import {
   showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
+  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
@@ -51,6 +53,13 @@ import { resolveWriting, type WritingFacts } from "../writing/resolve";
 import { phaseAt } from "../../animation/timeline";
 import { validateSequence, type AnimationSpec } from "../../animation/scene/sequence";
 import { DEMO_SEQUENCES } from "../../animation/scene/demos";
+import { cardRegistry } from "../../core/cards";
+import { compactSchema } from "./budget";
+import { checkCommand, checkConfig, UNIVERSAL_COMMANDS, type CardAppManifest } from "../../cards/manifest";
+import { newInstanceId } from "../../cards/protocol";
+import { describeSpec, type CardValue } from "../../cards/values";
+import type { CardSnapshot } from "../../cards/state";
+import { AssetError, BUNDLED_MODEL_NAMES, loadModel } from "../cardAssets";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -76,7 +85,7 @@ export interface AionServerOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact", "writing", "animation"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact", "writing", "animation", "interactive"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -138,6 +147,7 @@ export const presenceOutput = z.object({
   animation: z.object({
     title: z.string(), seconds: z.number(), actions: z.array(z.string()), playback: z.enum(["playing", "paused", "finished"]), speed: z.number(),
   }).optional().describe("The action sequence on show: what it does and its length. Do not narrate every movement."),
+  card: z.record(z.string(), z.unknown()).optional().describe("The interactive card: application, lifecycle, layout, state, selection, model, commands."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
@@ -175,6 +185,15 @@ export function formVariantCatalog(registry: VisualFormRegistry = visualForms): 
  * SCF's, tuned there over many conversations, with "your particle body" read as Aion, Codex's body.
  */
 export const TOOL_DESCRIPTIONS = {
+  show_interactive_card: "Open an interactive 3D app beside Aion; it stays until closed. earth-moon: Earth's rotation, the Moon's orbit, why one side "
+    + "faces Earth (scaled for visibility). cad-viewer: a glTF/GLB model (model \"transformer\" or a .glb/.gltf path) to orbit, select, hide, isolate. "
+    + "The user manipulates it directly; then use control_interactive_card / inspect_interactive_card. The same app again keeps the card.",
+  control_interactive_card: "Control the open interactive card: pause, resume, reset, expand, collapse, fullscreen, close; earth-moon: set-time-speed "
+    + "(days/s), set-time, reset-time, focus (earth|moon|system), set-view (overview|top|edge|from-earth), select, show-orbit/-labels/-orbital-plane/-axis/"
+    + "-teaching, compare-no-rotation, set-scale, reset-camera; cad-viewer: select/hide/show/isolate/focus (component id), show-all, fit, set-view, "
+    + "show-edges, clear-selection, reset-camera. Says whether the card confirmed it.",
+  inspect_interactive_card: "Read the open interactive card as the user sees it: state, the selected object and its metadata, components, model, "
+    + "errors. Use before answering about it; never guess properties it does not report.",
   show_image: `Form a picture of almost anything with Aion's particle body (a person, object, animal, building, place, artwork, logo, map or `
     + `idea). query: Aion's curated assets first (such as the ${AION_IDENTITY.creatorCompany} logo), then open image sources (Wikipedia, Commons, `
     + "Openverse); source: an image on this machine, shown as it is (intent portrait if the user says it is one). Use when seeing it helps. "
@@ -189,9 +208,8 @@ export const TOOL_DESCRIPTIONS = {
   show_map: "Show a geographic map with Aion's particle body — the outline of a continent, country, part of one, state or city, its "
     + "borders, and its neighbours faintly around it — and mark places on it with coloured markers and labels at their real coordinates. "
     + "Use when the user asks where something is, or to see a country, region or continent as a map (\"Show me where Los Angeles is in "
-    + "the USA\" → region United States, markers [Los Angeles]; \"Show me Scotland and mark Glasgow in red\"; \"Show me the United States\"; "
-    + "\"Show me Africa\"). For mountains, relief and topography use show_terrain instead (it takes markers too). A map is not a picture: never "
-    + "use show_image for one.",
+    + "the USA\" → region United States, markers [Los Angeles]; \"Show me Scotland and mark Glasgow in red\"; \"Show me Africa\"). For relief "
+    + "and topography use show_terrain (it takes markers too). A map is not a picture: never use show_image for one.",
   mark_map: "Change the places marked on the map or terrain on show, without forming it again: add places (\"Mark Los Angeles in red\", "
     + "\"Add New York in yellow\", \"Add it to the map\"), change one (\"Change the Los Angeles marker to blue\"), remove one (\"Remove the "
     + "New York marker\") or clear them. Places are found by name near the region on show (Glasgow on Scotland is Glasgow, Scotland). If the "
@@ -217,14 +235,12 @@ export const TOOL_DESCRIPTIONS = {
   show_emoji: "Briefly form one emoji with Aion's particle body as a short expressive reaction, like a gesture: e.g. 🎉 for a celebration, "
     + "😂 amusement, 🤔 thinking, 😮 surprise, 👍 approval, 💡 an idea, 🚀 a launch. Also use it when the user asks to see an emoji. It is drawn "
     + "instantly on the device (no image search). Use it only when a reaction genuinely adds to the moment, never on every reply or as filler.",
-  clear_presentation: "Immediately end the temporary visual or presentation, e.g. when it is no longer relevant: Aion returns to its current "
-    + "persistent body (the sphere or the figure). It does not change that body; use set_body_form for that. Presentations also end by "
-    + "themselves after their hold.",
+  clear_presentation: "Immediately end the temporary visual, presentation or interactive card: Aion returns to its current persistent body "
+    + "(set_body_form changes that). Presentations also end by themselves after their hold.",
   set_body_form: "Change Aion's persistent body, the form it rests in between visuals: "
     + `${PERSISTENT_BODIES.map(body => `"${body.id}" (${body.description.replace(/^your /, "its ")})`).join(", ")}. `
-    + "Use it only when the user asks Aion to take a form, e.g. \"show your eyes\", \"take a human form\", \"become a figure\", "
-    + "\"become a sphere\", \"go back to your original form\" (the sphere), \"变成人形\", \"回到球体\". It stays until changed; every "
-    + "temporary visual returns to it. A figure or eyes are not something to search for: never use show_image or show_portrait for them.",
+    + "Only when the user asks Aion to take a form (\"show your eyes\", \"take a human form\", \"go back to your original form\" = sphere, "
+    + "\"变成人形\", \"回到球体\"). It stays until changed; visuals return to it. Never use show_image or show_portrait for a figure or eyes.",
   show_scene: "Form a genuine 3D object with Aion's particle body when the user wants to see something's 3D shape (\"Show me an Egyptian "
     + `pyramid in 3D", "Visualize Saturn", "a DNA double helix"). Presets: ${SCENE_PRESET_NAMES.join(", ")}; otherwise compose primitives `
     + `(at most ${SCENE_LIMITS.objects} objects). It turns; the user can drag, zoom, reset. A conceptual model, not measured. Not for `
@@ -242,8 +258,8 @@ export const TOOL_DESCRIPTIONS = {
     + "stop: true stops. If the result says blocked, the user must click once in Aion's window (a browser rule) — say so.",
   music_lesson: `Teach music theory step by step with Aion's notation, playback and body. Lessons: ${LESSONS.map(lesson => `${lesson.id} ${lesson.title.en}`).join("; ")}. `
     + "Start one (\"I want to learn to read music\" → lesson 1), go on (step next, previous, repeat), switch language (language zh or en: the lesson and "
-    + "step stay), or check the user's answer to a practice question (answer: \"E\"). Each result has the step's teaching point (music.lesson.text): "
-    + "say it in your own words, in the user's language, then wait for them; never read the whole lesson at once.",
+    + "step stay), or check the user's answer to a practice question (answer: \"E\"). Say each step's teaching point (music.lesson.text) in your "
+    + "own words and the user's language, then wait; never read the whole lesson at once.",
   set_audio_visualizer: "How Aion moves with sound: the source (the user's microphone; your own spoken voice on this Mac — Codex Voice Sync, "
     + "remembered once asked; another app's music; a shared tab; Aion's own music), the form (auto, sphere, spectrum — a circular particle spectrum — "
     + "or hybrid), the intensity and sensitivity. Only when asked (\"React to your own voice\" → source codex; \"Visualize the music\" → mode spectrum; "
@@ -306,6 +322,10 @@ export function createAionServer(options: AionServerOptions): McpServer {
       + "these tools. When the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
       + `only describing it; otherwise use the tools sparingly. ${onboardingGuidance()} See the aion-presence skill (Embodiment Mode).`,
   });
+  // Every tool is listed without the dialect line of its JSON Schema (see budget.ts: tool metadata stays small).
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = ((name: string, config: { inputSchema?: unknown }, handler: unknown) =>
+    registerTool(name, { ...config, ...(config.inputSchema ? { inputSchema: compactSchema(config.inputSchema) } : {}) } as never, handler as never)) as typeof server.registerTool;
   let embeddedSeen = false;
   /** When this server last launched a companion window: a window still loading is never replaced. */
   let launchedAt = -Infinity;
@@ -397,8 +417,8 @@ export function createAionServer(options: AionServerOptions): McpServer {
       `Open ${AION_IDENTITY.name}, your embodied interface: while it is open the user sees and hears you through Aion. Use when the user asks to open,`,
       "show or wake Aion (\"Open Aion\", \"打开 Aion\") — then pass display \"immersive\" — or once before presenting something visually when Aion is",
       "not open. Aion is not another AI model: you keep doing all reasoning and work. In hosts that render MCP Apps Aion appears inside the host",
-      "(fullscreen where the host offers it); otherwise a local companion window opens in the foreground. Calling it again is harmless and does",
-      "not open a second window. Do not call it every turn.",
+      "(fullscreen where the host offers it); otherwise a local companion window opens in the foreground. Calling it again is harmless (no",
+      "second window); do not call it every turn.",
     ].join(" "),
     inputSchema: openPresenceInput,
     annotations: { title: "Open Aion", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -449,7 +469,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       `Reflect what Codex is doing in Aion's body language: ${ACTIVITY_STATES.join(", ")}.`,
       "When open_presence reports hooks: active, reading, editing, testing, building and completion already follow Codex automatically; then use this only",
       "for phases hooks cannot see (thinking through a design, an error you diagnosed). When hooks are not detected, set the state at the start of each",
-      "meaningful phase. Never call it for every small step, and never claim a state that is not true.",
+      "meaningful phase. Never call it for every small step or claim a state that is not true.",
     ].join(" "),
     inputSchema: setPresenceStateInput,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -1082,6 +1102,136 @@ export function createAionServer(options: AionServerOptions): McpServer {
     return result({ ...summarize(snapshot, modeFor(ctx), `Animation: ${args.action}${args.speed ? ` (${args.speed})` : ""}. Do not narrate this tool call.`), animation: animationOutput(shown.sequence, snapshot) });
   });
 
+
+  // ── v0.4.5: interactive cards ──────────────────────────────────────────────────────────────────────────────────
+  /** The card as Codex should see it: what it is, where it stands, what it shows, and what it accepts. */
+  const cardSummary = (card: CardSnapshot, manifest: CardAppManifest, detail = false) => {
+    const state: Record<string, unknown> = { ...card.state };
+    if (!detail && Array.isArray(state.components)) {
+      const all = state.components as { id: string; name: string; visible: boolean }[];
+      state.components = all.slice(0, 40).map(c => ({ id: c.id, name: c.name, ...(c.visible ? {} : { visible: false }) }));
+      if (all.length > 40) state.components_more = all.length - 40;
+    }
+    return {
+      app: card.app, name: manifest.name, instance: card.instance, title: card.title, layout: card.layout, lifecycle: card.lifecycle,
+      reported: card.reportedAt === null ? "no window has reported this card yet" : `${Math.max(0, Math.round((Date.now() - card.reportedAt) / 1000))} s ago`,
+      state, selection: card.selection, ...(card.asset ? { model: { name: card.asset.name, bytes: card.asset.bytes } } : {}),
+      ...(card.error ? { error: card.error } : {}),
+      ...(detail && card.resources ? { resources: card.resources } : {}),
+      commands: [...UNIVERSAL_COMMANDS, ...Object.entries(manifest.commands).map(([name, spec]) => `${name}${describeSpec(spec.value) ? ` (${describeSpec(spec.value)})` : ""}`)],
+    };
+  };
+  const cardText = (message: string, summary: object) => `${message}\n${JSON.stringify(summary)}`;
+  const cardResult = (ctx: ServerContext | undefined, snapshot: HubSnapshot, message: string, detail = false): CallToolResult => {
+    const card = snapshot.card, manifest = card ? cardRegistry.get(card.app) : undefined;
+    const output = summarize(snapshot, modeFor(ctx), message);
+    if (!card || !manifest) return result(output);
+    const summary = cardSummary(card, manifest, detail);
+    const base = result({ ...output, card: summary });
+    return { ...base, content: [{ type: "text", text: cardText((base.content[0] as { text: string }).text, summary) }] };
+  };
+  /** Whether a window is showing Aion right now (a companion window, or an embedded view that synced recently). */
+  const watched = (snapshot: HubSnapshot, ctx?: ServerContext) => modeFor(ctx) === "embedded" ? Date.now() - embeddedSyncAt < EMBEDDED_LIVE_MS : snapshot.hub.viewers > 0;
+  /** Waits (bounded) for the card to change as asked; returns the latest snapshot. */
+  const waitForCard = async (until: (card: CardSnapshot) => boolean, ms: number) => {
+    const deadline = Date.now() + ms;
+    let snapshot = await link.run(backend => backend.state());
+    while (snapshot.card && !until(snapshot.card) && Date.now() < deadline) {
+      snapshot = await link.run(backend => backend.state(snapshot.revision, snapshot.hub.id, Math.min(2_000, Math.max(50, deadline - Date.now()))));
+    }
+    return snapshot;
+  };
+
+  server.registerTool("show_interactive_card", {
+    title: "Show an interactive card",
+    description: TOOL_DESCRIPTIONS.show_interactive_card,
+    inputSchema: showInteractiveCardInput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const manifest = cardRegistry.get(args.app);
+    if (!manifest) return failure(`card-app-unknown: only registered applications run (${cardRegistry.ids().join(", ")}).`);
+    if (args.model !== undefined && !manifest.resources.assets.includes("model")) return failure(`invalid-arguments: ${manifest.name} takes no model.`);
+    const config = checkConfig(manifest, args.settings);
+    if (!config.ok) return failure(`invalid-settings: ${config.problem}.`);
+    const layout = args.layout ?? manifest.display.defaultLayout;
+    if (!manifest.display.layouts.includes(layout)) return failure(`invalid-arguments: ${manifest.name} has no ${layout} layout.`);
+    let asset: Extract<PresentationContent, { kind: "interactive" }>["asset"], modelTitle: string | undefined, modelNote = "";
+    if (manifest.resources.assets.includes("model")) {
+      try {
+        const model = await loadModel(args.model ?? "transformer", options.assetsDir);
+        if (model.bytes.byteLength > manifest.resources.maxAssetBytes) return failure("model-too-large: the model is larger than this card allows.");
+        const ref = await link.run(backend => backend.addMedia(model.bytes, model.mime));
+        asset = { id: ref.id, name: model.name, bytes: model.bytes.byteLength, sha256: model.sha256, mime: model.mime };
+        modelTitle = model.title;
+        modelNote = ` Model: ${model.name} (${model.info.nodes} nodes, ${model.info.triangles.toLocaleString("en")} triangles).`;
+      } catch (error) {
+        if (error instanceof AssetError) return failure(`${error.message}: ${error.detail}`);
+        return failure(`model-unavailable: the model could not be read. Bundled: ${BUNDLED_MODEL_NAMES.join(", ")}; or an absolute .glb/.gltf path.`);
+      }
+    }
+    const before = await link.run(backend => backend.state());
+    // The same application again keeps its card (and its instance): a new model or new settings, no new frame.
+    const instance = before.card && before.card.app === manifest.id ? before.card.instance : newInstanceId();
+    const hybrid = args.presentation === "hybrid" && manifest.hybrid !== undefined;
+    const content: PresentationContent = {
+      kind: "interactive", app: manifest.id, instance, title: (args.title ?? modelTitle ?? manifest.name).replace(/\s+/g, " ").trim().slice(0, LIMITS.title) || manifest.name,
+      layout, config: config.config, ...(asset ? { asset } : {}), ...(hybrid ? { bodyScene: manifest.hybrid as Scene3DType } : {}),
+    };
+    await link.run(backend => backend.apply({ type: "present", content, hold: args.hold_seconds ?? 0, ...(hybrid ? { presentation: "hybrid" as const } : {}) }));
+    // Honest status: wait briefly for a window to start the card (it reports its lifecycle).
+    const shown = await link.run(backend => backend.state());
+    const reused = before.card?.instance === instance;
+    const snapshot = watched(shown, ctx) ? await waitForCard(card => card.instance === instance && ["active", "paused", "error"].includes(card.lifecycle) && card.reportedAt !== null && (card.lifecycle === "error" || Object.keys(card.state).length > 0) && (!reused || card.reportedAt > Date.now() - 6_000), 9_000) : shown;
+    const card = snapshot.card;
+    const status = !card || card.instance !== instance ? "It was replaced before it started."
+      : card.lifecycle === "error" ? `It stopped with an error: ${card.error?.message ?? "unknown"}.`
+        : card.reportedAt === null ? (watched(snapshot, ctx) ? "Aion's window is still starting it." : "Aion is not open, so nothing displays it yet.")
+          : `It is ${card.lifecycle === "paused" ? "open and paused" : "open and running"}.`;
+    const notHybrid = args.presentation === "hybrid" && !hybrid ? ` ${manifest.name} has no particle form, so it is a card only.` : "";
+    return cardResult(ctx, snapshot, `${reused ? "Updated" : "Opened"} the ${manifest.name} card. ${status}${modelNote}${notHybrid} The user can manipulate it directly. `
+      + "Answer in your own voice; do not narrate this tool call.");
+  });
+
+  server.registerTool("control_interactive_card", {
+    title: "Control the interactive card",
+    description: TOOL_DESCRIPTIONS.control_interactive_card,
+    inputSchema: controlInteractiveCardInput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const before = await link.run(backend => backend.state());
+    const card = before.card, manifest = card ? cardRegistry.get(card.app) : undefined;
+    if (!card || !manifest) return failure("no-card: no interactive card is open. Use show_interactive_card first.");
+    const checked = checkCommand(manifest, args.action, args.value as CardValue | undefined);
+    if (!checked.ok) return failure(`invalid-command: ${checked.problem}.`);
+    const after = await link.run(backend => backend.apply({ type: "card", command: args.action, ...(checked.value !== undefined && typeof checked.value !== "object" ? { value: checked.value as string | number | boolean } : {}) }));
+    if (args.action === "close") return result(summarize(after, modeFor(ctx), `Closed the ${manifest.name} card; Aion is back in its own space. Do not narrate it.`));
+    if (["expand", "collapse", "fullscreen"].includes(args.action)) {
+      const note = args.action === "fullscreen" ? " It fills Aion's space; true browser fullscreen needs the user's click on the card's fullscreen button." : "";
+      return cardResult(ctx, after, `The card is now ${after.card?.layout ?? "unchanged"}.${note} Do not narrate it.`);
+    }
+    const seq = after.card && after.card.instance === card.instance ? after.card.nextSeq - 1 : 0;
+    if (!seq || seq < card.nextSeq) return failure("card-changed: the card closed or changed before the command was queued.");
+    if (!watched(after, ctx)) return cardResult(ctx, after, `Queued ${args.action}, but no window is showing the card (Aion is not open), so it has not taken effect.`);
+    const snapshot = await waitForCard(next => next.instance !== card.instance || next.acks.some(ack => ack.seq === seq), 6_000);
+    const ack = snapshot.card?.acks.find(entry => entry.seq === seq);
+    if (!ack) return cardResult(ctx, snapshot, `Sent ${args.action}; the card has not confirmed it yet.`);
+    if (!ack.ok) return { ...cardResult(ctx, snapshot, `The card refused ${args.action}: ${ack.problem ?? "failed"}.`), isError: true };
+    return cardResult(ctx, snapshot, `Done: ${args.action}${checked.value !== undefined ? ` ${JSON.stringify(checked.value)}` : ""}. Answer in your own voice; do not narrate this tool call.`);
+  });
+
+  server.registerTool("inspect_interactive_card", {
+    title: "Inspect the interactive card",
+    description: TOOL_DESCRIPTIONS.inspect_interactive_card,
+    inputSchema: inspectInteractiveCardInput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (_args, ctx) => {
+    const snapshot = await link.run(backend => backend.state());
+    if (!snapshot.card) return result(summarize(snapshot, modeFor(ctx), "No interactive card is open."));
+    const selection = snapshot.card.selection;
+    const said = selection?.objectId ? `Selected: ${selection.name ?? selection.objectId}. Explain it only from the metadata reported; say when something is not in the model.` : "Nothing is selected.";
+    return cardResult(ctx, snapshot, `The ${cardRegistry.get(snapshot.card.app)?.name ?? snapshot.card.app} card is ${snapshot.card.lifecycle}. ${said}`, true);
+  });
+
   server.registerTool("show_form", {
     title: "Show a visual form",
     description: TOOL_DESCRIPTIONS.show_form(),
@@ -1217,6 +1367,18 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const item = await link.run(backend => backend.media(args.id));
       if (!item) return failure("media-not-found");
       return { content: [{ type: "text", text: item.mime }], structuredContent: { mime: item.mime, data: item.data.toString("base64") } };
+    });
+    // v0.4.5: the embedded view reports its interactive card (the card itself never reaches any tool).
+    registerAppTool(server, "presence_card", {
+      title: "Aion Presence card report",
+      description: "For the Aion Presence view only: the state of its interactive card.",
+      inputSchema: cardReportInput,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: { ui: { resourceUri: PRESENCE_RESOURCE_URI, visibility: ["app"] } },
+    }, async args => {
+      embeddedSyncAt = Date.now();
+      const outcome = await link.run(backend => backend.cardReport(args.report));
+      return outcome.ok ? { content: [{ type: "text", text: "ok" }] } : failure(`card-report-refused: ${outcome.problem}`);
     });
   };
   if (env.AION_PRESENCE_APP_TOOLS === "always") registerAppOnlyTools();

@@ -175,3 +175,49 @@ body { overflow: hidden; background: #090e16; }
 .card[data-kind="writing"][data-route="card"] { width: min(560px, calc(100vw - 48px)); }
 .card .stroke-card.practicing .stroke-diagram { width: min(100%, 170px); }
 .card .stroke-card.practicing .stroke-list { max-height: 18vh; }
+
+/* v0.4.5 — an interactive card (an isolated application) beside the living body. Three layouts: compact (beside Aion,
+   like a card), expanded (most of the space; Aion in a slim strip), fullscreen (all of it; Aion small at its edge).
+   The application is the focus: a thin bar of universal controls, no dashboard chrome. */
+.workspace { position: absolute; z-index: 2; display: flex; flex-direction: column; overflow: hidden; border-radius: 16px;
+  background: #05070b; border: 1px solid #ffffff12; box-shadow: 0 30px 90px -30px #000e, 0 0 0 1px #00000040;
+  right: max(28px, 4vw); top: 50%; width: min(620px, 46vw); height: min(64vh, 520px); transform: translateY(calc(-50% + 12px)); opacity: 0;
+  transition: opacity .7s ease .2s, transform .9s cubic-bezier(.2,.7,.2,1) .2s, top .7s cubic-bezier(.2,.7,.2,1), right .7s cubic-bezier(.2,.7,.2,1),
+    width .7s cubic-bezier(.2,.7,.2,1), height .7s cubic-bezier(.2,.7,.2,1), border-radius .5s ease; }
+.workspace[hidden] { display: flex; visibility: hidden; }
+.presence.with-workspace .workspace { opacity: 1; transform: translateY(-50%); }
+.presence[data-workspace="expanded"] .workspace { right: 2.2vw; width: 74vw; height: 90vh; height: 90svh; }
+.presence[data-workspace="fullscreen"] .workspace { right: 0.8vw; width: 86.5vw; height: 97vh; height: 97svh; border-radius: 12px; }
+.presence[data-workspace="expanded"] .corner, .presence[data-workspace="fullscreen"] .corner { display: none; }
+.presence.with-workspace .status { left: 13vw; max-width: 24vw; }
+.ws-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 14px; min-height: 38px;
+  background: linear-gradient(180deg, #0e141cee, #0b1016ee); border-bottom: 1px solid #ffffff0d; }
+.ws-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ws-name { font-size: 12px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: #95a6b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-status { font-size: 11.5px; color: #6f8296; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ws-controls { display: flex; gap: 2px; flex: none; }
+.ws-button { width: 30px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: 7px; background: transparent; color: #a9b8c7;
+  font: 13px/1 system-ui, -apple-system, sans-serif; cursor: pointer; }
+.ws-button:hover { background: #ffffff0f; color: #e4ebf2; }
+.ws-button:focus-visible, .ws-retry:focus-visible { outline: 1px solid var(--accent, #9dadbf); outline-offset: 1px; }
+.ws-button:disabled { opacity: .35; cursor: default; }
+.ws-button[aria-pressed="true"] { border-color: #ffffff1c; color: #fff; }
+.ws-button.ws-close { font-size: 18px; }
+.ws-body { position: relative; flex: 1; min-height: 0; background: #05070b; }
+.ws-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; background: #05070b; color-scheme: dark; }
+.ws-overlay { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px; text-align: center;
+  background: #05070bf2; color: #9fb0c2; font-size: 13px; }
+.ws-overlay[hidden] { display: none; }
+.ws-overlay p { margin: 0; max-width: 420px; line-height: 1.5; }
+.ws-progress { width: 160px; height: 2px; border-radius: 2px; background: #ffffff14; overflow: hidden; }
+.ws-progress i { display: block; height: 100%; width: 4%; background: var(--accent, #a8bed1); transition: width .3s ease; }
+.ws-retry { font: inherit; color: #dfe6ee; background: #ffffff0d; border: 1px solid #ffffff1f; border-radius: 8px; padding: 6px 16px; cursor: pointer; }
+.workspace[data-lifecycle="error"] .ws-status { color: #d9a7a2; }
+@media (max-width: 720px), (max-aspect-ratio: 4/5) {
+  .workspace, .presence[data-workspace="expanded"] .workspace, .presence[data-workspace="fullscreen"] .workspace {
+    left: 16px; right: 16px; width: auto; top: auto; bottom: 16px; height: 60%; transform: translateY(10px); }
+  .presence[data-workspace="expanded"] .workspace { height: 70%; }
+  .presence[data-workspace="fullscreen"] .workspace { left: 6px; right: 6px; bottom: 6px; height: 78%; }
+  .presence.with-workspace .workspace { transform: none; }
+  .presence.with-workspace .status { left: 50%; max-width: 80vw; bottom: auto; top: 12px; }
+}

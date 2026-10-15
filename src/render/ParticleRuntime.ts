@@ -83,6 +83,11 @@ export interface RuntimeHandle {
   project(point: [number, number, number]): [number, number] | null;
   /** Aion's base colour: the palette is eased to over about a second; `immediate` jumps (a page's first frame). */
   setPalette(palette: ParticlePalette, immediate?: boolean): void;
+  /**
+   * v0.4.5: caps the body's frame rate (null: the display's own) while the user works in a large interactive card, so
+   * the two renderers do not compete. Physics keeps its fixed step; adaptive quality ignores the capped frames.
+   */
+  setFrameCap?(fps: number | null): void;
   dispose(): void;
 }
 
@@ -100,7 +105,11 @@ export async function createParticleRuntime(
   if (!navigator.gpu) throw new Error("webgpu-unavailable");
   const config = structuredClone(particleDefaults);
   const renderer = new WebGPURenderer({ antialias: false, alpha: true, powerPreference: "high-performance" });
-  try { await renderer.init(); } catch { renderer.dispose(); throw new Error("webgpu-failed"); }
+  // Only the WebGPU backend is used (the canvas renderer is Aion's fallback): no WebGL2 backend is tried, so a browser
+  // without WebGPU or WebGL falls back cleanly instead of failing inside three.js (v0.4.5).
+  (renderer as unknown as { _getFallback: null })._getFallback = null;
+  // A renderer that never initialized holds nothing to release (disposing it would start, and fail, its initialization again).
+  try { await renderer.init(); } catch { throw new Error("webgpu-failed"); }
   if (lifetime.aborted) { renderer.dispose(); return; }
   if (!("isWebGPUBackend" in renderer.backend)) { renderer.dispose(); throw new Error("webgpu-unavailable"); }
   renderer.setClearColor(0x090e16, 0);
@@ -282,16 +291,19 @@ export async function createParticleRuntime(
       return [bounds.left + (v.x + 1) / 2 * bounds.width, bounds.top + (1 - v.y) / 2 * bounds.height];
     },
     setPalette(next, immediate) { palette.set(next); if (immediate) palette.settle(); },
+    setFrameCap(fps) { minFrameMs = fps && fps > 0 ? 1000 / fps : 0; },
     dispose: cleanup,
   };
+  let minFrameMs = 0;
   const animate = (now: number) => {
     if (stopped) return;
+    if (minFrameMs && now - last < minFrameMs - 2) { frame = requestAnimationFrame(animate); return; }
     const rawDt = (now - last) / 1000;
     last = now;
     if (!document.hidden) {
       const dt = Math.min(Math.max(rawDt, 0), STEP * 8);
-      if (rawDt > 0 && rawDt < 0.15) frameMs += (rawDt * 1000 - frameMs) * 0.05;
-      if (fixed === null && quality.sample(rawDt)) applyQuality();
+      if (!minFrameMs && rawDt > 0 && rawDt < 0.15) frameMs += (rawDt * 1000 - frameMs) * 0.05;
+      if (fixed === null && !minFrameMs && quality.sample(rawDt)) applyQuality();
       if (!step(dt, now / 1000)) return;
     }
     if (!stopped) frame = requestAnimationFrame(animate);

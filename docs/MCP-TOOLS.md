@@ -1,4 +1,4 @@
-# MCP tools: discovery and reliability (v0.4.4)
+# MCP tools: discovery and reliability (v0.4.4, v0.4.5)
 
 ## The report
 
@@ -55,3 +55,20 @@ The 9,500-character writing catalogue never enters tool metadata: the tool takes
 3. If the host still filters tools (many other servers, a stricter budget), Codex can find the tool with `tool_search`
    ("aion writing") — the Skill says so.
 4. `npm run codex:tools` shows whether Aion's tools reach Codex at all; if they do, the remaining limit is the host's.
+
+## v0.4.5: three more tools inside the same budget
+
+The interactive-card tools (`show_interactive_card`, `control_interactive_card`, `inspect_interactive_card`) added
+about 3.9 KB. To keep the v0.4.4 budget (and its 10 % margin) without dropping anything:
+
+- every tool is listed without its JSON Schema dialect line (`"$schema": "https://json-schema.org/draft/2020-12/schema"`,
+  about 60 bytes a tool): MCP defines 2020-12 as the dialect when it is absent, so the meaning is unchanged
+  (`compactSchema` in `src/host/mcp/budget.ts`; validation is still each tool's zod schema);
+- the card tools take compact inputs (an app id from a list, one free `settings` record validated per manifest on the
+  host, one `action` string validated against the open card's manifest);
+- a few long descriptions and repeated parameter descriptions were shortened (no behaviour changed), and `show_scene`'s
+  3-vectors are arrays of length 3 rather than tuples.
+
+Result: **32 tools, 57,574 B** (largest 4,372 B), under the 57,600 B target the tests enforce. The app-only
+`presence_card` tool (the embedded view's card report) is registered only for MCP Apps hosts, like `presence_sync`
+and `presence_media`, and never appears in Codex's list.

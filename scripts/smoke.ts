@@ -28,7 +28,11 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 and the Stop hook's answer tail
  *   immersive     Enter Presence → true fullscreen, kept through visuals; Esc exits and is respected; a window
  *                 brought forward retires the old one; an embedded host that refuses fullscreen
- *   embedded      the same page in a minimal MCP Apps host wired to the real Aion MCP server
+ *   embedded      the same page in a minimal MCP Apps host wired to the real Aion MCP server (and its interactive card)
+ *   v45           interactive cards through the real MCP tools: the Earth–Moon and CAD viewer applications in their
+ *                 sandboxed frames (isolation probed from inside the frame), clicks select, Codex controls, layouts,
+ *                 universal controls, Escape, repeated open/close with nothing left behind, timings, and a browser
+ *                 without WebGL showing the unsupported state while Aion lives on
  *   v0.4          Aion Eyes and express, the figure explaining an emphasised term, a heritage portrait, a 3D pyramid
  *                 that turns, is dragged and re-oriented, then returns — in both renderers
  *   v0.4.1        through the real MCP tools: a heritage portrait by default; a map whose markers appear in their colours
@@ -138,6 +142,7 @@ try {
   if (section("responding")) await responding();
   if (section("immersive")) await immersive();
   if (section("embedded")) await embedded();
+  if (section("v45")) { for (const renderer of ["auto", "canvas"] as const) await v45(renderer); await cardFallback(); }
 } finally {
   await browser.close();
   await hub.stop();
@@ -805,6 +810,14 @@ async function embedded() {
           check((await frame.locator("#card").textContent())?.includes("48 / 48 tests passed") ?? false, "a tool call reaches the embedded view");
           check(await frame.evaluate("document.querySelector('#stage canvas') !== null") as boolean, "the embedded body renders");
           await page.screenshot({ path: join(OUT, "embedded-result.png") });
+          // v0.4.5: an interactive card inside the embedded view; it reports through the app-only presence_card tool.
+          await aion.call("show_interactive_card", { app: "earth-moon" });
+          let report = "";
+          for (let i = 0; i < 60 && !/"lifecycle":"active"/.test(report); i++) { await pause(200); report = ((await aion.call("inspect_interactive_card")) as { content: { text: string }[] }).content[0].text; }
+          check(/"lifecycle":"active"/.test(report) && !/no window has reported/.test(report), "an interactive card runs in the embedded view and reports through the host");
+          check(await frame.evaluate("document.querySelector('#workspace iframe')?.getAttribute('sandbox')") === "allow-scripts", "the nested card frame is sandboxed too");
+          await page.screenshot({ path: join(OUT, "embedded-card.png") });
+          await aion.call("control_interactive_card", { action: "close" });
         }
         check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
       } finally { await page.close(); }
@@ -1019,6 +1032,224 @@ async function voiceSync() {
   } finally { await aion.close(); bridgeSignal = "music"; }
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   await page.close();
+}
+
+
+/** Interactive cards (v0.4.5) on the real surface, through the real MCP tools, with the real sandboxed frame. */
+async function v45(renderer: "auto" | "canvas") {
+  console.log(`v0.4.5: interactive cards (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`, { width: 1440, height: 900 });
+  const warnings: string[] = [];
+  page.on("console", message => { if (/too many active webgl contexts|context lost|webgl/i.test(message.text())) warnings.push(message.text()); });
+  const name = (moment: string) => join(OUT, `v45-${renderer}-${moment}.png`);
+  const aion = await connectAion({ home });
+  const card = () => hub.snapshot().card;
+  const frameOf = async () => (await (await page.locator("#workspace iframe").elementHandle())?.contentFrame()) ?? null;
+  const waitCard = async (ok: (c: NonNullable<ReturnType<typeof card>>) => boolean, ms = 10_000) => {
+    for (let waited = 0; waited < ms; waited += 100) { const c = card(); if (c && ok(c)) return true; await pause(100); }
+    return false;
+  };
+  const box = async () => (await page.locator("#workspace .ws-body").boundingBox())!;
+  const clickCenter = async (dx = 0, dy = 0) => { const b = await box(); await page.mouse.click(b.x + b.width / 2 + dx, b.y + b.height / 2 + dy); };
+  const timings: Record<string, number> = {};
+  try {
+    // ── Earth–Moon ─────────────────────────────────────────────────────────────────────────────────────────────
+    let t0 = Date.now();
+    await aion.call("show_interactive_card", { app: "earth-moon" });
+    check(await waitCard(c => c.lifecycle === "active" && Object.keys(c.state).length > 0), "the Earth–Moon card starts in its frame and reports its state");
+    timings.earthMoonReadyMs = Date.now() - t0;
+    check(await page.locator("#workspace iframe").getAttribute("sandbox") === "allow-scripts", "the frame is sandboxed with scripts only (no same-origin)");
+    const token = hub.surfaceUrl.split("token=")[1];
+    check(!(await page.locator("#workspace iframe").getAttribute("srcdoc"))!.includes(token), "the frame's document does not contain the hub token");
+    const inside = await (await frameOf())!.evaluate(async (url: string) => {
+      const out: Record<string, string> = { origin: String(self.origin), referrer: document.referrer };
+      try { out.parent = String(parent.location.href); } catch { out.parent = "blocked"; }
+      try { out.storage = String(localStorage.length); } catch { out.storage = "blocked"; }
+      try { await fetch(url); out.fetch = "reached"; } catch { out.fetch = "blocked"; }
+      try { await fetch("https://example.com/"); out.remote = "reached"; } catch { out.remote = "blocked"; }
+      return out;
+    }, `${hub.url}api/state`);
+    check(inside.origin === "null" && inside.referrer === "" && inside.parent === "blocked" && inside.storage === "blocked", `the frame has an opaque origin, no referrer, no parent access, no storage (${JSON.stringify(inside)})`);
+    check(inside.fetch === "blocked" && inside.remote === "blocked", "the frame cannot reach the hub or the network");
+    // A hostile frame posting window messages to the page: the page listens only to its own port, so nothing happens.
+    const before = card()!.state.day;
+    await (await frameOf())!.evaluate((instance: string) => { for (let i = 0; i < 3000; i++) parent.postMessage({ v: 1, instance, type: "STATE_CHANGED", payload: { state: { day: 99999, speed: 100 } } }, "*"); }, card()!.instance);
+    await pause(700);
+    check(card()!.state.day !== 99999 && card()!.state.speed !== 100 && typeof before === "number", "forged window messages from the frame are ignored (only the bridge port counts)");
+    const day0 = card()!.state.day as number;
+    await pause(1600);
+    check((card()!.state.day as number) > day0, "the orbit animates (simulation time advances)");
+    await page.screenshot({ path: name("earth-moon-expanded") });
+
+    // Selecting by clicking: Earth is at the centre of the overview.
+    await clickCenter();
+    check(await waitCard(c => c.selection?.objectId === "earth", 3_000), "clicking Earth selects it, and the card reports the selection");
+    const inspected = await aion.call("inspect_interactive_card") as { content: { text: string }[] };
+    check(/Selected: Earth/.test(inspected.content[0].text) && /12,742 km/.test(inspected.content[0].text), "Codex can inspect the selected object and its properties");
+    await page.screenshot({ path: name("earth-selected") });
+
+    await aion.call("control_interactive_card", { action: "pause" });
+    check(card()!.lifecycle === "paused", "pause: the card confirms it is paused");
+    const paused = card()!.state.day;
+    await pause(1200);
+    check(card()!.state.day === paused, "paused: orbital motion stops");
+    // Rotating the camera by dragging inside the frame.
+    const b = await box();
+    await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.6);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) await page.mouse.move(b.x + b.width * (0.5 + i * 0.02), b.y + b.height * (0.6 - i * 0.01));
+    await page.mouse.up();
+    check(await waitCard(c => c.state.view === "custom", 3_000), "dragging rotates the camera (the card reports a custom view)");
+    await page.screenshot({ path: name("earth-rotated") });
+    await aion.call("control_interactive_card", { action: "resume" });
+    t0 = Date.now();
+    await aion.call("control_interactive_card", { action: "focus", value: "moon" });
+    await pause(1_900);
+    timings.focusMoonMs = Date.now() - t0;
+    await clickCenter();
+    check(await waitCard(c => c.selection?.objectId === "moon", 3_000), "focus on the Moon: the camera follows it and a click at the centre selects it");
+    await aion.call("control_interactive_card", { action: "show-teaching", value: true });
+    await pause(900);
+    await page.screenshot({ path: name("earth-moon-focus") });
+
+    // Layouts and the universal controls.
+    await aion.call("control_interactive_card", { action: "collapse" });
+    await pause(1_000);
+    const compact = await box();
+    await page.screenshot({ path: name("earth-moon-compact") });
+    await aion.call("control_interactive_card", { action: "fullscreen" });
+    await pause(1_000);
+    const full = await box();
+    check(compact.width < 700 && full.width > 1100, `layouts: compact ${Math.round(compact.width)} px wide, fullscreen ${Math.round(full.width)} px`);
+    await page.screenshot({ path: name("earth-moon-fullscreen") });
+    await (await frameOf())!.locator("canvas").focus();
+    await page.keyboard.press("Escape");
+    check(await waitCard(c => c.layout === "expanded", 3_000), "Escape inside the card leaves fullscreen");
+    await page.locator("#workspace .ws-pause").click();
+    check(await waitCard(c => c.lifecycle === "paused", 3_000), "the card's own pause button pauses it");
+    await page.locator("#workspace .ws-pause").click();
+    check(await waitCard(c => c.lifecycle === "active", 3_000), "and resumes it");
+    await page.locator("#workspace .ws-close").click();
+    await pause(1_200);
+    check(hub.snapshot().presentation === null && await page.locator("#workspace iframe").count() === 0, "closing the card ends it everywhere and removes its frame");
+
+    // Hybrid: the body forms the application's particle form for a moment while the card runs beside it.
+    await aion.call("show_interactive_card", { app: "earth-moon", presentation: "hybrid" });
+    check(await waitCard(c => c.lifecycle === "active"), "a hybrid Earth–Moon card starts");
+    check(hub.snapshot().presentation?.route === "hybrid" && (await until(page, s => s.phase === "holding", 6_000)).phase === "holding", "hybrid: the body forms Earth, Moon and orbit in particles beside the card");
+    await page.screenshot({ path: name("earth-moon-hybrid") });
+    await aion.call("control_interactive_card", { action: "close" });
+    await pause(1_200);
+    // Reduced motion reaches the application (instant camera moves, no damping, a slower default speed).
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await aion.call("show_interactive_card", { app: "earth-moon" });
+    await waitCard(c => c.lifecycle === "active" && Object.keys(c.state).length > 0);
+    check(await (await frameOf())!.evaluate(() => document.documentElement.dataset.motion) === "reduced" && card()!.state.speed === 0.25, "reduced motion reaches the card (and its default speed is calmer)");
+    await aion.call("control_interactive_card", { action: "close" });
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await pause(1_000);
+
+    // ── CAD viewer ─────────────────────────────────────────────────────────────────────────────────────────────
+    t0 = Date.now();
+    await aion.call("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+    check(await waitCard(c => c.lifecycle === "active" && Array.isArray(c.state.components)), "the transformer loads in the CAD viewer with its component hierarchy");
+    timings.cadReadyMs = Date.now() - t0;
+    await page.screenshot({ path: name("cad-loaded") });
+    await aion.call("control_interactive_card", { action: "set-view", value: "left" });
+    await pause(1_300);
+    await clickCenter();
+    check(await waitCard(c => c.selection?.objectId === "assembly/core", 3_000), "clicking the magnetic core selects it (assembly/core)");
+    const core = card()!.selection!;
+    check(core.name === "Magnetic Core" && core.properties?.["Part Number"] === "DEMO-CORE-EI96", "its name and the model's metadata are reported");
+    await aion.call("control_interactive_card", { action: "set-view", value: "iso" });
+    await pause(1_200);
+    await page.screenshot({ path: name("cad-core-selected") });
+    await aion.call("control_interactive_card", { action: "hide", value: "assembly/windings" });
+    check(await waitCard(c => (c.state.hidden as string[] | undefined)?.includes("assembly/windings") === true, 3_000), "hide the winding: the windings are hidden");
+    await page.screenshot({ path: name("cad-windings-hidden") });
+    await aion.call("control_interactive_card", { action: "isolate", value: "assembly/core" });
+    check(await waitCard(c => c.state.isolated === "assembly/core", 3_000), "isolate the core");
+    await page.screenshot({ path: name("cad-core-isolated") });
+    await aion.call("control_interactive_card", { action: "show-all" });
+    check(await waitCard(c => (c.state.hidden as string[]).length === 0, 3_000), "show all restores visibility");
+    // Zoom with the wheel inside the frame.
+    const cb = await box();
+    await page.mouse.move(cb.x + cb.width / 2, cb.y + cb.height / 2);
+    await page.mouse.wheel(0, -600);
+    await pause(600);
+    await page.screenshot({ path: name("cad-zoomed") });
+    await aion.call("show_interactive_card", { app: "cad-viewer", model: join(REPO_ROOT, "tests/fixtures/cards/bracket.gltf") });
+    check(await waitCard(c => c.state.model === "Angle bracket (test model)" || /bracket/i.test(String(c.state.model)), 6_000), "another glTF (with external files and a texture) loads into the same viewer");
+    await page.screenshot({ path: name("cad-bracket") });
+    await aion.call("control_interactive_card", { action: "close" });
+    await pause(1_000);
+
+    // ── Repeated open and close: nothing left behind ──────────────────────────────────────────────────────────
+    const cycles = 6;
+    t0 = Date.now();
+    for (let i = 0; i < cycles; i++) {
+      for (const app of ["earth-moon", "cad-viewer"] as const) {
+        await aion.call("show_interactive_card", { app });
+        await waitCard(c => c.lifecycle === "active");
+        await aion.call("control_interactive_card", { action: "close" });
+        await pause(250);
+      }
+    }
+    await pause(2_500);
+    timings.cycleMs = Math.round((Date.now() - t0) / (cycles * 2));
+    const history = await page.evaluate("window.aionPresence.cardHistory") as { opened: number; closed: number; leftovers: { geometries: number; textures: number; urls: number; loops: number }[] };
+    const left = history.leftovers.reduce((sum, item) => sum + item.geometries + item.textures + item.urls + item.loops, 0);
+    check(history.opened === history.closed && history.leftovers.length === history.closed, `every card opened was closed and reported its cleanup (${history.opened} opened, ${history.closed} closed)`);
+    check(left === 0, `no geometries, textures, object URLs or loops left behind (${left})`);
+    check(await page.locator("#workspace iframe").count() === 0 && page.frames().length === 1, "no frame remains after closing");
+    check(warnings.length === 0, `no WebGL context warnings after ${history.opened} cards${warnings.length ? `: ${warnings[0]}` : ""}`);
+    check(await page.evaluate("window.aionPresence.runtime.quality().frames") as number > 0, "Aion's body keeps rendering throughout");
+
+    // ── Performance: both renderers together ──────────────────────────────────────────────────────────────────
+    await aion.call("show_interactive_card", { app: "earth-moon" });
+    await waitCard(c => c.lifecycle === "active");
+    await pause(4_500);
+    const f0 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    await pause(2_000);
+    const f1 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    const resources = card()!.resources;
+    timings.bodyFps = Math.round((f1 - f0) / 2);
+    timings.cardFps = resources?.fps ?? -1;
+    timings.cardDrawCalls = resources?.drawCalls ?? -1;
+    timings.cardTextures = resources?.textures ?? -1;
+    timings.cardGeometries = resources?.geometries ?? -1;
+    if (resources?.heapMB !== undefined) timings.cardHeapMB = resources.heapMB;
+    console.log(`  · timings ${JSON.stringify(timings)}`);
+    writeFileSync(join(OUT, `v45-${renderer}-performance.json`), JSON.stringify({ renderer, ...timings }, null, 2));
+    check(timings.bodyFps > 20 && timings.cardFps > 20, `both render smoothly together (body ${timings.bodyFps} fps, card ${timings.cardFps} fps)`);
+    await aion.call("control_interactive_card", { action: "close" });
+    await pause(600);
+  } finally { await aion.close(); }
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
+/** A browser without WebGL: the card says it cannot run here (no screenshot pretending), and Aion lives on. */
+async function cardFallback() {
+  console.log("v0.4.5: interactive card without WebGL");
+  const plain = await chromium.launch({ executablePath: chromePath, headless: true, args: ["--disable-3d-apis", "--disable-webgl", "--disable-gpu"] });
+  try {
+    const { page, errors } = await open(plain, "&mic=0", { width: 1200, height: 800 });
+    const aion = await connectAion({ home });
+    try {
+      await aion.call("show_interactive_card", { app: "earth-moon" });
+      let state = hub.snapshot().card;
+      for (let i = 0; i < 60 && state?.lifecycle !== "error"; i++) { await pause(150); state = hub.snapshot().card; }
+      check(state?.lifecycle === "error" && state.error?.code === "webgl-unavailable", "the card reports that WebGL is unavailable");
+      check(/needs WebGL 2/.test(await page.locator("#workspace .ws-error").textContent() ?? ""), "it says so in the card (with Retry), instead of a static picture");
+      const f0 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+      await pause(800);
+      check(await page.evaluate("window.aionPresence.runtime.quality().frames") as number > f0, "Aion's body keeps living (canvas renderer)");
+      await page.screenshot({ path: join(OUT, "v45-no-webgl.png") });
+      await aion.call("control_interactive_card", { action: "close" });
+    } finally { await aion.close(); }
+    check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await plain.close(); }
 }
 
 writeFileSync(join(OUT, "result.txt"), failures.length ? failures.join("\n") : "ok");

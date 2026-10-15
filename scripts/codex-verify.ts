@@ -187,6 +187,21 @@ try {
         check(!scene.isError && (scene.structuredContent as { animation?: { title: string } } | undefined)?.animation?.title === "Jump over a box", "play_animation: jump over a box");
         check(await until(/figure jump/, 10_000), "the figure performs the jump");
         await page.screenshot({ path: join(E2E, "verify-animation.png") });
+        // v0.4.5: interactive cards from the installed runtime — the Earth–Moon application and the bundled transformer.
+        const earth = await call("show_interactive_card", { app: "earth-moon" });
+        check(!earth.isError && /open and running/.test(earth.content[0]?.text ?? ""), "show_interactive_card: the Earth–Moon card runs in its sandboxed frame");
+        check(await until(/interactive c[a-z0-9]+ · active/, 10_000), "the installed surface hosts it (lifecycle active)");
+        check(await page.locator("#workspace iframe").getAttribute("sandbox") === "allow-scripts", "isolated: scripts only, no same-origin");
+        const paused = await call("control_interactive_card", { action: "pause" });
+        check(!paused.isError && /Done: pause/.test(paused.content[0]?.text ?? ""), "control_interactive_card: the card confirms the pause");
+        await page.screenshot({ path: join(E2E, "verify-earth-moon.png") });
+        const cad = await call("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        check(!cad.isError && /transformer\.glb \(17 nodes/.test(cad.content[0]?.text ?? ""), "the bundled transformer model is installed and loads in the CAD viewer");
+        const selected = await call("control_interactive_card", { action: "select", value: "assembly/core" });
+        const inspected = await call("inspect_interactive_card");
+        check(!selected.isError && /Selected: Magnetic Core/.test(inspected.content[0]?.text ?? ""), "inspect_interactive_card: the selected magnetic core and its metadata");
+        await page.screenshot({ path: join(E2E, "verify-cad.png") });
+        await call("control_interactive_card", { action: "close" });
         await call("clear_presentation");
         await call("set_presence_state", { state: "responding" });
         check(await until(/state responding/), "responding: the body answers with Codex");

@@ -182,8 +182,10 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     lifetime.removeEventListener("abort", cleanup);
   };
   lifetime.addEventListener("abort", cleanup, { once: true });
+  let minFrameMs = 0;
   const animate = (now: number) => {
     if (stopped) return;
+    if (minFrameMs && now - last < minFrameMs - 2) { frame = requestAnimationFrame(animate); return; }
     const raw = (now - last) / 1000;
     last = now;
     if (raw > 0 && raw < 0.15) frameMs += (raw * 1000 - frameMs) * 0.05;
@@ -203,5 +205,6 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     return [bounds.left + centre.x + x * centre.zoom * perspective, bounds.top + centre.y - y * centre.zoom * perspective];
   };
   const setPalette = (next: Parameters<RuntimeHandle["setPalette"]>[0], immediate?: boolean) => { palette.set(next); if (immediate) palette.settle(); };
-  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, project, setPalette, dispose: cleanup };
+  const setFrameCap = (fps: number | null) => { minFrameMs = fps && fps > 0 ? 1000 / fps : 0; };
+  return { backend: "canvas", config: particleDefaults, tuning: false, quality: report, setTier: () => {}, toWorld, project, setPalette, setFrameCap, dispose: cleanup };
 }

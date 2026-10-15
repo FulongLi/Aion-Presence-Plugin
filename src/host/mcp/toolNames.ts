@@ -10,9 +10,10 @@ export const TOOL_NAMES = [
   "show_image", "show_portrait", "show_terrain", "show_map", "mark_map", "set_colors", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji", "show_scene", "set_scene_view",
   "show_music", "play_music", "music_lesson", "set_audio_visualizer",
   "show_stroke_animation", "play_animation", "control_animation",
+  "show_interactive_card", "control_interactive_card", "inspect_interactive_card",
   "show_result", "show_artifact", "clear_presentation", "show_visual_form",
 ] as const;
 export type ToolName = typeof TOOL_NAMES[number];
 
 /** Tools only an embedded MCP Apps view calls. */
-export const APP_TOOL_NAMES = ["presence_sync", "presence_media"] as const;
+export const APP_TOOL_NAMES = ["presence_sync", "presence_media", "presence_card"] as const;

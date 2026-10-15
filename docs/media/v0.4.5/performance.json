@@ -1,0 +1,28 @@
+{
+  "auto": {
+    "renderer": "auto",
+    "earthMoonReadyMs": 979,
+    "focusMoonMs": 1938,
+    "cadReadyMs": 282,
+    "cycleMs": 1081,
+    "bodyFps": 60,
+    "cardFps": 60,
+    "cardDrawCalls": 8,
+    "cardTextures": 6,
+    "cardGeometries": 11,
+    "cardHeapMB": 6.6
+  },
+  "canvas": {
+    "renderer": "canvas",
+    "earthMoonReadyMs": 982,
+    "focusMoonMs": 1937,
+    "cadReadyMs": 269,
+    "cycleMs": 1076,
+    "bodyFps": 60,
+    "cardFps": 60,
+    "cardDrawCalls": 8,
+    "cardTextures": 6,
+    "cardGeometries": 11,
+    "cardHeapMB": 6.8
+  }
+}

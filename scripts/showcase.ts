@@ -55,7 +55,7 @@ export interface DemoContext {
   bridgeSignal(signal: string): void;
 }
 
-interface Demo { name: string; title: string; seconds: number; speech?: boolean; run(ctx: DemoContext): Promise<void> }
+interface Demo { name: string; title: string; seconds: number; speech?: boolean; viewport?: { width: number; height: number }; run(ctx: DemoContext): Promise<void> }
 
 const resolver = new VisualResolver({ env: {} });
 async function cachedPortrait(person: string) {
@@ -717,7 +717,231 @@ DEMOS.push(
       await ctx.wait(2.5);
     },
   },
+  // ── v0.4.5: Interactive Cards & Spatial Applications ──────────────────────────────────────────────────────────
+  ...cardDemos(),
 );
+
+/** v0.4.5 demos: the interactive cards, filmed from the real renderer (the card's sandboxed frame included). */
+function cardDemos(): Demo[] {
+  const WIDE = { width: 1280, height: 800 };
+  const body = async (ctx: DemoContext) => (await ctx.page.locator("#workspace .ws-body").boundingBox())!;
+  const ready = async (ctx: DemoContext, ms = 10_000) => {
+    for (let waited = 0; waited < ms; waited += 100) { const c = ctx.hub.snapshot().card; if (c && (c.lifecycle === "active" || c.lifecycle === "paused") && Object.keys(c.state).length) return; await ctx.wait(0.1); }
+  };
+  const drag = async (ctx: DemoContext, from: [number, number], to: [number, number], steps = 40, button: "left" | "right" = "left") => {
+    const b = await body(ctx);
+    await ctx.page.mouse.move(b.x + b.width * from[0], b.y + b.height * from[1]);
+    await ctx.page.mouse.down({ button });
+    for (let i = 1; i <= steps; i++) { await ctx.page.mouse.move(b.x + b.width * (from[0] + (to[0] - from[0]) * i / steps), b.y + b.height * (from[1] + (to[1] - from[1]) * i / steps)); await ctx.wait(0.03); }
+    await ctx.page.mouse.up({ button });
+  };
+  const click = async (ctx: DemoContext, x = 0.5, y = 0.5) => { const b = await body(ctx); await ctx.page.mouse.click(b.x + b.width * x, b.y + b.height * y); };
+  return [
+    {
+      name: "card-earth-compact", title: "v0.4.5 Deliverable 1: the Earth–Moon card, compact, beside Aion", seconds: 14, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", layout: "compact" });
+        await ready(ctx);
+        await ctx.film("compact", 5);
+        await ctx.shot("compact");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-earth-expanded", title: "v0.4.5 Deliverable 2: the Earth–Moon expanded workspace (Aion in its strip beside it)", seconds: 14, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", settings: { teaching: true } });
+        await ready(ctx);
+        await ctx.film("expanded", 5);
+        await ctx.shot("expanded");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-earth-fullscreen", title: "v0.4.5 Deliverable 3: fullscreen — the card fills Aion's space; the card's own button enters browser fullscreen; Esc leaves", seconds: 18, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", layout: "expanded" });
+        await ready(ctx);
+        await ctx.wait(1);
+        await ctx.page.locator("#workspace .ws-fullscreen").click();
+        await ctx.film("fullscreen", 4);
+        await ctx.shot("fullscreen");
+        await ctx.page.keyboard.press("Escape");
+        await ctx.wait(0.4);
+        await ctx.page.locator("#workspace .ws-bar").click({ position: { x: 40, y: 12 } });
+        await ctx.page.keyboard.press("Escape");
+        await ctx.film("leave", 2.5);
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-earth-rotate", title: "v0.4.5 Deliverable 4: turning the camera around the Earth–Moon system with the mouse", seconds: 16, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", settings: { speed: 0.5 } });
+        await ready(ctx);
+        await ctx.wait(1);
+        const filming = ctx.film("rotate", 6);
+        await drag(ctx, [0.35, 0.55], [0.7, 0.42], 60);
+        await drag(ctx, [0.6, 0.4], [0.45, 0.62], 50);
+        await filming;
+        await ctx.shot("rotated");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-earth-orbit", title: "v0.4.5 Deliverable 5: the orbit — the Moon turns once per orbit, so its marked near side keeps facing Earth; then a Moon that does not rotate", seconds: 30, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", settings: { teaching: true, speed: 5, view: "top" } });
+        await ready(ctx);
+        await ctx.film("synchronous", 6);
+        await ctx.shot("synchronous");
+        await ctx.tool("control_interactive_card", { action: "compare-no-rotation", value: true });
+        await ctx.film("no-rotation", 6);
+        await ctx.shot("no-rotation");
+        await ctx.tool("control_interactive_card", { action: "compare-no-rotation", value: false });
+        await ctx.tool("control_interactive_card", { action: "pause" });
+        await ctx.wait(1); await ctx.shot("paused");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-earth-select", title: "v0.4.5 Deliverable 6: clicking Earth selects it (its properties appear, Aion can inspect it); focus on the Moon and select it", seconds: 22, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", settings: { speed: 0.3 } });
+        await ready(ctx);
+        const filming = ctx.film("select", 9);
+        await ctx.wait(1.5);
+        await click(ctx);
+        await ctx.wait(2.5);
+        await ctx.tool("control_interactive_card", { action: "focus", value: "moon" });
+        await ctx.wait(2.5);
+        await click(ctx);
+        await filming;
+        await ctx.shot("moon-selected");
+        ctx.log((await ctx.tool("inspect_interactive_card")).slice(0, 160));
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-cad-load", title: "v0.4.5 Deliverable 7: \"Show me the transformer model\" — the CAD viewer loads the bundled GLB", seconds: 12, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        const filming = ctx.film("load", 5);
+        await ctx.tool("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        await filming;
+        await ctx.shot("loaded");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-cad-navigate", title: "v0.4.5 Deliverable 8: rotate, zoom and pan the transformer", seconds: 16, viewport: WIDE,
+      async run(ctx) {
+        await ctx.tool("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        await ready(ctx);
+        await ctx.wait(1);
+        const filming = ctx.film("navigate", 8);
+        await drag(ctx, [0.55, 0.55], [0.75, 0.45], 50);
+        const b = await body(ctx);
+        await ctx.page.mouse.move(b.x + b.width * 0.62, b.y + b.height * 0.5);
+        for (let i = 0; i < 12; i++) { await ctx.page.mouse.wheel(0, -120); await ctx.wait(0.08); }
+        await drag(ctx, [0.62, 0.5], [0.55, 0.56], 30, "right");
+        await ctx.wait(1);
+        for (let i = 0; i < 12; i++) { await ctx.page.mouse.wheel(0, 120); await ctx.wait(0.08); }
+        await filming;
+        await ctx.shot("navigated");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-cad-select", title: "v0.4.5 Deliverable 9: clicking the magnetic core — highlighted, named, its metadata shown, and inspectable by Codex", seconds: 16, viewport: WIDE,
+      async run(ctx) {
+        await ctx.tool("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        await ready(ctx);
+        await ctx.tool("control_interactive_card", { action: "set-view", value: "left" });
+        await ctx.wait(1.4);
+        const filming = ctx.film("select", 6);
+        await ctx.wait(0.8);
+        await click(ctx);
+        await ctx.wait(1.2);
+        await ctx.tool("control_interactive_card", { action: "set-view", value: "iso" });
+        await filming;
+        await ctx.shot("core-selected");
+        ctx.log((await ctx.tool("inspect_interactive_card")).slice(0, 200));
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-cad-visibility", title: "v0.4.5 Deliverable 10: \"Hide the winding\", isolate the core, show everything again", seconds: 20, viewport: WIDE,
+      async run(ctx) {
+        await ctx.tool("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        await ready(ctx);
+        const filming = ctx.film("visibility", 9);
+        await ctx.wait(1);
+        await ctx.tool("control_interactive_card", { action: "hide", value: "assembly/windings" });
+        await ctx.wait(2);
+        await ctx.tool("control_interactive_card", { action: "isolate", value: "assembly/core" });
+        await ctx.wait(2);
+        await ctx.tool("control_interactive_card", { action: "show-all" });
+        await filming;
+        await ctx.shot("restored");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(2);
+      },
+    },
+    {
+      name: "card-figure", title: "v0.4.5 Deliverable 11: Aion's figure beside an interactive card — it steps aside and points to the card, then to the selected Earth", seconds: 22, viewport: WIDE,
+      async run(ctx) {
+        await ctx.tool("set_body_form", { body: "figure" });
+        await ctx.wait(3);
+        const filming = ctx.film("figure", 11);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", settings: { speed: 0.3 } });
+        await ready(ctx);
+        await ctx.wait(3);
+        await click(ctx);
+        await ctx.wait(3);
+        await filming;
+        await ctx.shot("figure-beside");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(3);
+      },
+    },
+    {
+      name: "card-transitions", title: "v0.4.5 Deliverable 12: opening and closing — Aion steps aside, the card opens, closes, Aion returns; then the CAD viewer", seconds: 26, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(2);
+        const filming = ctx.film("transitions", 16);
+        await ctx.wait(1);
+        await ctx.tool("show_interactive_card", { app: "earth-moon", layout: "compact" });
+        await ctx.wait(3.5);
+        await ctx.tool("control_interactive_card", { action: "expand" });
+        await ctx.wait(2.5);
+        await ctx.page.locator("#workspace .ws-close").click();
+        await ctx.wait(3);
+        await ctx.tool("show_interactive_card", { app: "cad-viewer", model: "transformer" });
+        await ctx.wait(3);
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await filming;
+        await ctx.wait(2);
+      },
+    },
+  ];
+}
+
 
 DEMOS.push(
   {
@@ -813,7 +1037,8 @@ async function runDemo(browser: Browser, demo: Demo) {
   await hub.start();
   hub.apply({ type: "open", greet: false });
   const videoDir = mkdtempSync(join(tmpdir(), "aion-video-"));
-  const context: BrowserContext = await browser.newContext({ viewport: VIEWPORT, recordVideo: { dir: videoDir, size: VIEWPORT } });
+  const viewport = demo.viewport ?? VIEWPORT;
+  const context: BrowserContext = await browser.newContext({ viewport, recordVideo: { dir: videoDir, size: viewport } });
   await context.grantPermissions(["microphone"]);
   const page = await context.newPage();
   const started = Date.now();

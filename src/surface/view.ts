@@ -36,6 +36,10 @@ import { decodeFeatures } from "../audio/wire";
 import { checkScore, playbackEvents } from "../music/notation/score";
 import { TEMPO } from "../music/theory/rhythm";
 import type { PlaybackRequest } from "../core/store";
+import { InteractiveCardHost, type InteractivePresentation } from "./cards/host";
+import { cardRegistry } from "../core/cards";
+import type { CardLayout } from "../cards/manifest";
+import type { CardSelection } from "../cards/protocol";
 
 export interface ViewElements {
   root: HTMLElement;
@@ -51,6 +55,8 @@ export interface ViewElements {
   sound?: { root: HTMLElement; label: HTMLElement; action: HTMLButtonElement };
   /** v0.4.3: the overlay an action sequence's objects are drawn on (optional: absent, no props are drawn). */
   scene?: HTMLCanvasElement;
+  /** v0.4.5: where an interactive card (an isolated application) is shown (optional: absent, interactive cards are not shown). */
+  workspace?: HTMLElement;
 }
 
 /** A body visual with the seconds it stays formed (Infinity: until the presentation ends). */
@@ -125,6 +131,11 @@ export class PresenceView {
   private performance: { presentation: string; sequence: CompiledSequence; playback: AnimationPlaybackState } | null = null;
   readonly sceneLayer: SceneLayer | null;
   private cardImages: string[] = [];
+  /** v0.4.5: the interactive card on show (its isolated frame and bridge) and its layout. */
+  private cardHost: InteractiveCardHost | null = null;
+  private workspaceLayout: CardLayout | null = null;
+  /** Cards closed on this page: how many, and what their frames reported left behind (the cleanup check). */
+  readonly cardHistory: { opened: number; closed: number; leftovers: { geometries: number; textures: number; urls: number; loops: number }[] } = { opened: 0, closed: 0, leftovers: [] };
   private statusTimer?: ReturnType<typeof setTimeout>;
   private lastStatus = "";
   private connection: ConnectionState = "connecting";
@@ -163,6 +174,8 @@ export class PresenceView {
     if (elements.sound) elements.sound.action.addEventListener("click", () => void this.shareTab());
     elements.fullscreen.addEventListener("click", () => void this.toggleFullscreen());
     document.addEventListener("keydown", event => {
+      // Keys typed inside an interactive card's controls are the card's (the frame itself never passes keys up).
+      if (elements.workspace?.contains(event.target as Node)) return;
       if ((event.key === "f" || event.key === "F") && !event.metaKey && !event.ctrlKey && !event.altKey) void this.toggleFullscreen();
     });
     transport.onDisplayChange = () => this.updateFullscreenControl();
@@ -228,11 +241,24 @@ export class PresenceView {
   private frame(dt: number): Framing {
     const narrow = innerWidth <= 720 || innerWidth / Math.max(1, innerHeight) <= 0.8;
     const open = this.cardState === "shown" || this.cardState === "loading";
+    // An interactive card (v0.4.5): the body steps aside by its layout — beside a compact card, into a slim strip beside
+    // an expanded one, smaller still beside a fullscreen one. It stays itself and alive the whole time.
+    const layout = this.workspaceLayout;
+    if (layout) {
+      const target: Framing = narrow
+        ? { x: 0, y: layout === "compact" ? 0.3 : 0.38, scale: layout === "compact" ? 0.5 : layout === "expanded" ? 0.34 : 0.26 }
+        : layout === "compact" ? { x: -0.25, y: 0, scale: 0.8 } : layout === "expanded" ? { x: -0.385, y: 0.02, scale: 0.4 } : { x: -0.44, y: 0.02, scale: 0.26 };
+      return this.ease(target, dt);
+    }
     // A written word runs wider than other visuals (v0.4.4): it steps further aside and a little smaller.
     const word = (this.writing.sequence?.items.length ?? 0) > 1;
     const target: Framing = !open ? { x: 0, y: 0, scale: 1 }
       : narrow ? { x: 0, y: 0.22, scale: word ? 0.6 : 0.72 }
         : word ? { x: -0.25, y: 0, scale: 0.62 } : this.wide ? { x: -0.24, y: 0, scale: 0.86 } : { x: -0.17, y: 0, scale: 0.96 };
+    return this.ease(target, dt);
+  }
+
+  private ease(target: Framing, dt: number): Framing {
     const k = 1 - Math.exp(-2.6 * Math.max(0, Math.min(0.1, dt)));
     this.framed.x += (target.x - this.framed.x) * k;
     this.framed.y += (target.y - this.framed.y) * k;
@@ -301,6 +327,8 @@ export class PresenceView {
             : presentation.kind === "image" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
       if (caption) this.say(caption, 6_000);
     }
+    // v0.4.5: the interactive card on show follows the hub's card (its layout, Codex's commands).
+    if (this.cardHost && snapshot.card?.instance === this.cardHost.instance) this.cardHost.apply(snapshot.card);
     this.immersive.update(snapshot.hub.display);
     this.updateFullscreenControl();
   };
@@ -315,6 +343,9 @@ export class PresenceView {
   private async present(presentation: Presentation | null) {
     // An action sequence ends with its presentation: the figure eases back and the body returns to its own form.
     if (this.performance && this.performance.presentation !== presentation?.id) { this.performance = null; this.aion.perform(null); }
+    // An interactive card (v0.4.5) ends with its presentation, unless the same card is shown again.
+    if (this.cardHost && !(presentation?.kind === "interactive" && presentation.instance === this.cardHost.instance)) this.closeWorkspace();
+    if (presentation?.kind === "interactive") { this.presentInteractive(presentation); return; }
     if (!presentation) {
       void this.visual.submit(null);
       this.closeCard();
@@ -387,6 +418,79 @@ export class PresenceView {
     }
   }
 
+  /**
+   * An interactive card (v0.4.5): the isolated application stands beside the living body. A hybrid also forms the
+   * application's particle form for a moment. The same instance shown again only updates it (a new model, new settings).
+   */
+  private presentInteractive(presentation: InteractivePresentation) {
+    const workspace = this.elements.workspace, card = this.snapshot?.card, manifest = cardRegistry.get(presentation.app);
+    const plan = planPresentation(presentation, presentation.route);
+    const hold = presentation.bodyHold > 0 ? presentation.bodyHold : Infinity;
+    void this.visual.submit(plan.body.type === "none" ? null : { ...plan.body, hold });
+    if (!workspace || !manifest || !card || card.instance !== presentation.instance) return;
+    if (this.cardHost?.instance === presentation.instance) { this.cardHost.update(presentation); return; }
+    this.closeCard();
+    workspace.hidden = false;
+    const host = new InteractiveCardHost({
+      root: workspace, presentation, card, manifest,
+      media: id => this.transport.media(id),
+      theme: () => ({ base: this.appearance?.base.hex ?? "#a8bed1", accent: accentColor(this.appearance?.accent.hex ?? "#e2725b") }),
+      reducedMotion: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      report: report => { void this.transport.cardReport?.(report); },
+      layoutChanged: layout => {
+        this.workspaceLayout = layout;
+        const root = this.elements.root;
+        root.dataset.workspace = layout;
+        requestAnimationFrame(() => root.classList.add("with-workspace"));
+      },
+      close: () => this.dismiss(),
+      fullscreen: () => this.transport.fullscreen(),
+      attention: selection => this.attendToSelection(selection),
+      interacting: on => this.runtime?.setFrameCap?.(on && this.workspaceLayout !== "compact" ? 30 : null),
+    });
+    this.cardHost = host;
+    this.cardHistory.opened++;
+    host.mount();
+    host.apply(card);
+    // The body turns toward the application once it has stepped aside.
+    setTimeout(() => { if (this.cardHost === host && plan.body.type === "none") this.attendToSelection(null); }, 1_300);
+  }
+
+  /** Closes the interactive card: the frame and everything in it are released, and the body returns to its place. */
+  private closeWorkspace() {
+    const host = this.cardHost, workspace = this.elements.workspace;
+    if (!host) return;
+    this.cardHost = null;
+    this.workspaceLayout = null;
+    this.runtime?.setFrameCap?.(null);
+    this.elements.root.classList.remove("with-workspace");
+    delete this.elements.root.dataset.workspace;
+    void host.dispose().then(() => {
+      this.cardHistory.closed++;
+      if (host.leftovers) this.cardHistory.leftovers.push(host.leftovers);
+      if (workspace && !this.cardHost) setTimeout(() => { if (!this.cardHost) { workspace.hidden = true; workspace.replaceChildren(); } }, 600);
+    });
+  }
+
+  /**
+   * The body attends to the interactive card: toward the selected object when the application reported exactly where it
+   * is on screen, otherwise toward the card as a whole (never an invented point).
+   */
+  private attendToSelection(selection: CardSelection | null) {
+    const workspace = this.elements.workspace;
+    if (!workspace || this.visual.presenting || !this.cardHost) return;
+    const frame = workspace.querySelector<HTMLElement>(".ws-body") ?? workspace;
+    const box = frame.getBoundingClientRect();
+    const exact = selection?.screen ? { x: box.left + selection.screen.x * box.width, y: box.top + selection.screen.y * box.height } : null;
+    const at = exact ?? { x: box.left + Math.min(box.width * 0.12, 80), y: box.top + box.height * 0.45 };
+    const world = this.runtime?.toWorld(at.x, at.y);
+    if (this.aion.currentBody === "figure" && world) {
+      this.aion.figure.cue(exact ? EXPLAIN([world[0] / FIGURE_SCALE, world[1] / FIGURE_SCALE, 0.25]) : POINT([world[0] / FIGURE_SCALE, world[1] / FIGURE_SCALE, 0.25], 1.2));
+    } else if (this.aion.currentBody === "eyes") {
+      this.aion.glance([0.85, world ? Math.max(-0.75, Math.min(0.75, world[1] * 0.38)) : 0], exact ? 2.6 : 1.8);
+    }
+  }
+
   /** The body turns to the card beside it. Only while the body is itself (not formed into a visual). */
   private attendToCard() {
     if (this.visual.presenting || this.cardState !== "shown") return;
@@ -406,6 +510,7 @@ export class PresenceView {
 
   /** The user dismissed the card: the presentation ends everywhere (the body returns too). */
   private dismiss() {
+    this.closeWorkspace();
     this.closeCard();
     void this.visual.submit(null);
     void this.transport.dismiss?.().catch(() => {});
@@ -699,6 +804,7 @@ export class PresenceView {
       activity: `host ${this.activity} → effective ${this.presence.activity}`,
       state: `${this.aion.currentState} · body ${this.aion.currentBody} · userAmplitude ${signal.userAmplitude.toFixed(2)} · responding ${signal.responding.toFixed(2)} · speaking ${signal.mode === "speaking" ? "yes" : "no"} · hostAudio ${this.presence.hostAudio}`,
       visual: `${this.visual.phase} · card ${this.cardState}${presentation ? ` · route ${presentation.route} (${presentation.reason})` : ""} · revision ${this.snapshot?.revision ?? "-"}`,
+      interactive: this.cardHost ? `${this.cardHost.instance} · ${this.cardHost.lifecycle.state} · ${this.workspaceLayout} · opened ${this.cardHistory.opened} closed ${this.cardHistory.closed}` : `none · opened ${this.cardHistory.opened} closed ${this.cardHistory.closed}`,
       animation: (() => {
         const animation = this.snapshot?.animation;
         if (!animation) return "none";

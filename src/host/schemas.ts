@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { CARD_APP_IDS } from "../cards/registry";
+import { CARD_LAYOUTS } from "../cards/manifest";
 import { AION_BODIES } from "../core/body";
 import { AION_IDENTITY } from "../core/identity";
 import { ARTIFACT_TYPES, CHANGE_KINDS, cleanCode, cleanLine, cleanText, IMAGE_MODES, LIMITS, MARKER_LIMITS, RESULT_STATUSES } from "../core/presentation";
@@ -37,11 +39,10 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
   return clean;
 });
 const hold = z.number().min(0).max(LIMITS.hold.max)
-  .describe(`Seconds before Aion returns to its body (${LIMITS.hold.min}–${LIMITS.hold.max}; 0 = until cleared). Usually omit.`);
+  .describe(`Seconds shown (${LIMITS.hold.min}–${LIMITS.hold.max}; 0: until cleared). Usually omit.`);
 
 /** How the user should see it (the Presentation Router decides by default; see core/presentationRouter.ts). */
-const presentation = z.enum(PRESENTATION_PREFERENCES).describe(
-  "auto (default): Aion decides. body: the particles become it. card: an exact card beside the body. hybrid: both.");
+const presentation = z.enum(PRESENTATION_PREFERENCES).describe("auto (default): Aion decides; body: particles; card: exact card; hybrid: both.");
 
 /** A free-text field checked by one of SCF's validators after its whitespace is tidied. */
 const checked = (max: number, valid: (value: string) => boolean, what: string) => z.string().max(max * 4).transform((value, ctx) => {
@@ -228,7 +229,7 @@ export const showArtifactInput = z.object({
  * (visual/scene3d/validate.ts), before anything is built.
  */
 const num = z.number();
-const vec = z.tuple([num, num, num]);
+const vec = z.array(num).length(3);
 /**
  * One flat object for every primitive (not a union per type): the schema stays small enough for hosts that budget tool
  * metadata (v0.4.4, see docs/MCP-TOOLS.md). Which fields a type needs is checked strictly by checkScene.
@@ -437,3 +438,26 @@ export const controlAnimationInput = z.object({
   character: z.number().int().min(1).max(STROKE_LIMITS.items).optional().describe("In a word: which character or letter, from 1 (repeat alone writes it again)."),
   speed: z.enum(ANIMATION_SPEEDS).optional().describe("slow, normal, fast, or slower / faster than now (\"write it more slowly\" → slower, or replay with slow)."),
 }).strict();
+
+// ── v0.4.5: interactive cards ──────────────────────────────────────────────────────────────────────────────────────
+const cardSetting = z.union([z.string().max(40), z.number().finite(), z.boolean()]);
+export const showInteractiveCardInput = z.object({
+  app: z.enum(CARD_APP_IDS),
+  model: z.string().min(1).max(1024).optional().describe("cad-viewer: \"transformer\" or an absolute .glb/.gltf path."),
+  layout: z.enum(CARD_LAYOUTS).optional().describe("Default expanded."),
+  presentation: z.enum(["card", "hybrid"]).optional().describe("hybrid: the body also forms earth-moon in particles."),
+  settings: z.record(z.string(), cardSetting).optional()
+    .describe("earth-moon: speed (days/s), focus, view, scale (educational|true-distance), teaching, labels, paused. cad-viewer: view, edges."),
+  title: z.string().max(80).optional(),
+  hold_seconds: z.number().min(0).max(3600).optional().describe("Default: until closed."),
+}).strict();
+
+export const controlInteractiveCardInput = z.object({
+  action: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/).describe("A universal action or an app command."),
+  value: z.union([z.string().max(120), z.number().finite(), z.boolean()]).optional().describe("A speed, component id, true/false or view."),
+}).strict();
+
+export const inspectInteractiveCardInput = z.object({}).strict();
+
+/** The embedded view's report about its interactive card (app-only; validated again by the hub). */
+export const cardReportInput = z.object({ report: z.record(z.string(), z.unknown()) }).strict();
