@@ -27,6 +27,8 @@ export type HostRule = string | RegExp;
 export const HOSTS = {
   wikipedia: /^[a-z][a-z-]{1,11}\.wikipedia\.org$/,
   commons: "commons.wikimedia.org",
+  /** Only an article's own item id is ever sent (e.g. Q9036), to read the image the item names. */
+  wikidata: "www.wikidata.org",
   wikimediaImages: ["upload.wikimedia.org", "thumb.wikimedia.org"],
   openverse: "api.openverse.org",
   nominatim: "nominatim.openstreetmap.org",
@@ -39,7 +41,7 @@ export const HOSTS = {
 
 /** Every host the plugin may ever contact besides its own loopback hub. Tests hold the code to this list. */
 export const ALLOWED_HOSTS: readonly HostRule[] = [
-  HOSTS.wikipedia, HOSTS.commons, ...HOSTS.wikimediaImages, HOSTS.openverse, HOSTS.nominatim, HOSTS.photon, HOSTS.elevation,
+  HOSTS.wikipedia, HOSTS.commons, HOSTS.wikidata, ...HOSTS.wikimediaImages, HOSTS.openverse, HOSTS.nominatim, HOSTS.photon, HOSTS.elevation,
   HOSTS.braveSearch, HOSTS.braveImages,
 ];
 

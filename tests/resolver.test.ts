@@ -9,8 +9,10 @@ import { PROVIDER_ORDER, resolveImage } from "../src/host/resolver/images";
 import { VisualResolver } from "../src/host/resolver/index";
 import { ALLOWED_HOSTS, checkedURL, fetchImage, HOSTS, safeFetch, USER_AGENT } from "../src/host/resolver/net";
 import { decodePng } from "../src/host/resolver/png";
+import { scoreCandidate } from "../src/host/resolver/rank";
 import { braveProvider } from "../src/host/resolver/sources/brave";
 import { elevationTilesProvider, geocode, mercatorX, mercatorY, normalizeBox, planTiles, terrainLimits } from "../src/host/resolver/sources/terrain";
+import { extendsName, wikipediaProvider } from "../src/host/resolver/sources/wikimedia";
 import type { ImageCandidate, ImageProvider, ResolveTrace } from "../src/host/resolver/types";
 import {
   buildHeightField, decodeHeightField, decodeTerrarium, encodeHeightField, heightRange, rasterizePolygon, type TerrainSource,
@@ -163,6 +165,80 @@ test("ranking drops off-topic or unusable candidates before anything is download
   assert.equal(found.candidate.title, "Nikola Tesla");
   assert.deepEqual(loads, ["photo"]);
   assert.match(t.chain[0].outcome, /selected/);
+});
+
+/** Wikimedia's APIs as JSON, by host and action: the article (no lead image), its Wikidata image, its Commons file. */
+function wikimedia(options: { leadImage?: boolean; item?: string; wikidata?: "ok" | "none" | "down"; search?: { title: string; index: number }[] } = {}) {
+  const urls: URL[] = [];
+  const request = fetcher(async input => {
+    const url = new URL(String(input));
+    urls.push(url);
+    const params = url.searchParams;
+    if (url.hostname === "www.wikidata.org") {
+      if (options.wikidata === "down") return new Response("", { status: 503 });
+      return Response.json({ claims: options.wikidata === "none" ? {} : { P18: [
+        { rank: "deprecated", mainsnak: { datavalue: { value: "Old scan.jpg" } } },
+        { rank: "normal", mainsnak: { datavalue: { value: "Tesla circa 1890.jpeg" } } },
+      ] } });
+    }
+    if (url.hostname === "commons.wikimedia.org") {
+      return Response.json({ query: { pages: [{ title: `File:${params.get("titles")!.slice(5)}`, imageinfo: [{
+        url: "https://upload.wikimedia.org/wikipedia/commons/7/79/Tesla_circa_1890.jpeg",
+        thumburl: "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Tesla_circa_1890.jpeg/960px-Tesla_circa_1890.jpeg",
+        thumbwidth: 960, thumbheight: 1287, thumbmime: "image/jpeg", mime: "image/jpeg" }] }] } });
+    }
+    const thumbnail = (title: string) => ({ source: `https://upload.wikimedia.org/${encodeURIComponent(title)}.jpg`, width: 960, height: 720 });
+    if (params.get("generator") === "search") {
+      return Response.json({ query: { pages: (options.search ?? []).map(hit => ({ ...hit, thumbnail: thumbnail(hit.title) })) } });
+    }
+    return Response.json({ query: { pages: [{ title: "Nikola Tesla",
+      pageprops: options.item === undefined ? { wikibase_item: "Q9036" } : options.item ? { wikibase_item: options.item } : {},
+      ...(options.leadImage ? { thumbnail: { source: "https://upload.wikimedia.org/lead.jpg", width: 600, height: 800 } } : {}) }] } });
+  });
+  return { request, urls };
+}
+
+test("an article without a lead image falls back to the image its Wikidata item names, sending only the item id", async () => {
+  const { request, urls } = wikimedia({ search: [{ title: "Nikola Tesla Museum", index: 1 }] });
+  const [found, ...rest] = await wikipediaProvider(request).search("Nikola Tesla", "portrait", signal());
+  assert.equal(rest.length, 0);
+  assert.equal(found.title, "Nikola Tesla", "the person's own article, not a namesake");
+  assert.equal(found.url, "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Tesla_circa_1890.jpeg/960px-Tesla_circa_1890.jpeg");
+  assert.deepEqual([found.width, found.height, found.mime, found.relevance], [960, 1287, "image/jpeg", 1]);
+  assert.equal(found.pageUrl, "https://en.wikipedia.org/wiki/Nikola_Tesla");
+  const item = urls.find(url => url.hostname === "www.wikidata.org")!;
+  assert.deepEqual(Object.fromEntries(item.searchParams), { action: "wbgetclaims", format: "json", entity: "Q9036", property: "P18" });
+  assert.equal(urls.find(url => url.hostname === "commons.wikimedia.org")?.searchParams.get("titles"), "File:Tesla circa 1890.jpeg", "a deprecated image is skipped");
+  assert.ok(!urls.some(url => url.searchParams.get("generator") === "search"), "no search once the item had an image");
+  // A lead image still wins, without asking Wikidata.
+  const lead = wikimedia({ leadImage: true });
+  assert.equal((await wikipediaProvider(lead.request).search("Nikola Tesla", "portrait", signal()))[0].url, "https://upload.wikimedia.org/lead.jpg");
+  assert.ok(!lead.urls.some(url => url.hostname === "www.wikidata.org"));
+});
+
+test("a portrait search never takes something named after the person (museum, company, airport)", async () => {
+  const search = [{ title: "Nikola Tesla Museum", index: 1 }, { title: "Tesla, Inc.", index: 2 }, { title: "Nikola Tesla (inventor)", index: 3 }];
+  for (const wikidata of ["none", "down"] as const) {
+    const { request } = wikimedia({ wikidata, search });
+    const found = await wikipediaProvider(request).search("Nikola Tesla", "portrait", signal());
+    assert.deepEqual(found.map(candidate => candidate.title), ["Nikola Tesla (inventor)"], wikidata);
+  }
+  // Without an item at all the search runs as before; for an object, the museum is a fair answer.
+  const museum = await wikipediaProvider(wikimedia({ item: "", search }).request).search("Nikola Tesla", "object", signal());
+  assert.ok(museum.some(candidate => candidate.title === "Nikola Tesla Museum"));
+  assert.equal(extendsName("Nikola Tesla", "Nikola Tesla Museum"), true);
+  assert.equal(extendsName("Tesla", "Tesla, Inc."), true);
+  assert.equal(extendsName("Martin Luther", "Martin Luther King Jr."), true);
+  assert.equal(extendsName("Martin Luther King", "Martin Luther King Jr."), false);
+  assert.equal(extendsName("Einstein", "Albert Einstein"), false);
+  assert.equal(extendsName("Prince", "Prince (musician)"), false);
+  // Every provider's candidates: a namesake is not a portrait, though it may be any other picture.
+  const base = { provider: "commons", url: "https://upload.wikimedia.org/a.jpg", relevance: 1, width: 600, height: 800 };
+  assert.equal(scoreCandidate({ ...base, title: "Nikola Tesla Museum Belgrade 2019" }, "Nikola Tesla", "portrait"), null);
+  assert.equal(scoreCandidate({ ...base, title: "Statue of Nikola Tesla at Niagara Falls" }, "Nikola Tesla", "celebrity"), null);
+  assert.notEqual(scoreCandidate({ ...base, title: "Nikola Tesla 1890" }, "Nikola Tesla", "portrait"), null);
+  assert.notEqual(scoreCandidate({ ...base, title: "Nikola Tesla Museum" }, "Nikola Tesla Museum", "portrait"), null, "unless it is what was asked for");
+  assert.notEqual(scoreCandidate({ ...base, title: "Nikola Tesla Museum Belgrade" }, "Nikola Tesla", "object"), null);
 });
 
 test("the Spirit Connect logo comes only from the plugin's own asset, never a web search", async () => {
