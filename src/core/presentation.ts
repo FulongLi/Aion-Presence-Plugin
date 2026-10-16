@@ -7,6 +7,7 @@ import { animationDuration } from "../animation/control";
 import type { CardLayout } from "../cards/manifest";
 import type { CardAssetRef } from "../cards/state";
 import type { CardValue } from "../cards/values";
+import type { SceneDocument } from "../scene/ir";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -138,9 +139,10 @@ export type PresentationContent =
    * body. `instance` is its card's id (kept when the same application is shown again, e.g. a new model in the open
    * viewer); `asset` a validated model it loads; `config` its launch settings, checked against its manifest. `bodyScene`:
    * the application's particle form, present only when it was asked for as a hybrid. Its live state is the snapshot's
-   * `card`.
+   * `card`. v0.5: `scene` — a generative scene card's Scene IR document; the store moves it into the card's scene state
+   * (revision and history) and never keeps it on the presentation itself.
    */
-  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D };
+  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D; scene?: SceneDocument };
 
 export type PresentationKind = PresentationContent["kind"];
 

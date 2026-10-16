@@ -34,7 +34,7 @@ const interactive = (app = "earth-moon", instance = INSTANCE, extra: Partial<Ext
 // ── Registry and manifests ─────────────────────────────────────────────────────────────────────────────────────────
 test("v0.4.5 registry: the built-in applications register; unknown ids are not there; ids are unique", () => {
   const registry = defaultCardRegistry();
-  assert.deepEqual(registry.ids(), ["earth-moon", "cad-viewer"]);
+  assert.deepEqual(registry.ids(), ["earth-moon", "cad-viewer", "generative-scene"]); // v0.5 adds the generated scene
   assert.equal(registry.get("browser"), undefined);
   assert.throws(() => registry.register(EARTH_MOON_MANIFEST), /card-app-duplicate/);
   // A future application is a manifest: no change to the engine.

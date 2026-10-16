@@ -1,0 +1,444 @@
+{
+ "version": 1,
+ "sceneId": "solar-system",
+ "title": "The Solar System",
+ "intent": {
+  "kind": "scientific",
+  "summary": "A 3D solar system with the Sun and eight planets",
+  "fidelity": "illustrative",
+  "interaction": "view"
+ },
+ "units": {
+  "length": "unit",
+  "time": "s",
+  "angle": "deg"
+ },
+ "coordinateSystem": "right-handed-y-up",
+ "disclosure": [
+  "Not to scale: planet sizes and distances are compressed so every planet is visible; orbital periods are sped up and kept in order, not in proportion."
+ ],
+ "materials": [
+  {
+   "id": "orbit",
+   "color": "#7f8a99",
+   "opacity": 0.45,
+   "unlit": true
+  }
+ ],
+ "objects": [
+  {
+   "id": "sun",
+   "type": "sphere",
+   "name": "Sun",
+   "radius": 1.4,
+   "label": "Sun",
+   "material": {
+    "color": "#ffcc66",
+    "emissive": "#ffaa33",
+    "emissiveIntensity": 1.6,
+    "unlit": true
+   },
+   "metadata": {
+    "Type": "G-type main-sequence star",
+    "Radius (km)": 696340
+   },
+   "annotation": "The Sun holds 99.86% of the Solar System's mass."
+  },
+  {
+   "id": "orbit-mercury",
+   "type": "circle",
+   "name": "Mercury's orbit",
+   "radius": 3.0,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "mercury",
+   "type": "sphere",
+   "name": "Mercury",
+   "radius": 0.18,
+   "position": [
+    3.0,
+    0,
+    0
+   ],
+   "label": "Mercury",
+   "material": {
+    "color": "#9c9a96",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 2439.7,
+    "Distance (AU)": 0.387,
+    "Orbital period (days)": 87.97
+   }
+  },
+  {
+   "id": "orbit-venus",
+   "type": "circle",
+   "name": "Venus's orbit",
+   "radius": 4.2,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "venus",
+   "type": "sphere",
+   "name": "Venus",
+   "radius": 0.32,
+   "position": [
+    4.2,
+    0,
+    0
+   ],
+   "label": "Venus",
+   "material": {
+    "color": "#d9b77a",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 6051.8,
+    "Distance (AU)": 0.723,
+    "Orbital period (days)": 224.7
+   }
+  },
+  {
+   "id": "orbit-earth",
+   "type": "circle",
+   "name": "Earth's orbit",
+   "radius": 5.6,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "earth",
+   "type": "sphere",
+   "name": "Earth",
+   "radius": 0.34,
+   "position": [
+    5.6,
+    0,
+    0
+   ],
+   "label": "Earth",
+   "material": {
+    "color": "#3b82f6",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 6371.0,
+    "Distance (AU)": 1.0,
+    "Orbital period (days)": 365.26
+   }
+  },
+  {
+   "id": "orbit-mars",
+   "type": "circle",
+   "name": "Mars's orbit",
+   "radius": 7.0,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "mars",
+   "type": "sphere",
+   "name": "Mars",
+   "radius": 0.24,
+   "position": [
+    7.0,
+    0,
+    0
+   ],
+   "label": "Mars",
+   "material": {
+    "color": "#c1440e",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 3389.5,
+    "Distance (AU)": 1.524,
+    "Orbital period (days)": 686.98
+   }
+  },
+  {
+   "id": "orbit-jupiter",
+   "type": "circle",
+   "name": "Jupiter's orbit",
+   "radius": 9.6,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "jupiter",
+   "type": "sphere",
+   "name": "Jupiter",
+   "radius": 0.9,
+   "position": [
+    9.6,
+    0,
+    0
+   ],
+   "label": "Jupiter",
+   "material": {
+    "color": "#d8b48a",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 69911,
+    "Distance (AU)": 5.203,
+    "Orbital period (days)": 4332.59
+   }
+  },
+  {
+   "id": "orbit-saturn",
+   "type": "circle",
+   "name": "Saturn's orbit",
+   "radius": 12.4,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "saturn",
+   "type": "sphere",
+   "name": "Saturn",
+   "radius": 0.78,
+   "position": [
+    12.4,
+    0,
+    0
+   ],
+   "label": "Saturn",
+   "material": {
+    "color": "#e3cf9a",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 58232,
+    "Distance (AU)": 9.537,
+    "Orbital period (days)": 10759.22
+   }
+  },
+  {
+   "id": "orbit-uranus",
+   "type": "circle",
+   "name": "Uranus's orbit",
+   "radius": 14.8,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "uranus",
+   "type": "sphere",
+   "name": "Uranus",
+   "radius": 0.5,
+   "position": [
+    14.8,
+    0,
+    0
+   ],
+   "label": "Uranus",
+   "material": {
+    "color": "#9fd8e0",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 25362,
+    "Distance (AU)": 19.19,
+    "Orbital period (days)": 30688.5
+   }
+  },
+  {
+   "id": "orbit-neptune",
+   "type": "circle",
+   "name": "Neptune's orbit",
+   "radius": 16.8,
+   "material": "orbit",
+   "selectable": false
+  },
+  {
+   "id": "neptune",
+   "type": "sphere",
+   "name": "Neptune",
+   "radius": 0.48,
+   "position": [
+    16.8,
+    0,
+    0
+   ],
+   "label": "Neptune",
+   "material": {
+    "color": "#4f6fd1",
+    "roughness": 0.8
+   },
+   "metadata": {
+    "Radius (km)": 24622,
+    "Distance (AU)": 30.07,
+    "Orbital period (days)": 60182
+   }
+  },
+  {
+   "id": "saturn-rings",
+   "type": "ring",
+   "name": "Saturn's rings",
+   "parent": "saturn",
+   "inner": 0.95,
+   "outer": 1.5,
+   "rotation": [
+    20,
+    0,
+    0
+   ],
+   "material": {
+    "color": "#d9c89a",
+    "opacity": 0.7
+   },
+   "selectable": false
+  }
+ ],
+ "animations": [
+  {
+   "id": "sun-spin",
+   "target": "sun",
+   "type": "spin",
+   "speed": 6
+  },
+  {
+   "id": "orbit-mercury",
+   "target": "mercury",
+   "type": "orbit",
+   "center": "sun",
+   "period": 4.0,
+   "phase": 0,
+   "radius": 3.0
+  },
+  {
+   "id": "spin-mercury",
+   "target": "mercury",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-venus",
+   "target": "venus",
+   "type": "orbit",
+   "center": "sun",
+   "period": 6.2,
+   "phase": 41,
+   "radius": 4.2
+  },
+  {
+   "id": "spin-venus",
+   "target": "venus",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-earth",
+   "target": "earth",
+   "type": "orbit",
+   "center": "sun",
+   "period": 8.0,
+   "phase": 82,
+   "radius": 5.6
+  },
+  {
+   "id": "spin-earth",
+   "target": "earth",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-mars",
+   "target": "mars",
+   "type": "orbit",
+   "center": "sun",
+   "period": 11.0,
+   "phase": 123,
+   "radius": 7.0
+  },
+  {
+   "id": "spin-mars",
+   "target": "mars",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-jupiter",
+   "target": "jupiter",
+   "type": "orbit",
+   "center": "sun",
+   "period": 20.0,
+   "phase": 164,
+   "radius": 9.6
+  },
+  {
+   "id": "spin-jupiter",
+   "target": "jupiter",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-saturn",
+   "target": "saturn",
+   "type": "orbit",
+   "center": "sun",
+   "period": 28.0,
+   "phase": 205,
+   "radius": 12.4
+  },
+  {
+   "id": "spin-saturn",
+   "target": "saturn",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-uranus",
+   "target": "uranus",
+   "type": "orbit",
+   "center": "sun",
+   "period": 38.0,
+   "phase": 246,
+   "radius": 14.8
+  },
+  {
+   "id": "spin-uranus",
+   "target": "uranus",
+   "type": "spin",
+   "speed": 90
+  },
+  {
+   "id": "orbit-neptune",
+   "target": "neptune",
+   "type": "orbit",
+   "center": "sun",
+   "period": 48.0,
+   "phase": 287,
+   "radius": 16.8
+  },
+  {
+   "id": "spin-neptune",
+   "target": "neptune",
+   "type": "spin",
+   "speed": 90
+  }
+ ],
+ "camera": {
+  "position": [
+   0,
+   14,
+   26
+  ],
+  "target": [
+   0,
+   0,
+   0
+  ]
+ },
+ "environment": {
+  "background": "#04060a",
+  "ambient": 0.25,
+  "stars": true,
+  "lightSource": "sun"
+ }
+}

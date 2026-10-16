@@ -719,7 +719,148 @@ DEMOS.push(
   },
   // ── v0.4.5: Interactive Cards & Spatial Applications ──────────────────────────────────────────────────────────
   ...cardDemos(),
+  // ── v0.5: the Generative Visual Engine ────────────────────────────────────────────────────────────────────────
+  ...sceneDemos(),
 );
+
+/**
+ * v0.5 demos: generated scenes, filmed from the real renderer. Every scene is a Scene IR document from
+ * tests/fixtures/scenes (what Codex writes), sent through the real MCP tools; nothing here is a scene-specific application.
+ */
+function sceneDemos(): Demo[] {
+  const WIDE = { width: 1280, height: 800 };
+  const scene = (file: string) => JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", file), "utf8")) as Record<string, unknown>;
+  const built = async (ctx: DemoContext, ms = 12_000) => {
+    for (let waited = 0; waited < ms; waited += 100) { const c = ctx.hub.snapshot().card; if (c?.scene?.rendered && c.scene.rendered.revision >= c.scene.revision) return; await ctx.wait(0.1); }
+  };
+  const body = async (ctx: DemoContext) => (await ctx.page.locator("#workspace .ws-body").boundingBox())!;
+  const patch = (ctx: DemoContext, ops: unknown[]) => ctx.tool("control_interactive_card", { action: "patch", patch: ops });
+  return [
+    {
+      name: "scene-solar", title: "v0.5 Demo A: \"Create a 3D solar system with the Sun and eight planets\" — generated from Scene IR, hybrid, rotated and zoomed", seconds: 26, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("solar-system.json") });
+        await built(ctx);
+        await ctx.film("generated", 5);
+        await ctx.shot("generated");
+        const b = await body(ctx);
+        await ctx.page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.75);
+        await ctx.page.mouse.down();
+        const moves = (async () => { for (let i = 1; i <= 50; i++) { await ctx.page.mouse.move(b.x + b.width * (0.5 + i * 0.006), b.y + b.height * (0.75 - i * 0.006)); await ctx.wait(0.04); } await ctx.page.mouse.up(); })();
+        await ctx.film("rotate", 2.4);
+        await moves;
+        await ctx.page.mouse.wheel(0, -500);
+        await ctx.film("zoom", 2.5);
+        await ctx.shot("rotated");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-edits", title: "v0.5 Demo B: Earth three times larger, Mars stopped, orbits blue, resumed — one scene, patched in place", seconds: 30, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("solar-system.json") });
+        await built(ctx);
+        await ctx.film("1-start", 2);
+        await patch(ctx, [{ op: "transform", id: "earth", scaleBy: 3 }]);
+        await ctx.film("2-earth-x3", 2.5);
+        await patch(ctx, [{ op: "update-animation", id: "orbit-mars", set: { paused: true } }, { op: "update-animation", id: "spin-mars", set: { paused: true } }]);
+        await ctx.film("3-mars-stopped", 3);
+        await patch(ctx, [{ op: "material", id: "orbit", set: { color: "blue" } }]);
+        await ctx.film("4-orbits-blue", 2.5);
+        await ctx.shot("edited");
+        await patch(ctx, [{ op: "update-animation", id: "orbit-mars", set: { paused: false } }, { op: "update-animation", id: "spin-mars", set: { paused: false } }]);
+        await ctx.film("5-resumed", 3);
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-select", title: "v0.5 Demo F + H: click the Sun, \"move this object to the left and make it larger\", then undo and redo", seconds: 26, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("solar-system.json") });
+        await built(ctx);
+        await ctx.tool("control_interactive_card", { action: "pause" });
+        await ctx.wait(1.5);
+        const b = await body(ctx);
+        await ctx.page.mouse.click(b.x + b.width / 2, b.y + b.height / 2);
+        await ctx.film("1-selected", 2);
+        await ctx.shot("selected");
+        await ctx.tool("inspect_interactive_card");
+        await ctx.tool("control_interactive_card", { action: "resume" });
+        await patch(ctx, [{ op: "transform", id: "$selected", translate: [-3, 0, 0], scaleBy: 1.5 }]);
+        await ctx.film("2-moved", 3);
+        await ctx.shot("moved");
+        await ctx.tool("control_interactive_card", { action: "undo" });
+        await ctx.film("3-undo", 2.5);
+        await ctx.tool("control_interactive_card", { action: "redo" });
+        await ctx.film("4-redo", 2.5);
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-time", title: "v0.5 Demo C: \"Visualize the passage of time\" (body) → \"an interactive 3D timeline\" (card) → \"add the major geological periods\"", seconds: 34, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("passage-of-time.json") });
+        await ctx.wait(2);
+        await ctx.film("1-body", 4);
+        await ctx.shot("body");
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("deep-time-timeline.json") });
+        await built(ctx);
+        await ctx.film("2-timeline", 4);
+        await ctx.shot("timeline");
+        await ctx.tool("control_interactive_card", { action: "patch", patch: JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", "geological-periods.patch.json"), "utf8")) });
+        await ctx.film("3-periods", 4);
+        await ctx.tool("control_interactive_card", { action: "select", value: "jurassic" });
+        await ctx.film("4-jurassic", 2);
+        await ctx.shot("periods");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-field", title: "v0.5 Demo D: a simple animated three-phase magnetic field (illustrative, says so)", seconds: 18, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("three-phase-field.json") });
+        await built(ctx);
+        await ctx.film("rotating-field", 6);
+        await ctx.shot("field");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-buck", title: "v0.5 Demo E: an animated conceptual buck converter (switching sequence and energy transfer; not a simulation)", seconds: 18, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("buck-converter.json") });
+        await built(ctx);
+        await ctx.film("switching", 6);
+        await ctx.shot("buck");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+    {
+      name: "scene-gears", title: "v0.5: two meshing gears (one drives the other at 2:1) and a bead following a curve", seconds: 14, viewport: WIDE,
+      async run(ctx) {
+        await ctx.wait(1.5);
+        await ctx.tool("show_interactive_card", { app: "generative-scene", scene: scene("gear-train.json") });
+        await built(ctx);
+        await ctx.film("gears", 5);
+        await ctx.shot("gears");
+        await ctx.tool("control_interactive_card", { action: "close" });
+        await ctx.wait(1.5);
+      },
+    },
+  ];
+}
 
 /** v0.4.5 demos: the interactive cards, filmed from the real renderer (the card's sandboxed frame included). */
 function cardDemos(): Demo[] {

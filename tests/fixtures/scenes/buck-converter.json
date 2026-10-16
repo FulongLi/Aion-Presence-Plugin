@@ -1,0 +1,510 @@
+{
+ "version": 1,
+ "sceneId": "buck-converter",
+ "title": "Buck converter (conceptual)",
+ "intent": {
+  "kind": "engineering",
+  "summary": "An animated conceptual buck converter",
+  "fidelity": "illustrative",
+  "interaction": "inspect"
+ },
+ "disclosure": [
+  "Conceptual animation of the switching sequence and energy transfer. Not a circuit simulation: no voltages or currents are computed."
+ ],
+ "objects": [
+  {
+   "id": "source",
+   "type": "box",
+   "name": "Input source (Vin)",
+   "size": [
+    0.9,
+    1.6,
+    0.6
+   ],
+   "position": [
+    -6,
+    0,
+    0
+   ],
+   "label": "Vin",
+   "material": {
+    "color": "#3b82f6"
+   },
+   "metadata": {
+    "Role": "DC input",
+    "Example": "12 V"
+   }
+  },
+  {
+   "id": "switch",
+   "type": "box",
+   "name": "Switch (MOSFET)",
+   "size": [
+    0.9,
+    0.5,
+    0.6
+   ],
+   "position": [
+    -3,
+    2,
+    0
+   ],
+   "label": "Switch",
+   "material": {
+    "color": "#9aa7b4",
+    "emissive": "#ffd60a",
+    "emissiveIntensity": 0
+   },
+   "metadata": {
+    "Role": "Chops the input on and off",
+    "Duty cycle": "60% (illustrative)"
+   }
+  },
+  {
+   "id": "diode",
+   "type": "cone",
+   "name": "Diode",
+   "radius": 0.35,
+   "height": 0.7,
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "label": "Diode",
+   "material": {
+    "color": "#9aa7b4",
+    "emissive": "#ff5a4f",
+    "emissiveIntensity": 0
+   },
+   "metadata": {
+    "Role": "Carries inductor current while the switch is off"
+   }
+  },
+  {
+   "id": "inductor",
+   "type": "helix",
+   "name": "Inductor",
+   "radius": 0.4,
+   "height": 1.6,
+   "turns": 7,
+   "tube": 0.07,
+   "position": [
+    1.5,
+    2,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    90
+   ],
+   "label": "Inductor",
+   "material": {
+    "color": "#c99a5b",
+    "emissive": "#ffaa33",
+    "emissiveIntensity": 0.1
+   },
+   "metadata": {
+    "Role": "Stores energy while the switch is on, releases it while off"
+   }
+  },
+  {
+   "id": "capacitor-a",
+   "type": "box",
+   "name": "Capacitor",
+   "size": [
+    0.08,
+    1.0,
+    0.8
+   ],
+   "position": [
+    3.85,
+    0,
+    0
+   ],
+   "label": "Capacitor",
+   "material": {
+    "color": "#7fa86b"
+   },
+   "metadata": {
+    "Role": "Smooths the output voltage"
+   }
+  },
+  {
+   "id": "capacitor-b",
+   "type": "box",
+   "name": "Capacitor plate",
+   "size": [
+    0.08,
+    1.0,
+    0.8
+   ],
+   "position": [
+    4.15,
+    0,
+    0
+   ],
+   "material": {
+    "color": "#7fa86b"
+   }
+  },
+  {
+   "id": "load",
+   "type": "polyline",
+   "name": "Load resistor",
+   "points": [
+    [
+     6.0,
+     1.0,
+     0.0
+    ],
+    [
+     6.3,
+     0.75,
+     0.0
+    ],
+    [
+     5.7,
+     0.45,
+     0.0
+    ],
+    [
+     6.3,
+     0.15,
+     0.0
+    ],
+    [
+     5.7,
+     -0.15,
+     0.0
+    ],
+    [
+     6.3,
+     -0.45,
+     0.0
+    ],
+    [
+     5.7,
+     -0.75,
+     0.0
+    ],
+    [
+     6.0,
+     -1.0,
+     0.0
+    ]
+   ],
+   "label": "Load",
+   "material": {
+    "color": "#e8edf2"
+   },
+   "selectable": false
+  },
+  {
+   "id": "load-body",
+   "type": "box",
+   "name": "Load",
+   "size": [
+    0.9,
+    2.2,
+    0.3
+   ],
+   "position": [
+    6,
+    0,
+    0
+   ],
+   "material": {
+    "color": "#e8edf2",
+    "opacity": 0.12
+   },
+   "metadata": {
+    "Role": "Receives the reduced output voltage",
+    "Vout": "≈ D × Vin (ideal)"
+   }
+  },
+  {
+   "id": "wire-on",
+   "type": "polyline",
+   "name": "Current path while the switch is on",
+   "points": [
+    [
+     -6.0,
+     0.8,
+     0.0
+    ],
+    [
+     -6.0,
+     2.0,
+     0.0
+    ],
+    [
+     -3.45,
+     2.0,
+     0.0
+    ],
+    [
+     -2.55,
+     2.0,
+     0.0
+    ],
+    [
+     0.7,
+     2.0,
+     0.0
+    ],
+    [
+     2.3,
+     2.0,
+     0.0
+    ],
+    [
+     4.0,
+     2.0,
+     0.0
+    ],
+    [
+     6.0,
+     2.0,
+     0.0
+    ],
+    [
+     6.0,
+     1.0,
+     0.0
+    ],
+    [
+     6.0,
+     -1.0,
+     0.0
+    ],
+    [
+     6.0,
+     -2.0,
+     0.0
+    ],
+    [
+     -6.0,
+     -2.0,
+     0.0
+    ],
+    [
+     -6.0,
+     -0.8,
+     0.0
+    ]
+   ],
+   "material": {
+    "color": "#56606b"
+   },
+   "selectable": false
+  },
+  {
+   "id": "wire-off",
+   "type": "polyline",
+   "name": "Freewheeling path while the switch is off",
+   "points": [
+    [
+     0.0,
+     0.35,
+     0.0
+    ],
+    [
+     0.0,
+     2.0,
+     0.0
+    ],
+    [
+     0.7,
+     2.0,
+     0.0
+    ],
+    [
+     2.3,
+     2.0,
+     0.0
+    ],
+    [
+     4.0,
+     2.0,
+     0.0
+    ],
+    [
+     6.0,
+     2.0,
+     0.0
+    ],
+    [
+     6.0,
+     -2.0,
+     0.0
+    ],
+    [
+     0.0,
+     -2.0,
+     0.0
+    ],
+    [
+     0.0,
+     -0.35,
+     0.0
+    ]
+   ],
+   "material": {
+    "color": "#56606b",
+    "opacity": 0.0
+   },
+   "selectable": false
+  },
+  {
+   "id": "wire-cap",
+   "type": "line",
+   "from": [
+    4,
+    2,
+    0
+   ],
+   "to": [
+    4,
+    0.5,
+    0
+   ],
+   "material": {
+    "color": "#56606b"
+   },
+   "selectable": false
+  },
+  {
+   "id": "wire-cap2",
+   "type": "line",
+   "from": [
+    4,
+    -0.5,
+    0
+   ],
+   "to": [
+    4,
+    -2,
+    0
+   ],
+   "material": {
+    "color": "#56606b"
+   },
+   "selectable": false
+  },
+  {
+   "id": "charge-on",
+   "type": "points",
+   "name": "Current (switch on)",
+   "particles": {
+    "distribution": "path",
+    "path": "wire-on",
+    "count": 90,
+    "pointSize": 5
+   },
+   "material": {
+    "color": "#ffd60a",
+    "emissive": "#ffd60a",
+    "opacity": 0.5
+   }
+  },
+  {
+   "id": "charge-off",
+   "type": "points",
+   "name": "Current (switch off)",
+   "particles": {
+    "distribution": "path",
+    "path": "wire-off",
+    "count": 70,
+    "pointSize": 5
+   },
+   "material": {
+    "color": "#ff7a59",
+    "emissive": "#ff7a59",
+    "opacity": 0.5
+   }
+  }
+ ],
+ "animations": [
+  {
+   "id": "switching",
+   "target": "switch",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 2,
+   "period": 2,
+   "wave": "square",
+   "phase": 0
+  },
+  {
+   "id": "diode-conducts",
+   "target": "diode",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 2,
+   "period": 2,
+   "wave": "square",
+   "phase": 180
+  },
+  {
+   "id": "energy",
+   "target": "inductor",
+   "type": "oscillate",
+   "property": "emissive",
+   "amplitude": 1.5,
+   "period": 2,
+   "wave": "triangle",
+   "phase": 0
+  },
+  {
+   "id": "flow-on",
+   "target": "charge-on",
+   "type": "flow",
+   "path": "wire-on",
+   "rate": 4
+  },
+  {
+   "id": "flow-off",
+   "target": "charge-off",
+   "type": "flow",
+   "path": "wire-off",
+   "rate": 3
+  },
+  {
+   "id": "show-on",
+   "target": "charge-on",
+   "type": "oscillate",
+   "property": "opacity",
+   "amplitude": 0.5,
+   "period": 2,
+   "wave": "square",
+   "phase": 0
+  },
+  {
+   "id": "show-off",
+   "target": "charge-off",
+   "type": "oscillate",
+   "property": "opacity",
+   "amplitude": 0.5,
+   "period": 2,
+   "wave": "square",
+   "phase": 180
+  }
+ ],
+ "camera": {
+  "position": [
+   0,
+   1.5,
+   13
+  ],
+  "target": [
+   0,
+   0,
+   0
+  ]
+ },
+ "environment": {
+  "ambient": 0.6
+ }
+}

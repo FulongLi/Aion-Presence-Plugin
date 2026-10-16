@@ -250,6 +250,13 @@ export class PresenceHub {
       case "stop-music": if (this.store.snapshot().playback && !this.store.snapshot().playback!.stop) this.store.play({ events: [], tempo: 60, volume: 0, stop: true }); break;
       case "animation": { const { type: _type, ...control } = command; this.store.controlAnimation(control); break; }
       case "card": this.store.cardCommand(command.command, command.value); break;
+      case "scene": {
+        const base = { request: command.request, ...(command.base !== undefined ? { base: command.base } : {}), ...(command.label ? { label: command.label } : {}) };
+        if (command.action === "set") this.store.sceneCommand({ ...base, action: "set", document: command.document });
+        else if (command.action === "patch") this.store.sceneCommand({ ...base, action: "patch", ops: command.ops ?? [] });
+        else this.store.sceneCommand({ ...base, action: command.action });
+        break;
+      }
     }
     return this.snapshot();
   }

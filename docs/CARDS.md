@@ -4,12 +4,18 @@ An **interactive card** is a small, registered application that runs beside Aion
 frame: the user turns, zooms and clicks it directly; Codex opens, controls and inspects it through three MCP tools.
 Aion stays present the whole time — the body steps aside, turns toward the card, and returns when it closes.
 
-Two applications ship with v0.4.5:
+Three applications ship (two since v0.4.5, one since v0.5):
 
 | Application | What it is | Docs |
 | --- | --- | --- |
 | `earth-moon` | Earth's rotation, the Moon's orbit and synchronous rotation, with educational scaling | [EARTH-MOON.md](EARTH-MOON.md) |
 | `cad-viewer` | A glTF/GLB engineering model viewer: orbit, select, metadata, hide, isolate, fit | [CAD-VIEWER.md](CAD-VIEWER.md) |
+| `generative-scene` (v0.5) | Any validated Scene IR document as an interactive 3D scene: built, animated, patched in place, selected and inspected | [GENERATIVE-VISUAL-ENGINE.md](GENERATIVE-VISUAL-ENGINE.md) |
+
+v0.5 adds one capability, `scene-documents`, which unlocks one message, `LOAD_SCENE` (Aion → card: a revision and its
+validated document; the card answers once it has built it), and a `scene` acknowledgement in the card's report. The
+hub keeps the scene, its revision and its history on the card (`card.scene`). See
+[SCENE-INTERACTION.md](SCENE-INTERACTION.md).
 
 Related: [CARD-BRIDGE.md](CARD-BRIDGE.md) (the protocol), [CARD-SECURITY.md](CARD-SECURITY.md) (isolation and asset
 security), [MCP-TOOLS.md](MCP-TOOLS.md) (tool metadata budget).

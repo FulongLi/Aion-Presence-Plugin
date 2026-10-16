@@ -1,0 +1,145 @@
+{
+ "version": 1,
+ "sceneId": "gear-train",
+ "title": "Two meshing gears",
+ "intent": {
+  "kind": "engineering",
+  "fidelity": "illustrative",
+  "interaction": "inspect"
+ },
+ "units": {
+  "length": "mm",
+  "time": "s",
+  "angle": "deg"
+ },
+ "objects": [
+  {
+   "id": "driver",
+   "type": "gear",
+   "name": "Driver gear",
+   "radius": 2,
+   "teeth": 24,
+   "thickness": 0.5,
+   "inner": 0.4,
+   "position": [
+    -2.1,
+    0,
+    0
+   ],
+   "material": {
+    "color": "#9aa7b4",
+    "metalness": 0.7,
+    "roughness": 0.35
+   },
+   "metadata": {
+    "Teeth": 24
+   }
+  },
+  {
+   "id": "driven",
+   "type": "gear",
+   "name": "Driven gear",
+   "radius": 1,
+   "teeth": 12,
+   "thickness": 0.5,
+   "inner": 0.25,
+   "position": [
+    0.95,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    15,
+    0
+   ],
+   "material": {
+    "color": "#c99a5b",
+    "metalness": 0.7,
+    "roughness": 0.35
+   },
+   "metadata": {
+    "Teeth": 12,
+    "Ratio": "2 : 1"
+   }
+  },
+  {
+   "id": "track",
+   "type": "curve",
+   "points": [
+    [
+     -4,
+     1,
+     2
+    ],
+    [
+     -1,
+     2,
+     3
+    ],
+    [
+     2,
+     1,
+     2
+    ],
+    [
+     3,
+     1.5,
+     -1
+    ],
+    [
+     0,
+     1,
+     -3
+    ],
+    [
+     -3,
+     1.5,
+     -1
+    ]
+   ],
+   "closed": true,
+   "material": {
+    "color": "#56606b"
+   }
+  },
+  {
+   "id": "bead",
+   "type": "sphere",
+   "radius": 0.15,
+   "position": [
+    -4,
+    1,
+    2
+   ],
+   "material": {
+    "color": "#ffd60a",
+    "emissive": "#ffd60a"
+   }
+  }
+ ],
+ "animations": [
+  {
+   "id": "drive",
+   "target": "driver",
+   "type": "spin",
+   "speed": 45
+  },
+  {
+   "id": "mesh",
+   "target": "driven",
+   "type": "couple",
+   "source": "drive",
+   "ratio": -2
+  },
+  {
+   "id": "follow",
+   "target": "bead",
+   "type": "path",
+   "path": "track",
+   "duration": 6,
+   "repeat": "loop",
+   "orient": true
+  }
+ ]
+}

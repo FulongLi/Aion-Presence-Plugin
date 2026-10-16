@@ -33,6 +33,13 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 sandboxed frames (isolation probed from inside the frame), clicks select, Codex controls, layouts,
  *                 universal controls, Escape, repeated open/close with nothing left behind, timings, and a browser
  *                 without WebGL showing the unsupported state while Aion lives on
+ *   v05           the generative visual engine through the real MCP tools, in both renderers: Scene IR documents routed to
+ *                 body, card or hybrid; the solar system built, rotated, zoomed and patched in place (Earth larger, Mars
+ *                 stopped, orbits recoloured, resumed); a click selecting an object that a "$selected" patch then moves;
+ *                 undo, redo, revert, stale revisions and invalid patches refused with the scene intact; abstract time in
+ *                 the body becoming an interactive timeline that gains its geological periods; a three-phase field and a
+ *                 buck converter (illustrative, said so); an unsupported request refused with nothing substituted;
+ *                 repeated open/close with nothing left behind, and timings
  *   v0.4          Aion Eyes and express, the figure explaining an emphasised term, a heritage portrait, a 3D pyramid
  *                 that turns, is dragged and re-oriented, then returns — in both renderers
  *   v0.4.1        through the real MCP tools: a heritage portrait by default; a map whose markers appear in their colours
@@ -143,6 +150,7 @@ try {
   if (section("immersive")) await immersive();
   if (section("embedded")) await embedded();
   if (section("v45")) { for (const renderer of ["auto", "canvas"] as const) await v45(renderer); await cardFallback(); }
+  if (section("v05")) for (const renderer of ["auto", "canvas"] as const) await v05(renderer);
 } finally {
   await browser.close();
   await hub.stop();
@@ -818,6 +826,14 @@ async function embedded() {
           check(await frame.evaluate("document.querySelector('#workspace iframe')?.getAttribute('sandbox')") === "allow-scripts", "the nested card frame is sandboxed too");
           await page.screenshot({ path: join(OUT, "embedded-card.png") });
           await aion.call("control_interactive_card", { action: "close" });
+          // v0.5: a generated scene in the embedded view — built, patched and confirmed through the host.
+          const solar = JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", "solar-system.json"), "utf8"));
+          const generated = (await aion.call("show_interactive_card", { app: "generative-scene", scene: solar })) as { content: { text: string }[] };
+          check(/It is built \(revision 1\)/.test(generated.content[0].text), `a generated scene is built in the embedded view (${generated.content[0].text.split("\n")[0].slice(0, 100)})`);
+          const patched = (await aion.call("control_interactive_card", { action: "patch", patch: [{ op: "transform", id: "earth", scaleBy: 3 }], revision: 1 })) as { content: { text: string }[] };
+          check(/Done and rendered \(revision 2\)/.test(patched.content[0].text), "and patched in place, confirmed through the host's presence_card");
+          await page.screenshot({ path: join(OUT, "embedded-generated-scene.png") });
+          await aion.call("control_interactive_card", { action: "close" });
         }
         check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
       } finally { await page.close(); }
@@ -1223,6 +1239,264 @@ async function v45(renderer: "auto" | "canvas") {
     writeFileSync(join(OUT, `v45-${renderer}-performance.json`), JSON.stringify({ renderer, ...timings }, null, 2));
     check(timings.bodyFps > 20 && timings.cardFps > 20, `both render smoothly together (body ${timings.bodyFps} fps, card ${timings.cardFps} fps)`);
     await aion.call("control_interactive_card", { action: "close" });
+    await pause(600);
+  } finally { await aion.close(); }
+  check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  await page.close();
+}
+
+/** v0.5: the generative visual engine, end to end through the real MCP tools (Demos A–H in docs/GENERATIVE-VISUAL-ENGINE.md). */
+async function v05(renderer: "auto" | "canvas") {
+  console.log(`v0.5: generative visual engine (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`, { width: 1440, height: 900 });
+  const warnings: string[] = [];
+  page.on("console", message => { if (/too many active webgl contexts|context lost/i.test(message.text())) warnings.push(message.text()); });
+  const name = (moment: string) => join(OUT, `v05-${renderer}-${moment}.png`);
+  const aion = await connectAion({ home });
+  const card = () => hub.snapshot().card;
+  const waitCard = async (ok: (c: NonNullable<ReturnType<typeof card>>) => boolean, ms = 10_000) => {
+    for (let waited = 0; waited < ms; waited += 100) { const c = card(); if (c && ok(c)) return true; await pause(100); }
+    return false;
+  };
+  const scene = (file: string) => JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", file), "utf8")) as Record<string, unknown>;
+  type Result = { content: { text: string }[]; isError?: boolean; structuredContent?: { route?: { mode: string; reason: string; transition: string; capability: string } } };
+  const call = async (tool: string, args: Record<string, unknown> = {}) => await aion.call(tool, args) as Result;
+  const text = (r: Result) => r.content[0]?.text ?? "";
+  const frameOf = async () => (await (await page.locator("#workspace iframe").elementHandle())?.contentFrame()) ?? null;
+  const box = async () => (await page.locator("#workspace .ws-body").boundingBox())!;
+  const built = () => card()?.scene?.rendered;
+  const patch = async (ops: unknown[], extra: Record<string, unknown> = {}) => {
+    const t = Date.now();
+    const r = await call("control_interactive_card", { action: "patch", patch: ops, ...extra });
+    return { r, ms: Date.now() - t };
+  };
+  const position = async (id: string) => {
+    await call("control_interactive_card", { action: "select", value: id });
+    await waitCard(c => c.selection?.objectId === id, 2_000);
+    return String(card()?.selection?.properties?.Position ?? "");
+  };
+  const fullDoc = async () => {
+    const r = await call("inspect_interactive_card", { full: true });
+    return JSON.parse(text(r).split("Scene document (revision ")[1].replace(/^\d+\):\n/, "")) as { objects: { id: string; scale?: unknown; position?: number[] }[]; animations: { id: string; paused?: boolean }[]; materials: { id: string; color: string }[] };
+  };
+  /** The share of the card's pixels that are clearly blue (what the eye sees, from a screenshot). */
+  const blueShare = async () => {
+    const shot = (await page.screenshot({ type: "png", clip: await box() })).toString("base64");
+    return page.evaluate(`(async (data) => { const img = new Image(); img.src = "data:image/png;base64," + data; await img.decode();
+      const c = new OffscreenCanvas(img.width, img.height); const x = c.getContext("2d"); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, img.width, img.height).data;
+      let blue = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 2] > 90 && d[i + 2] > d[i] + 45 && d[i + 2] > d[i + 1] + 15) blue++; return blue / (d.length / 4); })(${JSON.stringify(shot)})`) as Promise<number>;
+  };
+  const timings: Record<string, number> = {};
+  try {
+    // ── Demo A: a solar system from the generic Scene IR ───────────────────────────────────────────────────────
+    let t0 = Date.now();
+    const shown = await call("show_interactive_card", { app: "generative-scene", scene: scene("solar-system.json") });
+    timings.solarSystemBuiltMs = Date.now() - t0;
+    check(!shown.isError && built()?.ok === true && built()?.revision === 1, `Demo A: the solar system is generated from Scene IR and built by the card (${text(shown).split("\n")[0].slice(0, 120)})`);
+    check(card()?.app === "generative-scene" && card()?.state.objects === 18 && card()?.state.animations === 17, `the card built 18 objects and 17 animations (${card()?.state.objects}, ${card()?.state.animations})`);
+    const route = shown.structuredContent?.route;
+    check(route?.mode === "hybrid" && hub.snapshot().presentation?.route === "hybrid", `Router 2.0 chose ${route?.mode}: ${route?.reason}`);
+    check(/Not to scale/.test(text(shown)) && /Not to scale/.test(await (await frameOf())!.locator(".badge").textContent() ?? ""), "the scale approximation is disclosed to Codex and on the card");
+    const time0 = card()!.state.time as number;
+    await pause(1_500);
+    check((card()!.state.time as number) > time0, "the orbits animate (the timeline advances)");
+    await page.screenshot({ path: name("A-solar-system") });
+    // The user turns and zooms it.
+    const b = await box();
+    await page.mouse.move(b.x + b.width * 0.5, b.y + b.height * 0.7);
+    await page.mouse.down();
+    for (let i = 1; i <= 12; i++) await page.mouse.move(b.x + b.width * (0.5 + i * 0.015), b.y + b.height * (0.7 - i * 0.012));
+    await page.mouse.up();
+    await page.mouse.wheel(0, -400);
+    check(await waitCard(c => c.state.view === "custom", 3_000), "dragging rotates the camera and the wheel zooms (the card reports a custom view)");
+    await page.screenshot({ path: name("A-solar-system-rotated") });
+
+    // ── Demo B: incremental modification ───────────────────────────────────────────────────────────────────────
+    const instance = card()!.instance;
+    await page.locator("#workspace iframe").evaluate(frame => { (frame as HTMLElement).dataset.v05 = "same-frame"; });
+    let step = await patch([{ op: "transform", id: "earth", scaleBy: 3 }], { revision: card()!.scene!.revision });
+    timings.patchEarthMs = step.ms;
+    check(!step.r.isError && /Done and rendered/.test(text(step.r)) && card()!.state.changes === "0 created, 1 updated, 0 rebuilt, 0 removed",
+      `"Make Earth three times larger": one object updated in place (${card()!.state.changes}; ${step.ms} ms to confirmed)`);
+    const marsBefore = await position("mars");
+    step = await patch([{ op: "update-animation", id: "orbit-mars", set: { paused: true } }, { op: "update-animation", id: "spin-mars", set: { paused: true } }]);
+    await pause(1_200);
+    const marsAfter = await position("mars"), earthA = await position("earth");
+    await pause(800);
+    const earthB = await position("earth");
+    check(!step.r.isError && marsAfter === (await position("mars")) && earthA !== earthB, `"Stop Mars": Mars holds still (${marsAfter}) while Earth moves on (${earthA} → ${earthB})`);
+    void marsBefore;
+    await call("control_interactive_card", { action: "clear-selection" });
+    await pause(300);
+    const blueBefore = await blueShare();
+    step = await patch([{ op: "material", id: "orbit", set: { color: "blue" } }]);
+    await pause(300);
+    const blueAfter = await blueShare();
+    check(!step.r.isError && card()!.state.changes === "0 created, 8 updated, 0 rebuilt, 0 removed" && blueAfter > blueBefore * 1.5 + 0.001,
+      `"Change the orbit colour to blue": eight orbits recoloured in place (${card()!.state.changes}; blue pixels ${(blueBefore * 100).toFixed(2)}% → ${(blueAfter * 100).toFixed(2)}%)`);
+    await page.screenshot({ path: name("B-earth-larger-mars-stopped-blue-orbits") });
+    step = await patch([{ op: "update-animation", id: "orbit-mars", set: { paused: false } }, { op: "update-animation", id: "spin-mars", set: { paused: false } }]);
+    const m1 = await position("mars");
+    await pause(900);
+    check(!step.r.isError && m1 !== await position("mars"), "\"Resume the animation\": Mars moves again");
+    check(card()!.instance === instance && await page.locator("#workspace iframe").evaluate(frame => (frame as HTMLElement).dataset.v05) === "same-frame",
+      "the same card and the same frame throughout: no reload, objects keep their identity");
+    check(built()?.revision === card()!.scene!.revision && built()?.ok === true, `scene state and render agree (revision ${card()!.scene!.revision})`);
+
+    // ── Demo F: select by clicking, then "move this object to the left and make it larger" ─────────────────────
+    await call("control_interactive_card", { action: "pause" });
+    await call("control_interactive_card", { action: "reset-camera" });
+    await pause(1_400);
+    const c = await box();
+    await page.mouse.click(c.x + c.width / 2, c.y + c.height / 2);
+    check(await waitCard(k => k.selection?.objectId === "sun", 3_000), `clicking the centre selects the Sun (selected: ${card()?.selection?.objectId ?? "nothing"})`);
+    const inspected = await call("inspect_interactive_card");
+    check(/Selected: Sun/.test(text(inspected)) && /\$selected/.test(text(inspected)), "Codex can identify the selected object through inspect_interactive_card");
+    await page.screenshot({ path: name("F-sun-selected") });
+    step = await patch([{ op: "transform", id: "$selected", translate: [-3, 0, 0], scaleBy: 1.5 }]);
+    const afterMove = await fullDoc();
+    const sun = afterMove.objects.find(o => o.id === "sun")!;
+    check(!step.r.isError && /Done and rendered/.test(text(step.r)) && JSON.stringify(sun.position) === "[-3,0,0]" && sun.scale === 1.5,
+      `"Move this object to the left and make it larger": the Sun moved and grew, confirmed by the runtime (${text(step.r).split("\n")[0].slice(0, 90)})`);
+    check(card()!.selection?.objectId === "sun", "the selection persists across the edit");
+    await call("control_interactive_card", { action: "resume" });
+    await pause(800);
+    await page.screenshot({ path: name("F-sun-moved-planets-follow") });
+
+    // ── Demo H: history ────────────────────────────────────────────────────────────────────────────────────────
+    const before = card()!.scene!.revision;
+    const undone = await call("control_interactive_card", { action: "undo" });
+    let doc = await fullDoc();
+    check(!undone.isError && card()!.scene!.revision === before + 1 && doc.objects.find(o => o.id === "sun")!.position === undefined, `"Undo the last change": the Sun is back (revision ${before} → ${card()!.scene!.revision}, a new revision)`);
+    const redone = await call("control_interactive_card", { action: "redo" });
+    doc = await fullDoc();
+    check(!redone.isError && JSON.stringify(doc.objects.find(o => o.id === "sun")!.position) === "[-3,0,0]", "redo re-applies it");
+    const stale = await call("control_interactive_card", { action: "patch", patch: [{ op: "transform", id: "earth", scaleBy: 2 }], revision: 1 });
+    check(stale.isError === true && /stale-revision/.test(text(stale)) && card()!.scene!.revision === before + 2, "a patch from an old revision is refused (stale-revision); nothing is overwritten");
+    const invalid = await call("control_interactive_card", { action: "patch", patch: [{ op: "transform", id: "earth", scaleBy: 2 }, { op: "update", id: "pluto", set: { radius: 1 } }] });
+    doc = await fullDoc();
+    check(invalid.isError === true && /invalid-reference/.test(text(invalid)) && doc.objects.find(o => o.id === "earth")!.scale === 3, "an invalid patch changes nothing (transactional): Earth keeps its size");
+    const reverted = await call("control_interactive_card", { action: "revert" });
+    doc = await fullDoc();
+    check(!reverted.isError && doc.objects.find(o => o.id === "earth")!.scale === undefined && doc.materials.find(m => m.id === "orbit")!.color === "#7f8a99", "revert restores the scene as created");
+    const tooBig = await call("show_interactive_card", { app: "generative-scene", scene: { ...scene("solar-system.json"), objects: Array.from({ length: 300 }, (_, i) => ({ id: `s${i}`, type: "sphere", radius: 0.1 })) } });
+    check(tooBig.isError === true && /resource-limit/.test(text(tooBig)) && card()!.scene!.document.objects.length === 18 && built()?.ok === true, "a scene over the limits is refused (resource-limit) and the open scene stays");
+    await page.screenshot({ path: name("H-reverted") });
+    const history = card()!.scene!.log.map(entry => `${entry.revision} ${entry.label}`);
+    console.log(`  · history: ${history.slice(-6).join(" | ")}`);
+    await call("control_interactive_card", { action: "close" });
+    await pause(1_000);
+
+    // ── Demo C: abstract → concrete ────────────────────────────────────────────────────────────────────────────
+    const abstract = await call("show_interactive_card", { app: "generative-scene", scene: scene("passage-of-time.json") });
+    check(abstract.structuredContent?.route?.mode === "body" && hub.snapshot().presentation?.kind === "scene" && hub.snapshot().card === null,
+      `"Visualize the passage of time": the router chose the body (${abstract.structuredContent?.route?.reason})`);
+    check((await until(page, state => state.phase === "holding", 6_000)).phase === "holding", "Aion's particle body forms it");
+    await page.screenshot({ path: name("C-time-in-the-body") });
+    t0 = Date.now();
+    const timeline = await call("show_interactive_card", { app: "generative-scene", scene: scene("deep-time-timeline.json") });
+    timings.timelineBuiltMs = Date.now() - t0;
+    check(!timeline.isError && timeline.structuredContent?.route?.mode !== "body" && /body/.test(timeline.structuredContent?.route?.transition ?? "") && built()?.ok === true,
+      `"Turn this into an interactive 3D timeline": ${timeline.structuredContent?.route?.mode} (${timeline.structuredContent?.route?.transition})`);
+    const f0 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    await pause(1_000);
+    check(await page.evaluate("window.aionPresence.runtime.quality().frames") as number > f0 && await page.locator("#workspace iframe").count() === 1, "Aion stays present (the body keeps rendering) beside the card");
+    await page.screenshot({ path: name("C-timeline") });
+    const periods = JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", "geological-periods.patch.json"), "utf8"));
+    step = await patch(periods, { revision: card()!.scene!.revision });
+    timings.periodsPatchMs = step.ms;
+    check(!step.r.isError && card()!.state.objects === 24 && /^15 created, 0 updated, 0 rebuilt, 0 removed$/.test(String(card()!.state.changes)),
+      `"Add the major geological periods": 15 objects added to the same scene (${card()!.state.changes}; ${step.ms} ms)`);
+    await pause(1_400);
+    await page.screenshot({ path: name("C-timeline-periods") });
+    // The user selects a period by clicking on it: find it from the card's own report.
+    await call("control_interactive_card", { action: "select", value: "jurassic" });
+    check(await waitCard(k => k.selection?.objectId === "jurassic" && k.selection.properties?.["Began (Ma)"] === 201.4, 3_000), "a period can be selected and its metadata is reported (Jurassic began 201.4 Ma)");
+    await page.screenshot({ path: name("C-jurassic-selected") });
+    await call("control_interactive_card", { action: "close" });
+    await pause(1_000);
+
+    // ── Demo D: a three-phase magnetic field (illustrative) ────────────────────────────────────────────────────
+    const field = await call("show_interactive_card", { app: "generative-scene", scene: scene("three-phase-field.json") });
+    check(!field.isError && field.structuredContent?.route?.capability === "PARTIALLY_SUPPORTED" && /not computed/i.test(text(field)), "Demo D: the field is shown as illustrative (partially supported: no field solver), and says so");
+    check(/not computed/i.test(await (await frameOf())!.locator(".badge").textContent() ?? ""), "the card carries the illustrative notice");
+    await pause(600);
+    await page.screenshot({ path: name("D-three-phase-a") });
+    await call("control_interactive_card", { action: "pause" });
+    await call("control_interactive_card", { action: "seek", value: 0.5 });
+    check(await waitCard(k => k.state.playing === false && Math.abs((k.state.time as number) - 0.5) < 0.05, 3_000), "animation controls: pause and seek to 0.5 s");
+    await page.screenshot({ path: name("D-three-phase-t0.5") });
+    await call("control_interactive_card", { action: "seek", value: 1 });
+    await pause(400);
+    await page.screenshot({ path: name("D-three-phase-t1.0") });
+    await call("control_interactive_card", { action: "set-speed", value: 0.5 });
+    await call("control_interactive_card", { action: "resume" });
+    check(await waitCard(k => k.state.playing === true && k.state.speed === 0.5, 3_000), "resume at half speed");
+    await call("control_interactive_card", { action: "close" });
+    await pause(1_000);
+
+    // ── Demo E: a conceptual buck converter ────────────────────────────────────────────────────────────────────
+    const buck = await call("show_interactive_card", { app: "generative-scene", scene: scene("buck-converter.json") });
+    check(!buck.isError && buck.structuredContent?.route?.mode === "card" && /not a circuit simulation/i.test(text(buck)), `Demo E: the buck converter is a card (${buck.structuredContent?.route?.reason}) and says it is not a simulation`);
+    await call("control_interactive_card", { action: "pause" });
+    await call("control_interactive_card", { action: "seek", value: 0.5 });
+    await pause(400);
+    await page.screenshot({ path: name("E-buck-switch-on") });
+    await call("control_interactive_card", { action: "seek", value: 1.5 });
+    await pause(400);
+    await page.screenshot({ path: name("E-buck-switch-off") });
+    await call("control_interactive_card", { action: "select", value: "inductor" });
+    check(await waitCard(k => k.selection?.objectId === "inductor" && /Stores energy/.test(String(k.selection.properties?.Role)), 3_000), "its components are identifiable (the inductor's role is reported)");
+    await call("control_interactive_card", { action: "close" });
+    await pause(1_000);
+
+    // Gears and a bead along a curve (couple, path).
+    await call("show_interactive_card", { app: "generative-scene", scene: scene("gear-train.json") });
+    check(built()?.ok === true, "two meshing gears (one drives the other at 2:1) and a bead following a curve");
+    await pause(1_200);
+    await page.screenshot({ path: name("gears") });
+    await call("control_interactive_card", { action: "close" });
+    await pause(800);
+
+    // ── Demo G: unsupported ────────────────────────────────────────────────────────────────────────────────────
+    const presentationBefore = hub.snapshot().presentation?.id ?? null;
+    const refused = await call("show_interactive_card", { app: "generative-scene", scene: scene("transformer-flux-measured.json") });
+    check(refused.isError === true && /unsupported: accurate magnetic flux density needs a numerical field solver/.test(text(refused)) && (hub.snapshot().presentation?.id ?? null) === presentationBefore,
+      "Demo G: an accurate flux-density result is refused (needs a field solver): nothing shown, nothing substituted");
+
+    // ── Repeated open/close and performance ────────────────────────────────────────────────────────────────────
+    const cycles = 4;
+    t0 = Date.now();
+    for (let i = 0; i < cycles; i++) {
+      for (const file of ["solar-system.json", "buck-converter.json"]) {
+        await call("show_interactive_card", { app: "generative-scene", scene: scene(file) });
+        await call("control_interactive_card", { action: "close" });
+        await pause(250);
+      }
+    }
+    await pause(2_500);
+    timings.openBuildCloseMs = Math.round((Date.now() - t0) / (cycles * 2));
+    const cardHistory = await page.evaluate("window.aionPresence.cardHistory") as { opened: number; closed: number; leftovers: { geometries: number; textures: number; urls: number; loops: number }[] };
+    const left = cardHistory.leftovers.reduce((sum, item) => sum + item.geometries + item.textures + item.urls + item.loops, 0);
+    check(cardHistory.opened === cardHistory.closed && left === 0, `every generated scene released everything (${cardHistory.closed} closed, ${left} leftovers${left ? `: ${JSON.stringify(cardHistory.leftovers)}` : ""})`);
+    check(warnings.length === 0, `no WebGL context warnings${warnings.length ? `: ${warnings[0]}` : ""}`);
+    await call("show_interactive_card", { app: "generative-scene", scene: scene("solar-system.json") });
+    await pause(4_500);
+    const fa = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    await pause(2_000);
+    const fb = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    const resources = card()!.resources;
+    timings.bodyFps = Math.round((fb - fa) / 2);
+    timings.cardFps = resources?.fps ?? -1;
+    timings.cardDrawCalls = resources?.drawCalls ?? -1;
+    timings.cardTriangles = resources?.triangles ?? -1;
+    timings.cardGeometries = resources?.geometries ?? -1;
+    timings.cardBuildMs = (card()!.state.buildMs as number | undefined) ?? -1;
+    if (resources?.heapMB !== undefined) timings.cardHeapMB = resources.heapMB;
+    console.log(`  · timings ${JSON.stringify(timings)}`);
+    writeFileSync(join(OUT, `v05-${renderer}-performance.json`), JSON.stringify({ renderer, ...timings }, null, 2));
+    check(timings.bodyFps > 20 && timings.cardFps > 20, `both render smoothly together (body ${timings.bodyFps} fps, card ${timings.cardFps} fps)`);
+    await call("control_interactive_card", { action: "close" });
     await pause(600);
   } finally { await aion.close(); }
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);

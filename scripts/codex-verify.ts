@@ -84,6 +84,7 @@ try {
   const files = existsSync(cache) ? readdirSync(cache) : [];
   check(["plugin.json", "mcp.json", "skills", "hooks", "assets", "runtime"].every(file => files.includes(file)), "the installed copy holds the whole package, runtime included");
   check(!files.includes("node_modules") && !files.includes("src"), "and nothing from the repository besides it");
+  check(existsSync(join(cache, "skills", "aion-presence", "references", "scene-ir.md")), "the skill's Scene IR reference is installed with it (v0.5)");
   // v0.4.4: the Chinese Writing Pack is installed with the plugin, intact (offline teaching needs no download).
   const packManifest = join(cache, "packs", "chinese-writing", "manifest.json");
   check(existsSync(packManifest) && readFileSync(packManifest, "utf8") === readFileSync(join(REPO_ROOT, "plugins", "aion-presence", "packs", "chinese-writing", "manifest.json"), "utf8"),
@@ -201,6 +202,13 @@ try {
         const inspected = await call("inspect_interactive_card");
         check(!selected.isError && /Selected: Magnetic Core/.test(inspected.content[0]?.text ?? ""), "inspect_interactive_card: the selected magnetic core and its metadata");
         await page.screenshot({ path: join(E2E, "verify-cad.png") });
+        // v0.5: a generated scene from the installed runtime — Scene IR → router → card, then a patch confirmed by the card.
+        const solar = JSON.parse(readFileSync(join(REPO_ROOT, "tests", "fixtures", "scenes", "solar-system.json"), "utf8"));
+        const generated = await call("show_interactive_card", { app: "generative-scene", scene: solar });
+        check(!generated.isError && /It is built \(revision 1\)/.test(generated.content[0]?.text ?? ""), "show_interactive_card: a generated solar system, routed and built by the installed card runtime");
+        const larger = await call("control_interactive_card", { action: "patch", patch: [{ op: "transform", id: "earth", scaleBy: 3 }], revision: 1 });
+        check(!larger.isError && /Done and rendered \(revision 2\)/.test(larger.content[0]?.text ?? ""), "control_interactive_card patch: Earth three times larger, rendered and confirmed");
+        await page.screenshot({ path: join(E2E, "verify-generated-scene.png") });
         await call("control_interactive_card", { action: "close" });
         await call("clear_presentation");
         await call("set_presence_state", { state: "responding" });

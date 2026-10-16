@@ -443,21 +443,24 @@ export const controlAnimationInput = z.object({
 const cardSetting = z.union([z.string().max(40), z.number().finite(), z.boolean()]);
 export const showInteractiveCardInput = z.object({
   app: z.enum(CARD_APP_IDS),
+  scene: z.record(z.string(), z.unknown()).optional().describe("generative-scene: a Scene IR document."),
   model: z.string().min(1).max(1024).optional().describe("cad-viewer: \"transformer\" or an absolute .glb/.gltf path."),
-  layout: z.enum(CARD_LAYOUTS).optional().describe("Default expanded."),
-  presentation: z.enum(["card", "hybrid"]).optional().describe("hybrid: the body also forms earth-moon in particles."),
+  layout: z.enum(CARD_LAYOUTS).optional(),
+  presentation: z.enum(["auto", "body", "card", "hybrid"]).optional().describe("Only as the user asked. hybrid: the body forms it too."),
   settings: z.record(z.string(), cardSetting).optional()
-    .describe("earth-moon: speed (days/s), focus, view, scale (educational|true-distance), teaching, labels, paused. cad-viewer: view, edges."),
+    .describe("earth-moon: speed (days/s), focus, view, scale, teaching, labels, paused. cad-viewer: view, edges."),
   title: z.string().max(80).optional(),
   hold_seconds: z.number().min(0).max(3600).optional().describe("Default: until closed."),
 }).strict();
 
 export const controlInteractiveCardInput = z.object({
-  action: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/).describe("A universal action or an app command."),
-  value: z.union([z.string().max(120), z.number().finite(), z.boolean()]).optional().describe("A speed, component id, true/false or view."),
+  action: z.string().regex(/^[a-z][a-z0-9-]{1,31}$/),
+  value: z.union([z.string().max(120), z.number().finite(), z.boolean()]).optional().describe("A speed, object id, true/false or view."),
+  patch: z.array(z.record(z.string(), z.unknown())).min(1).max(64).optional(),
+  revision: z.number().int().min(0).optional(),
 }).strict();
 
-export const inspectInteractiveCardInput = z.object({}).strict();
+export const inspectInteractiveCardInput = z.object({ full: z.boolean().optional().describe("The whole scene document.") }).strict();
 
 /** The embedded view's report about its interactive card (app-only; validated again by the hub). */
 export const cardReportInput = z.object({ report: z.record(z.string(), z.unknown()) }).strict();

@@ -72,3 +72,20 @@ about 3.9 KB. To keep the v0.4.4 budget (and its 10 % margin) without dropping a
 Result: **32 tools, 57,574 B** (largest 4,372 B), under the 57,600 B target the tests enforce. The app-only
 `presence_card` tool (the embedded view's card report) is registered only for MCP Apps hosts, like `presence_sync`
 and `presence_media`, and never appears in Codex's list.
+
+## v0.5: generated scenes without a new tool
+
+The Generative Visual Engine needed a way to send a scene, change it and read it back. A tool for every scene
+operation would have cost several KB, so v0.5 extends the three card tools instead:
+
+- `show_interactive_card` takes `scene` (a Scene IR document, typed only as an object in the schema: it is validated
+  in full on the host, and its format is taught by the skill's `references/scene-ir.md`, which costs nothing per
+  session) and `presentation` `auto` | `body` | `card` | `hybrid`;
+- `control_interactive_card` takes `patch` (a list of operation objects) and `revision`, with the scene actions
+  `patch`, `undo`, `redo` and `revert`;
+- `inspect_interactive_card` takes `full` (the whole scene document);
+- the three descriptions now list app commands once, in each card's own result, instead of in every session's tool
+  list.
+
+Result: **32 tools, 57,584 B** (largest 4,372 B), +10 B on v0.4.5, still under the 57,600 B target the tests enforce
+(`npm run mcp:budget`). Tool discovery with the real Codex is checked by `npm run codex:verify`.

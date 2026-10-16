@@ -169,6 +169,17 @@ the app-only `presence_card` tool when embedded). The hub keeps the card (`src/c
 presentation; the view frames the body by the card's layout and points toward the selected object when the application
 reports exactly where it is. See [CARDS.md](CARDS.md).
 
+## The Generative Visual Engine (`src/scene`, v0.5)
+
+A renderer-independent Scene IR (`ir.ts`) that Codex writes as data, validated strictly (`validate.ts`), changed only
+by transactional patches (`patch.ts`) with revisions and history (`history.ts`, kept by the hub's store on the card),
+animated by a pure, frame-rate-independent engine (`animation.ts`), checked against what the runtime can honestly do
+(`capabilities.ts`), and routed to the body, a card or both by Presentation Router 2.0 (`router.ts`). Two adapters render
+it: the particle adapter (`particleAdapter.ts`, into the body's own 3D scenes) and the `generative-scene` card
+(`src/cards/apps/generativeScene`: a reconciling Scene Compiler on the v0.4.5 ViewerEngine). The card receives
+revisions over the Card Bridge (`LOAD_SCENE`, gated by the `scene-documents` capability) and confirms what it built.
+See [GENERATIVE-VISUAL-ENGINE.md](GENERATIVE-VISUAL-ENGINE.md).
+
 ## Plugin package and distribution (`plugins/aion-presence`)
 
 A portable Agent Plugins package: `plugin.json` (with `extensions.com.openai.interface`), `mcp.json`, `skills/`,
@@ -193,3 +204,8 @@ marketplace is `spirit-connect`: `codex plugin marketplace add FulongLi/Aion-Pre
 - **Another visual pack**: one more entry in `VISUAL_FORM_PACKS`. Another image source: one more provider.
 - **Another interactive application** (v0.4.5): a manifest in `src/cards/registry.ts` and a module in
   `src/cards/runtime/apps.ts`; the router, bridge, hub and MCP tools take it unchanged ([CARDS.md](CARDS.md)).
+- **Another scene geometry or animation** (v0.5): one entry in `src/scene/ir.ts`, its fields in `validate.ts` (and its
+  triangle cost), a builder in `src/cards/apps/generativeScene/geometry.ts` or a case in `animation.ts`, and (if the
+  body can form it) a case in `particleAdapter.ts`.
+- **A computational or CAD backend** (v0.5, interface only): `src/scene/cad.ts`; its capabilities register as
+  `compute:*` in the router ([FUTURE-CAD-INTEGRATION.md](FUTURE-CAD-INTEGRATION.md)).
