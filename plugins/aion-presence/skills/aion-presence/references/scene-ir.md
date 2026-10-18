@@ -1,8 +1,28 @@
-# Scene IR — writing a generated scene (Aion v0.5)
+# Scene IR — writing a generated scene (Aion v0.5.1)
 
 A generated scene is **data you write**: a Scene IR document passed to `show_interactive_card` with
 `app: "generative-scene"` and `scene: {…}`. Aion validates it, decides how to show it (the particle body, an interactive
 card, or both), builds it, and reports what it built. Nothing in it is code: no JavaScript, HTML, shaders or URLs.
+Worked examples: [scene-examples.md](scene-examples.md).
+
+## Plan it in one pass (briefly, in your head)
+
+1. **Objects** — list what the user named, plus what makes it read (a base, an axle, a path). Few, recognisable shapes
+   beat many small ones.
+2. **Hierarchy** — one `group` per assembly ("bridge-1", "transformer"), parts with `parent`; transforms are relative
+   to the parent, so an assembly moves as one. Ids are stable, lowercase, meaningful (`"gear-small"`, `"q1"`).
+3. **Primitives** — the closest type from the table below (a coil is a `helix` with `tube`, a disc is a short
+   `cylinder`, a wire is a `polyline`, many copies are one object with `repeat`).
+4. **Size and place** — pick one unit, keep the whole scene within about ±10 of it, y up; things that touch must touch
+   (a gear's `radius` plus its neighbour's equals their distance).
+5. **Materials** — a `preset` (metal, copper, plastic, glass, emissive …) and a colour; share a material by id when
+   several objects look the same.
+6. **Motion** — only what was asked for or explains the idea; gear trains with `couple`, things on paths with
+   `path`, current with `points` + `flow`, a glow with `oscillate` on `emissive`.
+7. **Camera and style** — usually leave `camera` out (Aion frames everything); set `environment.style` only when the
+   user asked for a look.
+8. **Honesty** — `intent` (what was asked), `disclosure` for scale and "illustrative", `requirements` for anything that
+   needs computing. Then write the document once.
 
 ## The document
 
@@ -73,10 +93,21 @@ Required: `version` (1), `sceneId`, `title`, `objects`. Everything else is optio
 | `mesh` | `positions` (x,y,z…), `indices?` | small explicit meshes |
 
 Every object may have: `name`, `parent`, `position`, `rotation`, `scale` (number or [x,y,z]), `material` (a material
-id, or `{ color, opacity, emissive, emissiveIntensity, metalness, roughness, wireframe, unlit, dashed }`), `visible`,
+id, or `{ preset, color, opacity, emissive, emissiveIntensity, metalness, roughness, wireframe, unlit, dashed }`), `visible`,
 `selectable` (default true; false for lines, labels and point clouds), `label` (short text beside it), `annotation`
 (a note shown when selected), `metadata` (up to 16 facts: `{ "Radius (km)": 6371 }`), `repeat`
 (`{ count, offset?, rotation?, scale? }` copies of its own geometry). Colours are `#rrggbb` or names (`"blue"`).
+
+## Materials and styles (v0.5.1)
+
+- **`preset`**: `metal`, `steel`, `aluminium`, `copper`, `gold`, `brass`, `plastic`, `rubber`, `glass`, `matte`,
+  `ceramic`, `emissive`, `pcb`, `ferrite` — plausible metalness, roughness, colour and opacity. Fields you give win:
+  `{ "preset": "metal", "color": "silver" }`. Use `unlit: true` only for lines, labels and glowing bodies.
+- **`environment.style`**: `scientific` (dark, no ground: space, fields), `engineering` (studio light, soft shadows,
+  ground grid: machines, circuits), `minimal` (light backdrop, soft shadows), `presentation` (studio, stronger
+  rim light), `cinematic` (dark, dramatic). Left out, the intent picks one (engineering → engineering, scientific →
+  scientific, abstract → cinematic, otherwise presentation). `shadows`, `ground`, `grid`, `background`, `ambient`
+  override it. A style changes lighting only, never the objects.
 
 ## Animations
 
@@ -84,7 +115,7 @@ id, or `{ color, opacity, emissive, emissiveIntensity, metalness, roughness, wir
 | --- | --- | --- |
 | `spin` | `speed` (deg/s), `axis?` | turns about its own axis (default y) |
 | `orbit` | `period`, `center?` (an object sharing the parent, or [x,y,z]), `radius?`, `phase?`, `eccentricity?`, `inclination?`, `axis?`, `clockwise?` | circles a centre; a moving centre carries it (Moon around Earth). Give `radius` (otherwise it is the current distance to the centre, which changes if the centre is moved) |
-| `oscillate` | `property` (position, rotation, scale, opacity, emissive), `amplitude`, `period`, `phase?`, `axis?`, `wave?` (sine, square, triangle, saw) | phase relationships: 0, 120, 240 |
+| `oscillate` | `property` (position, rotation, scale, opacity, emissive), `amplitude`, `period`, `phase?`, `axis?`, `wave?` (sine, square, triangle, saw) | phase relationships: 0, 120, 240; `scale` with an `axis` swings that direction only (a surface's amplitude: `[0, 1, 0]`) |
 | `keyframes` | `property` (position, rotation, scale, color, opacity, emissive, visible), `keys: [{ t, value }]`, `easing?` | |
 | `path` | `path` (a line/polyline/curve/tube/circle/helix sharing the parent), `duration`, `orient?`, `easing?` | follows the drawn path exactly |
 | `flow` | `path`, `rate` (units/s) | a `points` object's particles stream along a path (current, energy) |
@@ -99,6 +130,26 @@ as a physical simulation.
 
 48 KB per document · 256 objects · 2,000 after repeats · 600,000 triangles · 60,000 particles · 128 animations ·
 64 keyframes · 256 points per path.
+
+## Common mistakes (each is refused, with a hint)
+
+| Wrong | Right |
+| --- | --- |
+| `"color": "red"` on an object | `"material": { "color": "red" }` |
+| `"type": "cube"` / `"cylinder"` without `height` | `"type": "box", "size": [1, 1, 1]` / `"radius": 0.5, "height": 2` |
+| `"children": [...]` | a flat list; each child has `"parent": "<id>"` |
+| `"rotation": [1.57, 0, 0]` (radians) | `"rotation": [90, 0, 0]` (degrees) — accepted, but warned |
+| `{ "type": "rotate" }` animation | `{ "type": "spin", "speed": 45 }` (degrees per second) |
+| an animation inside an object | in the document's `animations`, with `target` |
+| `orbit`/`lookAt`/`path` naming an object under another parent | give both the same `parent` (or use a point) |
+| `"id": "Gear A"` | `"id": "gear-a"` |
+| a plane rotated 90° to lie flat | planes, rings, circles and surfaces are already flat in x–z |
+
+**When a call is refused** the result lists every problem found (up to 8), each with `→` how to fix it, and
+"Attempt n of 3". Fix exactly those, keep everything else, and call again with the whole corrected document (or
+patch). After the third refusal, stop: tell the user in one sentence what could not be built and offer something
+simpler — never substitute an unrelated scene. A result may also say `Check:` — the scene was built, but something
+looks unintended (radians, a tiny spin speed, a scale too wide to see); correct it with a patch if so.
 
 ## Changing a scene: patches
 
@@ -121,7 +172,9 @@ revision. `"$selected"` in place of an id is the object the user selected in the
 | `meta` | `title?`, `disclosure?`, `intent?`, `requirements?` | |
 
 Other actions: `undo`, `redo`, `revert` (back to the scene as created) — each is a new revision. A patch from an old
-`revision` is refused (`stale-revision`): inspect, then patch again. Viewing and playback are commands, not edits:
+`revision` is refused (`stale-revision`): inspect, then patch again. **The user edits too**: in the card they can move,
+rotate and resize the selected object by hand and undo or redo; each of their changes is a revision labelled
+"(by hand)" in the history. So always patch from the revision the latest result or inspection reported. Viewing and playback are commands, not edits:
 `select` / `focus` (an id), `clear-selection`, `reset-camera`, `set-view` (iso, top, front, side), `set-speed`, `seek`
 (seconds), `show-labels`, and the universal `pause`, `resume`, `reset`, `close`.
 
@@ -132,5 +185,12 @@ Other actions: `undo`, `redo`, `revert` (back to the scene as created) — each 
 - "Change the orbit colour to blue" → `material` `orbit` (when orbits share it) or `update` each orbit.
 - "Make this twice as large" (after a click) → `transform` `$selected` `scaleBy: 2`.
 - "Add the major geological periods" → `add` the new objects (a group and its children) to the open scene.
-- "Undo that" → `undo`. "Start over" → `revert`.
+- "Undo that" / "Restore the previous state" → `undo`. "Start over" → `revert`.
+- "Change these objects to silver" → one `update` per object (`set: { "material": { "preset": "metal", "color": "silver" } }`),
+  or one `material` op when they share a material.
+- "Move the selected component to the left" → `transform` `$selected` `translate: [-1, 0, 0]` (scaled to the scene).
+- "Pause the second gear" → `update-animation` on that gear's spin (or couple) `paused: true` — inspect for its id.
+- "Add another gear" → `add` it (meshing: its distance from the neighbour is the sum of the radii) and
+  `add-animation` a `couple` to the neighbour's spin with `ratio` = −(neighbour teeth ÷ its teeth).
+- "Increase the rotation speed" → `update-animation` the driving `spin` (`speed`); coupled parts follow.
 - "Pause" / "Play" → `pause` / `resume` (the whole timeline).
