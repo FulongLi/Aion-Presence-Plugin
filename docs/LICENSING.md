@@ -65,9 +65,8 @@ Aion's license cannot and does not restrict that.
 
 ## Decisions and questions for the owner and a lawyer
 
-1. **Copyright holder.** The repository names "Spirit Connect" as plugin author and "led by Fulong" in its README; Git
-   names Fulong Li. Branding alone does not establish ownership. Confirm the legal owner — the individual, or a legal
-   entity (its exact registered name) — and replace the placeholder in LICENSE (and `plugins/aion-presence/LICENSE`).
+1. **Copyright holder — decided.** The owner confirmed the copyright holder is **Fulong Li**, the individual
+   (2026-10-18); LICENSE names him as Licensor. "Spirit Connect" remains the brand under which Aion is presented.
 2. **SCF Presence Realtime.** Aion ports code and tuning from *SCF Presence Realtime* (see [PARITY.md](PARITY.md)).
    Confirm that the same owner holds the rights to that code, or under what terms it may be relicensed here.
 3. **AI-assisted code.** Much of the code was written with AI coding assistants. Whether and how such contributions
