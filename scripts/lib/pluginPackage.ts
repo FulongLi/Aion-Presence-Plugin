@@ -93,8 +93,18 @@ export function validatePluginPackage(options: { root?: string; marketplace?: st
     if (isRecord(value)) manifest = value;
   }
   if (root === PLUGIN_ROOT && typeof manifest.version === "string") {
-    const pkg = readJson(join(REPO_ROOT, "package.json")) as { version?: string };
+    const pkg = readJson(join(REPO_ROOT, "package.json")) as { version?: string; license?: string };
     if (pkg.version !== manifest.version) error("plugin.json", `version ${manifest.version} differs from package.json ${pkg.version}`);
+    const lock = readJson(join(REPO_ROOT, "package-lock.json")) as { version?: string; packages?: Record<string, { version?: string }> };
+    if (lock.version !== pkg.version || lock.packages?.[""]?.version !== pkg.version) error("package-lock.json", `version differs from package.json ${pkg.version} (run npm install)`);
+    if (pkg.license !== manifest.license) error("plugin.json", `license "${String(manifest.license)}" differs from package.json "${String(pkg.license)}"`);
+  }
+  // v0.5.1: the license and the third-party notices travel with every installed copy (the plugin directory is what Codex
+  // copies), and the plugin's LICENSE is the repository's.
+  for (const file of ["LICENSE", "THIRD-PARTY-NOTICES.md"]) if (!existsSync(join(root, file))) error(file, "missing: it must travel with the plugin");
+  if (typeof manifest.license !== "string" || !manifest.license) error("plugin.json", "license is missing");
+  if (existsSync(join(root, "LICENSE")) && existsSync(join(REPO_ROOT, "LICENSE")) && readFileSync(join(root, "LICENSE"), "utf8") !== readFileSync(join(REPO_ROOT, "LICENSE"), "utf8")) {
+    error("LICENSE", "differs from the repository's LICENSE (copy it: cp LICENSE plugins/aion-presence/LICENSE)");
   }
   if (existsSync(join(root, ".codex-plugin", "plugin.json"))) {
     warn(".codex-plugin/plugin.json", "present: extensions.com.openai in plugin.json supersedes it, so the two would drift");

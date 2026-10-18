@@ -1,0 +1,216 @@
+Aion Presence Personal Use License
+Version 0.1 — DRAFT
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ DRAFT FOR LEGAL REVIEW. This text sets out the copyright holder's intended    │
+│ licensing policy for Aion Presence. It has not been reviewed by a qualified   │
+│ legal professional, it is not guaranteed to be enforceable as written in any │
+│ jurisdiction, and the copyright holder may replace it with a reviewed         │
+│ version. Items marked [DECISION NEEDED] must be settled by the copyright      │
+│ holder before a final release. This is NOT an open-source license and is not │
+│ approved by the Open Source Initiative.                                       │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+Aion Presence
+Created by Spirit Connect
+Copyright (c) 2026 [COPYRIGHT HOLDER — DECISION NEEDED: the confirmed legal owner,
+e.g. the individual author or the legal entity trading as Spirit Connect]
+All rights reserved, except as expressly granted below.
+
+Commercial and organizational licensing: info@spiritconnect.co.uk
+
+
+1. Summary (not part of the terms)
+
+   The source code of Aion Presence is publicly visible. A natural person may use,
+   study and modify it for their own personal, non-commercial purposes. Any
+   commercial use, and any use by or on behalf of an organization (including
+   non-profit, educational, research and public-sector organizations), requires a
+   separate written license from the copyright holder. Third-party components keep
+   their own licenses.
+
+
+2. Definitions
+
+   "Licensor" means the copyright holder named above.
+
+   "Software" means Aion Presence as made available by the Licensor: its source
+   code, the built runtime, documentation, scripts, tests, and the assets and media
+   the Licensor created, in any form, including any part of them. The Software does
+   not include Third-Party Components.
+
+   "Third-Party Components" means software, data, fonts, models and other material
+   owned by others and distributed with the Software, including everything listed in
+   plugins/aion-presence/THIRD-PARTY-NOTICES.md and the contents of
+   plugins/aion-presence/packs/chinese-writing (see its NOTICE.md), as well as any
+   dependency installed separately (for example through npm).
+
+   "You" means the individual natural person exercising rights under this License.
+   A company, partnership, association, foundation, trust, school, university,
+   research institute, hospital, government body or any other organization
+   ("Organization") cannot be a licensee under this License.
+
+   "Personal Use" means use by You, as an individual, for Your own private purposes
+   — such as personal experimentation, learning, self-study and private research,
+   personal entertainment, and the personal development and testing of Your own
+   non-commercial projects — that is not Commercial Use and not Organizational Use.
+
+   "Commercial Use" means any use that is intended for, directed toward, or results
+   in commercial advantage or monetary compensation, for You or for anyone else,
+   including use in or for a product or service that is sold, licensed, rented,
+   advertised, offered by subscription, or provided in exchange for anything of
+   value.
+
+   "Organizational Use" means any use by an Organization, or by any person on behalf
+   of, under the direction of, or for the benefit of an Organization — including use
+   in the course of employment, contract work, teaching, coursework set by an
+   institution, or institutional research — whether or not the Organization is
+   commercial and whether or not any fee is charged.
+
+
+3. License grant
+
+   Subject to Your compliance with this License, the Licensor grants You a
+   worldwide, royalty-free, non-exclusive, non-transferable, non-sublicensable
+   license to install, run, use, copy, study and modify the Software, solely for
+   Personal Use.
+
+
+4. Modifications
+
+   You may modify the Software and use Your modified versions for Personal Use. Any
+   modified version You share (section 5) must (a) remain under this License, (b)
+   carry prominent notices stating that You changed it and when, and (c) keep every
+   notice required by section 7. Your modifications do not give You any right to
+   use the Software beyond Personal Use.
+
+
+5. Copying and sharing
+
+   You may give copies of the Software, modified or not, to other natural persons
+   for their own Personal Use, provided that:
+
+   (a) You charge nothing for it, and receive nothing of value in exchange for it;
+   (b) You include this License and every notice required by section 7, unchanged;
+   (c) the recipients receive it under this License only, and You impose no further
+       restriction on them; and
+   (d) You do not distribute it as part of, or bundled with, any product, service,
+       platform, marketplace or collection offered commercially or by an
+       Organization.
+
+   You may not sublicense the Software or offer it under any other terms.
+
+
+6. Public repositories and forks
+
+   (a) The Licensor publishes the Software in a public repository on GitHub. GitHub's
+       Terms of Service give GitHub users certain permissions for public content
+       within GitHub's services, such as viewing it and forking it on GitHub. Those
+       permissions come from GitHub's terms, not from this License, and they do not
+       extend to any use of the Software outside what GitHub's terms provide.
+   (b) Any use of the Software, including the Software in a fork, is governed by this
+       License. A fork does not acquire any rights beyond those in this License.
+   (c) A public fork must keep this License and all notices required by section 7,
+       and must not state or imply that it is the original Software or that it is
+       endorsed by the Licensor.
+
+
+7. Notices and attribution
+
+   (a) Every copy or substantial portion of the Software must keep (i) this License,
+       (ii) the copyright notice above, and (iii) the Third-Party Components' notices
+       (plugins/aion-presence/THIRD-PARTY-NOTICES.md and
+       plugins/aion-presence/packs/chinese-writing/NOTICE.md with its license files).
+   (b) When You share the Software or show a work made with it publicly, You must
+       credit it as "Aion Presence, created by Spirit Connect", with a link to
+       https://github.com/FulongLi/Aion-Presence-Plugin where practical.
+   (c) You must not remove, alter or obscure any copyright, license, attribution or
+       trademark notice in the Software.
+
+
+8. Uses that require a separate written license
+
+   Without a separate written license from the Licensor, this License does not
+   permit, and You must not engage in:
+
+   (a) any Commercial Use;
+   (b) any Organizational Use, including internal deployment within a business and
+       use by or within non-profit, educational, research or public-sector
+       organizations;
+   (c) use of the Software, or of any part or derivative of it, in a commercial
+       product or service, a paid software integration, a hosted or software-as-a-
+       service offering, or a commercial platform or marketplace;
+   (d) redistribution of the Software as part of commercial software, or for a fee;
+   (e) building, offering or operating an AI-agent service, assistant or automation
+       service around the Software, or providing the Software's functionality to
+       third parties, other than Your own Personal Use of it with Your own AI agent;
+   (f) using the Software to provide services to others, paid or unpaid, on behalf
+       of an Organization.
+
+   To request a commercial or organizational license, contact
+   info@spiritconnect.co.uk.
+
+
+9. Third-Party Components
+
+   Third-Party Components are not licensed under this License. Each is governed by
+   its own license, as stated in the notices referred to in section 7(a). Nothing in
+   this License limits any right You have under those licenses, and the
+   restrictions in this License do not apply to Third-Party Components.
+
+
+10. Trademarks
+
+   This License grants no rights in the names, logos or trademarks of the Licensor,
+   including "Aion", "Aion Presence" and "Spirit Connect", except as needed to give
+   the attribution required by section 7.
+
+
+11. Contributions
+
+   [DECISION NEEDED] Whether and on what terms the Licensor accepts contributions
+   (for example under a contributor license agreement). Until such terms are
+   published, the Licensor may decline any contribution, and submitting one does
+   not by itself transfer or license any rights to the Licensor beyond those needed
+   to review it.
+
+
+12. Termination
+
+   (a) Your license under this License ends automatically if You breach it.
+   (b) If the Licensor notifies You of a breach and it is Your first breach, Your
+       license is reinstated if You cure the breach within 30 days of the notice.
+       [DECISION NEEDED: confirm this cure period.]
+   (c) On termination You must stop using the Software and delete Your copies,
+       except as required by law. Sections 2, 7(c), 9, 10, 12, 13, 14 and 15
+       survive termination.
+
+
+13. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY
+   KIND, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION WARRANTIES OF
+   MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND NON-INFRINGEMENT, TO
+   THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW.
+
+
+14. Limitation of liability
+
+   TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL THE LICENSOR
+   OR ANY CONTRIBUTOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+   EXEMPLARY OR CONSEQUENTIAL DAMAGES, OR ANY LOSS OF DATA, PROFITS OR USE, HOWEVER
+   CAUSED AND ON ANY THEORY OF LIABILITY, ARISING IN ANY WAY OUT OF THE USE OF OR
+   INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH
+   DAMAGE. Nothing in this License excludes or limits any liability that cannot be
+   excluded or limited by law, including statutory rights You have as a consumer.
+
+
+15. General
+
+   (a) Governing law: [DECISION NEEDED: e.g. the laws of England and Wales, and the
+       courts having jurisdiction there].
+   (b) If any provision of this License is held unenforceable, it will be enforced to
+       the maximum extent permissible and the remaining provisions remain in effect.
+   (c) Any right not expressly granted in this License is reserved by the Licensor.
+   (d) Separate written agreements with the Licensor (commercial or organizational
+       licenses) take precedence over this License for the uses they cover.

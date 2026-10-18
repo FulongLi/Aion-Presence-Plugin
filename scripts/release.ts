@@ -13,7 +13,7 @@ import { MARKETPLACE, PLUGIN_ROOT, REPO_ROOT, validatePluginPackage } from "./li
  *       .agents/plugins/marketplace.json     the spirit-connect marketplace
  *       plugins/aion-presence/               the plugin, built runtime included
  *       scripts/install.mjs                  the one-command installer
- *       INSTALL.md  README.md  LICENSE notes
+ *       INSTALL.md  README.md  CHANGELOG.md  LICENSE
  *   dist/aion-presence-v<version>.tar.gz.sha256
  *
  * Install from the archive: extract it and run `node scripts/install.mjs` inside (or `codex plugin marketplace
@@ -38,7 +38,7 @@ mkdirSync(join(stage, "scripts"), { recursive: true });
 cpSync(MARKETPLACE, join(stage, ".agents", "plugins", "marketplace.json"));
 cpSync(PLUGIN_ROOT, join(stage, "plugins", "aion-presence"), { recursive: true });
 cpSync(join(REPO_ROOT, "scripts", "install.mjs"), join(stage, "scripts", "install.mjs"));
-for (const file of ["INSTALL.md", "README.md"]) cpSync(join(REPO_ROOT, file), join(stage, file));
+for (const file of ["INSTALL.md", "README.md", "CHANGELOG.md", "LICENSE"]) cpSync(join(REPO_ROOT, file), join(stage, file));
 
 // A valid package once more, in place, before it is archived.
 const staged = validatePluginPackage({ root: join(stage, "plugins", "aion-presence"), marketplace: join(stage, ".agents", "plugins", "marketplace.json"), requireRuntime: true })
