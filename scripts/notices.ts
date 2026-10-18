@@ -8,7 +8,7 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  * OFL travels with the font). The Chinese Writing Pack's data has its own licenses in packs/chinese-writing.
  */
 const COMPONENTS: { name: string; use: string; license: string; file?: string }[] = [
-  { name: "three", use: "the WebGPU particle renderer and, inside interactive cards, the WebGL viewer engine (OrbitControls, GLTFLoader, RoomEnvironment)", license: "MIT" },
+  { name: "three", use: "the WebGPU particle renderer and, inside interactive cards, the WebGL viewer engine (OrbitControls, TransformControls, GLTFLoader, RoomEnvironment)", license: "MIT" },
   { name: "vexflow", use: "music notation engraving", license: "MIT" },
   { name: "hanzi-writer", use: "Chinese writing practice (the tracing quiz); its rendering technique for the reference card", license: "MIT" },
   { name: "zod", use: "input validation", license: "MIT" },

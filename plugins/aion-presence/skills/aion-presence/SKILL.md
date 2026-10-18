@@ -93,6 +93,12 @@ matching tool and answer in words as well** — do not only describe it. Strongl
 display, draw, visualize, "what does X look like", "what did X look like", "where is X", "what is the
 terrain/topography of X", "show me a portrait / map / reference", "show me this symbol or form".
 
+**Computation is not visualization.** While Aion is open, when the user asks for a computed physical result — an
+accurate field (magnetic, electric, flow, thermal), a circuit or physics simulation, stresses — begin your answer by
+saying, in one sentence, that Aion can visualize but has no numerical solver, so it cannot compute that field itself.
+Then offer what is real: you can work out a simple analytic case yourself (say the numbers are your calculation, not
+Aion's), or Aion can show an illustrative picture labelled as not computed. Never present an animation as the result.
+
 | The user says (any language) | Call |
 | --- | --- |
 | "What did Nikola Tesla look like?" | `show_portrait` `{ "person": "Nikola Tesla" }` |
@@ -404,18 +410,23 @@ fullscreen button. Close the card (`close`, or `clear_presentation`) when the to
 When the user wants to see a scene, system or idea that no other tool shows — a solar system, a timeline, a gear train,
 a magnetic field, a converter circuit, "the passage of time" — **write it** as a Scene IR document and pass it to
 `show_interactive_card` with `app: "generative-scene"` and `scene`. Read [references/scene-ir.md](references/scene-ir.md)
-the first time: it lists every object, material and animation type, the limits, and the patch operations.
+the first time: it lists every object, material and animation type, the limits, and the patch operations; its
+"Plan it in one pass" steps and [references/scene-examples.md](references/scene-examples.md) show how to turn a request
+into a document. Write it once, completely, with material `preset`s; leave the camera to Aion.
 
 - **Aion decides how to show it** (leave `presentation` out unless the user asked): abstract, look-only ideas become the
   particle body; anything to inspect or edit becomes an interactive card beside the body; a concrete scene the body can
   form well becomes both. The result's `route` says the mode, why, what was asked for, and what was approximated. The
-  user never has to choose between body and card.
+  user never has to choose between body and card. When the result says the body forms it, that *is* the answer: do not
+  show it again as a card unless the user asks to explore or change it.
 - **Be honest in the document**: an `intent` that says what was asked (abstract or concrete, symbolic, illustrative or
   measured, view or inspect), the user's own units, `disclosure` for anything not to scale or not computed. Aion has no
   numerical solver: if the user needs a computed result (accurate flux density, a validated circuit simulation),
   declare it (`requirements: ["compute:…"]`, `fidelity: "measured"`); Aion refuses it and you say plainly what is
   missing. Offer an illustrative version only if the user wants one — it is labelled as not computed. Never substitute
-  an animation for a result.
+  an animation for a result. When the user asks Aion to *calculate* or *simulate* (a field, a circuit, stresses, a
+  flow), say first, in one sentence, that Aion's visual engine has no numerical solver (see "Computation is not
+  visualization" above).
 - **Change it, never rebuild it**: every later request is `control_interactive_card` with `action: "patch"` and the
   `revision` the last result reported — "Make Earth three times larger", "Stop Mars", "Change the orbit colour to
   blue", "Add the major geological periods". The open scene keeps every object; only what changed is touched. A new
@@ -427,6 +438,11 @@ the first time: it lists every object, material and animation type, the limits, 
 - **Say only what was confirmed**: "Done and rendered" means the card built it; "accepted … not confirmed" or "not
   open" means it is not on screen yet. A refused patch changed nothing — say why (`invalid-reference`,
   `stale-revision`, `resource-limit`) and fix it.
+- **Repair, at most three times**: a refusal lists every problem with `→` how to fix it and "Attempt n of 3". Fix
+  exactly those and call again; after the third, stop and tell the user plainly what could not be built. Never swap
+  in a different scene. `Check:` notes on a success are probable mistakes (radians, a tiny speed): fix with a patch.
+- **The user edits too**: in the card they can move, rotate and resize the selected object and undo or redo. Their
+  changes are revisions labelled "(by hand)"; patch from the latest revision, and inspect when one is refused as stale.
 
 ## If a tool seems to be missing
 

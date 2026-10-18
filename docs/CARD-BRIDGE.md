@@ -60,6 +60,14 @@ the runtime flushes pending state, so whoever waits for the answer already has t
 | `RESOURCE_STATUS` | `fps, frameMs, drawCalls, triangles, geometries, textures, programs, rendering, heapMB?` | `resource-status` |
 | `DISPOSED` | `geometries, textures, urls, loops` (what is left) | — |
 | `RESULT` | `ok, problem?` with `re` | — |
+| `EDIT` (v0.5.1) | `request` (`/^u[a-z0-9]{4,32}$/`), `base` (revision), and `action: "transform", id, position?, rotation?, scale?` or `action: "undo" \| "redo"` | `scene-documents` |
+
+`EDIT` is a *proposal*: the user moved, turned or resized an object with the card's transform tool, or pressed Undo or
+Redo. The page forwards it in its next card report (`edit`); the hub validates it again (the object exists, the base
+revision exists) and applies it as one scene command — a `transform` patch labelled "(by hand)", or undo/redo — against
+`base`, so a stale proposal is refused. The card shows the change only when the resulting revision arrives as
+`LOAD_SCENE`; a refused one returns the object to the document's transform. `LOAD_SCENE` carries `history {undo, redo}`
+(v0.5.1) so the card's Undo and Redo buttons reflect the hub's history.
 
 `screen` is given only when the application knows exactly where the object is; the figure then points at it.
 Otherwise Aion turns toward the card as a whole — it never invents coordinates.

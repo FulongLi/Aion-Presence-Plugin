@@ -1,4 +1,4 @@
-# Scene interaction, state and editing (v0.5)
+# Scene interaction, state and editing (v0.5, v0.5.1)
 
 ## Four kinds of state, kept apart
 
@@ -66,6 +66,33 @@ with `revision` (its base) that no longer matches is refused with `stale-revisio
 silently overwritten. The history keeps 32 undo steps and a 48-entry log (revision, label, time), which
 `inspect_interactive_card` reports. `revert` returns to the scene as created, and that is undoable too. Showing the
 open card a different scene is also a revision of the same history.
+
+## Editing by hand (v0.5.1)
+
+Select an object (click it) and the inspector shows its transform (in the document's units), material (swatch and
+preset), the motions acting on it (with stopped ones marked) and its facts; the object is tinted and outlined in the
+accent colour and its label is highlighted. **Move**, **Rotate** and **Scale** (or W, E, R; Esc leaves the tool) attach
+a transform gizmo. When the drag ends, the card *proposes* the new transform (`EDIT`, see
+[CARD-BRIDGE.md](CARD-BRIDGE.md)) against the revision on show:
+
+- the hub turns it into a `transform` patch, validates it like any other, and records a revision labelled
+  "moved Inductor (by hand)" — so it is undoable, appears in Codex's history and makes Codex's older revisions stale;
+- the object stays where it was dropped for up to four seconds; when the new revision arrives the card says
+  "Moved Inductor · revision 3"; if the change is refused (stale, invalid) the page says why and the object returns to
+  the document's transform;
+- tools are refused where the scene's own motion would undo them every frame (moving an object on an orbit or path,
+  turning one that tracks a target, resizing one with scale keyframes) — the card says so;
+- **Undo** and **Redo** in the card's bar are the same history Codex uses (`control_interactive_card` undo/redo).
+
+The card never edits its own scene: a direct manipulation is always a validated Scene Patch.
+
+## Readable labels and framing (v0.5.1)
+
+Labels sit beside their object (below, above, right or left — the first free place), the selected object's first,
+then the largest; a label with no free place is hidden rather than stacked over another. The camera frames the drawn
+shapes (sampled vertices, not bounding-box corners) across the scene's motion (eight moments of its longest cycle),
+keeps a grown or moved scene in view after a revision (a framed view is framed again; the user's own view keeps its
+angle and only moves back), and sets near and far planes from the scene's size.
 
 ## The card confirms; the hub records
 

@@ -140,9 +140,10 @@ export type PresentationContent =
    * viewer); `asset` a validated model it loads; `config` its launch settings, checked against its manifest. `bodyScene`:
    * the application's particle form, present only when it was asked for as a hybrid. Its live state is the snapshot's
    * `card`. v0.5: `scene` — a generative scene card's Scene IR document; the store moves it into the card's scene state
-   * (revision and history) and never keeps it on the presentation itself.
+   * (revision and history) and never keeps it on the presentation itself. v0.5.1: `bodyEcho` — when a change to a hybrid
+   * scene last altered its particle form (`bodyScene` is then the new form): the body re-forms it for a moment.
    */
-  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D; scene?: SceneDocument };
+  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D; scene?: SceneDocument; bodyEcho?: number };
 
 export type PresentationKind = PresentationContent["kind"];
 

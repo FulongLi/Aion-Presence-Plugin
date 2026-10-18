@@ -66,9 +66,12 @@ export function routeSignals(doc: SceneDocument, particle: ParticleAdaptation): 
   // A: declared kind, nudged by evidence (named parts, hierarchy, units).
   const declaredKind = doc.intent ? KIND[doc.intent.kind] : 0.5;
   const concreteness = clamp(declaredKind * 0.7 + (named * 0.4 + structured * 0.3 + measured * 0.3) * 0.3);
-  // B: declared fidelity, raised by what only exact rendering shows (text, exact surfaces).
+  // B: declared fidelity, raised by what only exact rendering shows (text, exact surfaces). v0.5.1: in a scene declared
+  // abstract and symbolic, a few words ("past", "now") are decoration, not content to read: they do not force a card
+  // (the body leaves them out and says so).
   const declaredFidelity = doc.intent?.fidelity ? FIDELITY[doc.intent.fidelity] : 0.4;
-  const fidelity = clamp(Math.max(declaredFidelity, text ? 0.6 : 0, exact ? 0.65 : 0));
+  const decorative = doc.intent?.kind === "abstract" && doc.intent.fidelity === "symbolic";
+  const fidelity = clamp(Math.max(declaredFidelity, text && !decorative ? 0.6 : 0, exact ? 0.65 : 0));
   // C: declared interaction, raised by what there is to inspect or control.
   const declaredInteraction = doc.intent?.interaction ? INTERACTION[doc.intent.interaction] : 0.3;
   const timeline = (doc.animations?.length ?? 0) > 0 ? 0.4 : 0;

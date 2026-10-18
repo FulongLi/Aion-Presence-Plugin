@@ -1,5 +1,6 @@
 import { isSceneId, SELECTED, type SceneAnimation, type SceneDocument, type SceneNode, type Vec3 } from "./ir";
-import { validateScene, type SceneErrorCode, type SceneStats } from "./validate";
+import { validateScene, type SceneErrorCode, type SceneIssue, type SceneStats } from "./validate";
+import { closest, referenceHint } from "./repair";
 
 /**
  * Scene patches (v0.5): the only way a scene changes after it was created. A patch is a short list of operations on
@@ -35,13 +36,31 @@ export interface PatchContext {
 }
 
 export type PatchResult =
-  | { ok: true; document: SceneDocument; stats: SceneStats; changed: string[]; removed: string[]; summary: string }
-  | { ok: false; code: SceneErrorCode | "invalid-patch" | "no-selection"; problem: string; op?: number };
+  | { ok: true; document: SceneDocument; stats: SceneStats; changed: string[]; removed: string[]; summary: string; warnings?: string[] }
+  | { ok: false; code: SceneErrorCode | "invalid-patch" | "no-selection"; problem: string; op?: number; issues: PatchIssue[] };
+
+/** One problem with a patch (v0.5.1: with a repair hint). */
+export type PatchIssue = Omit<SceneIssue, "code"> & { code: SceneErrorCode | "invalid-patch" | "no-selection" };
 
 class PatchProblem extends Error {
-  constructor(readonly code: "invalid-patch" | "invalid-reference" | "no-selection", message: string) { super(message); }
+  constructor(readonly code: "invalid-patch" | "invalid-reference" | "no-selection", message: string, readonly hint?: string) { super(message); }
 }
-const fail = (message: string, code: PatchProblem["code"] = "invalid-patch"): never => { throw new PatchProblem(code, message); };
+const fail = (message: string, code: PatchProblem["code"] = "invalid-patch", hint?: string): never => { throw new PatchProblem(code, message, hint); };
+
+/** Words for a patch operation that are not one, and the operation to use. */
+const OP_ALIASES: Record<string, string> = {
+  set: "update", modify: "update", change: "update", edit: "update", color: "update (set: { material: { color } })", recolor: "update (set: { material: { color } })",
+  move: "transform (translate or position)", translate: "transform (translate)", rotate: "transform (rotateBy or rotation)", scale: "transform (scaleBy or scale)", resize: "transform (scaleBy)",
+  delete: "remove", destroy: "remove", create: "add", insert: "add", append: "add",
+  animate: "add-animation", pause: "update-animation (set: { paused: true })", stop: "update-animation (set: { paused: true })", resume: "update-animation (set: { paused: false })",
+  undo: "control_interactive_card action undo (not a patch operation)", redo: "control_interactive_card action redo", title: "meta",
+};
+const opHint = (name: unknown) => {
+  const key = String(name).toLowerCase();
+  if (OP_ALIASES[key]) return `use ${OP_ALIASES[key]}`;
+  const near = closest(key, PATCH_OPS, 2);
+  return near.length ? `did you mean "${near[0]}"?` : `operations: ${PATCH_OPS.join(", ")}`;
+};
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const vec = (value: unknown, where: string): Vec3 => {
   if (!Array.isArray(value) || value.length !== 3 || !value.every(v => typeof v === "number" && Number.isFinite(v))) fail(`${where} must be [x, y, z]`);
@@ -53,25 +72,30 @@ const FROZEN = ["id", "type"];
 
 /** Applies a patch to a document: the new document (validated) and what changed, or why nothing did. */
 export function applyPatch(document: SceneDocument, ops: unknown, context: PatchContext = {}): PatchResult {
-  if (!Array.isArray(ops) || ops.length === 0) return { ok: false, code: "invalid-patch", problem: "a patch is a list of 1 or more operations" };
-  if (ops.length > PATCH_LIMITS.ops) return { ok: false, code: "resource-limit", problem: `at most ${PATCH_LIMITS.ops} operations in one patch` };
+  const refuse = (code: PatchIssue["code"], problem: string, hint?: string): PatchResult => ({ ok: false, code, problem, issues: [{ code, problem, ...(hint ? { hint } : {}) }] });
+  if (!Array.isArray(ops) || ops.length === 0) return refuse("invalid-patch", "a patch is a list of 1 or more operations", "[{ \"op\": \"transform\", \"id\": \"earth\", \"scaleBy\": 2 }]");
+  if (ops.length > PATCH_LIMITS.ops) return refuse("resource-limit", `at most ${PATCH_LIMITS.ops} operations in one patch`, "split it, or replace the scene with show_interactive_card");
   const doc = structuredClone(document) as SceneDocument;
   const changed = new Set<string>(), removed = new Set<string>(), words: string[] = [];
   let index = 0;
   try {
     for (; index < ops.length; index++) {
       const op = ops[index] as Record<string, unknown>;
-      if (!isRecord(op) || typeof op.op !== "string" || !(PATCH_OPS as readonly string[]).includes(op.op)) fail(`op must be one of ${PATCH_OPS.join(", ")}`);
+      if (!isRecord(op) || typeof op.op !== "string" || !(PATCH_OPS as readonly string[]).includes(op.op)) fail(`op must be one of ${PATCH_OPS.join(", ")}${isRecord(op) && op.op !== undefined ? ` (not "${String(op.op).slice(0, 24)}")` : ""}`, "invalid-patch", opHint(isRecord(op) ? op.op : op));
       words.push(applyOp(doc, op as SceneOp, context, changed, removed));
     }
   } catch (error) {
     const problem = error instanceof Error ? error.message : "the patch failed";
     const code = error instanceof PatchProblem ? error.code : "invalid-patch";
-    return { ok: false, code, problem: `operation ${index + 1}: ${problem}`, op: index };
+    const hint = error instanceof PatchProblem ? error.hint : undefined;
+    return { ...refuse(code, `operation ${index + 1}: ${problem}`, hint), op: index } as PatchResult;
   }
   const checked = validateScene(doc);
-  if (!checked.ok) return { ok: false, code: checked.code, problem: `after the patch, ${checked.problem}` };
-  return { ok: true, document: checked.document, stats: checked.stats, changed: [...changed].filter(id => !removed.has(id)), removed: [...removed], summary: summarize(words) };
+  if (!checked.ok) return { ok: false, code: checked.code, problem: `after the patch, ${checked.problem}`, issues: checked.issues.map(issue => ({ ...issue, problem: `after the patch, ${issue.problem}` })) };
+  return {
+    ok: true, document: checked.document, stats: checked.stats, changed: [...changed].filter(id => !removed.has(id)), removed: [...removed], summary: summarize(words),
+    ...(checked.warnings ? { warnings: checked.warnings } : {}),
+  };
 }
 
 function summarize(words: string[]): string {
@@ -85,12 +109,13 @@ function resolveId(value: unknown, context: PatchContext, where = "id"): string 
     if (!context.selected) fail("\"$selected\": nothing is selected in the card", "no-selection");
     return context.selected!;
   }
-  if (!isSceneId(value)) fail(`${where} must be an object id or "$selected"`);
+  if (!isSceneId(value)) fail(`${where} must be an object id or "$selected"`, "invalid-patch", typeof value === "string" ? `ids are lowercase: "${value.toLowerCase().replace(/[^a-z0-9_.-]+/g, "-")}"` : undefined);
   return value as string;
 }
 
-const nodeOf = (doc: SceneDocument, id: string) => doc.objects.find(n => n.id === id) ?? fail(`no object "${id}"`, "invalid-reference");
-const animationOf = (doc: SceneDocument, id: string) => (doc.animations ?? []).find(a => a.id === id) ?? fail(`no animation "${id}"`, "invalid-reference");
+const nodeOf = (doc: SceneDocument, id: string) => doc.objects.find(n => n.id === id) ?? fail(`no object "${id}"`, "invalid-reference", referenceHint(id, doc.objects.map(n => n.id)));
+const animationOf = (doc: SceneDocument, id: string) => (doc.animations ?? []).find(a => a.id === id)
+  ?? fail(`no animation "${id}"`, "invalid-reference", `${referenceHint(id, (doc.animations ?? []).map(a => a.id))}${doc.objects.some(n => n.id === id) ? ` ("${id}" is an object: its animations are ${(doc.animations ?? []).filter(a => a.target === id).map(a => `"${a.id}"`).join(", ") || "none"})` : ""}`);
 
 function setFields(target: Record<string, unknown>, set: unknown, unset: unknown, where: string, merge: readonly string[] = []) {
   if (set !== undefined && !isRecord(set)) fail(`${where}.set must be an object`);
@@ -109,7 +134,9 @@ function setFields(target: Record<string, unknown>, set: unknown, unset: unknown
 const scaleOf = (scale: SceneNode["scale"]): Vec3 => scale === undefined ? [1, 1, 1] : typeof scale === "number" ? [scale, scale, scale] : [...scale] as Vec3;
 
 function applyOp(doc: SceneDocument, op: SceneOp, context: PatchContext, changed: Set<string>, removed: Set<string>): string {
-  const allow = (...keys: string[]) => { for (const key of Object.keys(op)) if (key !== "op" && !keys.includes(key)) fail(`${op.op} takes no "${key.slice(0, 24)}"`); };
+  const allow = (...keys: string[]) => {
+    for (const key of Object.keys(op)) if (key !== "op" && !keys.includes(key)) fail(`${op.op} takes no "${key.slice(0, 24)}"`, "invalid-patch", `${op.op} takes ${keys.join(", ")}${closest(key, keys, 1).length ? ` (did you mean "${closest(key, keys, 1)[0]}"?)` : ""}`);
+  };
   switch (op.op) {
     case "add": {
       allow("object", "objects");
@@ -118,7 +145,7 @@ function applyOp(doc: SceneDocument, op: SceneOp, context: PatchContext, changed
       for (const item of list as Record<string, unknown>[]) {
         const node = { ...item };
         if (node.parent === SELECTED) node.parent = resolveId(SELECTED, context);
-        if (doc.objects.some(n => n.id === node.id)) fail(`an object "${String(node.id)}" already exists (update it instead)`);
+        if (doc.objects.some(n => n.id === node.id)) fail(`an object "${String(node.id)}" already exists`, "invalid-patch", `update it, or add it under a new id such as "${String(node.id)}-2"`);
         doc.objects.push(node as unknown as SceneNode);
         if (typeof node.id === "string") changed.add(node.id);
       }

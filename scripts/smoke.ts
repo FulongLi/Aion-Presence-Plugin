@@ -1328,11 +1328,12 @@ async function v05(renderer: "auto" | "canvas") {
     void marsBefore;
     await call("control_interactive_card", { action: "clear-selection" });
     await pause(300);
+    // An absolute rise (v0.5.1): blue planets in view before the change make a ratio flaky; eight blue orbits add ~0.2%.
     const blueBefore = await blueShare();
     step = await patch([{ op: "material", id: "orbit", set: { color: "blue" } }]);
     await pause(300);
     const blueAfter = await blueShare();
-    check(!step.r.isError && card()!.state.changes === "0 created, 8 updated, 0 rebuilt, 0 removed" && blueAfter > blueBefore * 1.5 + 0.001,
+    check(!step.r.isError && card()!.state.changes === "0 created, 8 updated, 0 rebuilt, 0 removed" && blueAfter > blueBefore + 0.0012,
       `"Change the orbit colour to blue": eight orbits recoloured in place (${card()!.state.changes}; blue pixels ${(blueBefore * 100).toFixed(2)}% → ${(blueAfter * 100).toFixed(2)}%)`);
     await page.screenshot({ path: name("B-earth-larger-mars-stopped-blue-orbits") });
     step = await patch([{ op: "update-animation", id: "orbit-mars", set: { paused: false } }, { op: "update-animation", id: "spin-mars", set: { paused: false } }]);

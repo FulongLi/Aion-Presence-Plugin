@@ -5,7 +5,7 @@ Pack (`packs/chinese-writing`) is separately licensed data; see its `NOTICE.md` 
 
 ## three 0.182.0
 
-Used for the WebGPU particle renderer and, inside interactive cards, the WebGL viewer engine (OrbitControls, GLTFLoader, RoomEnvironment). License: MIT. https://threejs.org/
+Used for the WebGPU particle renderer and, inside interactive cards, the WebGL viewer engine (OrbitControls, TransformControls, GLTFLoader, RoomEnvironment). License: MIT. https://threejs.org/
 
 ```text
 The MIT License

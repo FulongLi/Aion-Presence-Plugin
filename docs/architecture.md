@@ -8,6 +8,30 @@ SCF:     OpenAI Realtime / GPT-Live ─► Presence Core
 Plugin:  Codex (the host agent)     ─► Host Adapter ─► Presence Core ─► particle renderer ─► Presence Surface
 ```
 
+The whole, end to end:
+
+```text
+┌──────────────────────────── Codex (the host AI) ────────────────────────────┐
+│ conversation · reasoning · tools · voice                                    │
+│   ├─ skill  aion-presence      identity, greeting, visual intent, restraint │
+│   ├─ MCP    aion-presence      open_presence · show_portrait · show_terrain…│
+│   └─ hooks  aion-hook.mjs      UserPromptSubmit · Pre/PostToolUse · Stop …  │
+└───────────────┬──────────────────────────────────────┬──────────────────────┘
+                │ MCP (stdio)                          │ hook events (loopback HTTP)
+                ▼                                      ▼
+┌─────────────────────── Host Adapter (Node, local) ──────────────────────────┐
+│ MCP server ─► presence hub (127.0.0.1, per-user token)                      │
+│   Visual Resolver: Wikipedia · Commons · Openverse · OSM · elevation tiles  │
+│   (only names and places are sent; results checked and kept as local media)│
+└───────────────┬──────────────────────────────────────┬──────────────────────┘
+                │ MCP Apps (embedded)                  │ companion window (SSE)
+                ▼                                      ▼
+┌──────────────────────── Presence Surface (one page) ────────────────────────┐
+│ Presence engine: host state + local listening (VAD) ─► Aion Core            │
+│ particle renderer (WebGPU, canvas fallback) · visual forms · samplers       │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
 ## Aion Core (`src/core`, `src/visual`)
 
 | Module | Role |

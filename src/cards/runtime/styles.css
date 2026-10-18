@@ -54,3 +54,20 @@ html[data-layout="compact"] .info { width: min(230px, 52%); font-size: 11px; pad
 html[data-layout="compact"] .badge { max-width: 70%; font-size: 10px; }
 @media (max-width: 560px) { .tree { display: none; } .tree ~ .info { right: 8px; left: auto; width: min(240px, 60%); } .readout { min-width: 90px; } .caption { bottom: 96px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+/* v0.5.1: generated scenes — readable labels, a sectioned inspector, edit feedback, and light backdrops. */
+.label { padding: 1px 6px; border-radius: 5px; background: rgba(6, 8, 11, 0.42); border: 1px solid rgba(190, 205, 220, 0.08); }
+.label.selected { color: #fff; background: color-mix(in srgb, var(--accent) 30%, rgba(6, 8, 11, 0.6)); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.panel .section { margin-top: 9px; padding-top: 7px; border-top: 1px solid var(--line); color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.panel .section + dl { margin-top: 4px; }
+.panel .material { display: flex; align-items: center; gap: 7px; margin-top: 4px; }
+.panel .swatch { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line); background: transparent; flex: none; }
+.panel .row { flex-wrap: wrap; }
+.toast { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); max-width: min(420px, 70%); padding: 5px 11px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); color: var(--fg); font-size: 11.5px; text-align: center; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.btn:disabled { opacity: 0.35; cursor: default; }
+.btn:disabled:hover { background: transparent; }
+html[data-tone="light"] { --fg: #1f262e; --muted: #5e6874; --line: rgba(40, 50, 62, 0.16); --panel: rgba(250, 251, 252, 0.84); color-scheme: light; }
+html[data-tone="light"] body { background: #eceef1; }
+html[data-tone="light"] .label { color: #1f262e; text-shadow: none; background: rgba(255, 255, 255, 0.72); border-color: rgba(40, 50, 62, 0.12); }
+html[data-tone="light"] .panel .title { color: #10161d; }
+html[data-tone="light"] .btn:hover { background: rgba(30, 40, 52, 0.07); }
+html[data-tone="light"] .btn[aria-pressed="true"] { color: #10161d; }

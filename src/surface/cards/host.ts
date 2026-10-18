@@ -1,7 +1,7 @@
 import CARD_RUNTIME from "aion:card-runtime";
 import type { CardAppManifest, CardLayout } from "../../cards/manifest";
 import { Lifecycle, type CardLifecycle } from "../../cards/lifecycle";
-import { CARD_PROTOCOL_VERSION, type CardSelection, type FromCardMessage, type ResourceStatus } from "../../cards/protocol";
+import { CARD_PROTOCOL_VERSION, type CardSelection, type FromCardMessage, type ResourceStatus, type SceneEdit } from "../../cards/protocol";
 import type { CardAck, CardReport, CardSnapshot } from "../../cards/state";
 import type { CardValue } from "../../cards/values";
 import type { Presentation } from "../../core/presentation";
@@ -52,9 +52,11 @@ export class InteractiveCardHost {
   private reportTimer?: ReturnType<typeof setTimeout>;
   private resizeTimer?: ReturnType<typeof setTimeout>;
   private readonly observer: ResizeObserver;
-  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle; scene?: CardReport["scene"] } = { state: {}, acks: [] };
+  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle; scene?: CardReport["scene"]; edits: SceneEdit[] } = { state: {}, acks: [], edits: [] };
   /** v0.5: the newest scene revision from the hub, the one this frame has built, and whether one is being sent now. */
-  private latestScene: { revision: number; document: NonNullable<CardSnapshot["scene"]>["document"] } | null = null;
+  private latestScene: { revision: number; document: NonNullable<CardSnapshot["scene"]>["document"]; history: { undo: number; redo: number } } | null = null;
+  /** v0.5.1: the user's edits sent to the hub and not yet answered (by request id). */
+  private readonly edits = new Set<string>();
   private sceneSent = 0;
   private sceneReady = false;
   private sceneBusy = false;
@@ -237,6 +239,13 @@ export class InteractiveCardHost {
         else { this.flash(message.payload.message); this.pending.error = { code: message.payload.code, message: message.payload.message }; this.scheduleReport(); }
         break;
       case "RESOURCE_STATUS": this.pending.resources = message.payload; this.scheduleReport(); break;
+      // v0.5.1: the user's own change, for the hub to validate and record (one per report, in order).
+      case "EDIT":
+        if (this.pending.edits.length >= 4) { this.flash("Too many changes at once"); break; }
+        this.pending.edits.push(message.payload);
+        this.edits.add(message.payload.request);
+        this.scheduleReport(true);
+        break;
       case "DISPOSED": this.leftovers = message.payload; break;
       case "RESULT": break;
     }
@@ -322,7 +331,10 @@ export class InteractiveCardHost {
   apply(card: CardSnapshot) {
     if (card.instance !== this.instance || this.disposed) return;
     if (card.layout !== this.layout) this.setLayout(card.layout, false);
-    if (card.scene && card.scene.revision > (this.latestScene?.revision ?? 0)) { this.latestScene = { revision: card.scene.revision, document: card.scene.document }; void this.pumpScene(); }
+    if (card.scene && card.scene.revision > (this.latestScene?.revision ?? 0)) { this.latestScene = { revision: card.scene.revision, document: card.scene.document, history: { undo: card.scene.undo, redo: card.scene.redo } }; void this.pumpScene(); }
+    // v0.5.1: the hub's answer to one of the user's edits: a refusal is said here (an accepted one arrives as a revision).
+    const outcome = card.scene?.outcome;
+    if (outcome && this.edits.delete(outcome.request) && !outcome.ok) this.flash(`Not applied: ${outcome.problem ?? "refused"}`.slice(0, 120));
     for (const entry of card.commands) {
       if (entry.seq <= this.applied) continue;
       this.applied = entry.seq;
@@ -341,7 +353,7 @@ export class InteractiveCardHost {
     if (!target || target.revision <= this.sceneSent) return;
     this.sceneBusy = true;
     try {
-      const result = await bridge.request("LOAD_SCENE", { revision: target.revision, document: target.document }, { seconds: this.options.manifest.resources.maxLoadSeconds });
+      const result = await bridge.request("LOAD_SCENE", { revision: target.revision, document: target.document, history: target.history }, { seconds: this.options.manifest.resources.maxLoadSeconds });
       if (this.disposed || this.bridge !== bridge) return;
       this.sceneSent = target.revision;
       this.pending.scene = { revision: target.revision, ok: result.ok, ...(result.ok ? {} : { problem: (result.problem ?? "failed").slice(0, 200) }) };
@@ -429,9 +441,10 @@ export class InteractiveCardHost {
       ...(Object.keys(p.state).length ? { state: p.state } : {}), ...(p.selection !== undefined ? { selection: p.selection } : {}),
       ...(p.error !== undefined ? { error: p.error } : {}), ...(p.acks.length ? { acks: p.acks.slice(-16) } : {}),
       ...(p.resources ? { resources: p.resources } : {}), ...(p.interacting !== undefined ? { interacting: p.interacting } : {}),
-      ...(p.scene ? { scene: p.scene } : {}),
+      ...(p.scene ? { scene: p.scene } : {}), ...(p.edits.length ? { edit: p.edits[0] } : {}),
     };
-    this.pending.state = {}; this.pending.acks = [];
+    this.pending.state = {}; this.pending.acks = []; p.edits.shift();
+    if (p.edits.length) this.scheduleReport(true);
     delete p.selection; delete p.error; delete p.resources; delete p.interacting; delete p.layout; delete p.lifecycle; delete p.scene;
     if (Object.keys(report).length > 1 && !this.disposed) this.options.report(report);
   }

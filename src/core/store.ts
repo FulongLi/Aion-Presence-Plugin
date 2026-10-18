@@ -11,12 +11,14 @@ import type { PlaybackEvent } from "../music/notation/score";
 import { endOf, positionAt, type PlaybackState } from "../animation/timeline";
 import { controlAnimation, playbackFor, type AnimationCommand, type ControlResult } from "../animation/control";
 import { applyCardReport, openCard, queueCardCommand, type CardReport, type CardSnapshot } from "../cards/state";
+import type { SceneEdit } from "../cards/protocol";
 import { checkCommand } from "../cards/manifest";
 import type { CardValue } from "../cards/values";
 import { cardRegistry } from "./cards";
 import type { SceneDocument } from "../scene/ir";
 import { validateScene } from "../scene/validate";
 import { applyPatch } from "../scene/patch";
+import { toParticleScene } from "../scene/particleAdapter";
 import { commit as commitScene, redo as redoScene, resetHistory, startHistory, undo as undoScene, type HistoryResult, type SceneHistoryState } from "../scene/history";
 
 /**
@@ -67,6 +69,16 @@ export type SceneCommand = { request: string; base?: number; label?: string } & 
   | { action: "patch"; ops: unknown[] }
   | { action: "undo" | "redo" | "reset" }
 );
+
+/** A direct edit from the card as a scene command: a transform patch (labelled as the user's) or undo / redo. */
+function editCommand(edit: SceneEdit, card: CardSnapshot): SceneCommand {
+  if (edit.action !== "transform") return { request: edit.request, action: edit.action };
+  const node = card.scene?.document.objects.find(n => n.id === edit.id);
+  const name = node?.name ?? node?.label ?? edit.id;
+  const what = [edit.position && "moved", edit.rotation && "turned", edit.scale !== undefined && "resized"].filter(Boolean).join(" and ");
+  const op: Record<string, unknown> = { op: "transform", id: edit.id, ...(edit.position ? { position: edit.position } : {}), ...(edit.rotation ? { rotation: edit.rotation } : {}), ...(edit.scale !== undefined ? { scale: edit.scale } : {}) };
+  return { request: edit.request, base: edit.base, action: "patch", ops: [op], label: `${what} ${name} (by hand)` };
+}
 
 /** The animation on show and where its playhead is. */
 export interface AnimationPlayback { presentation: string; playback: PlaybackState }
@@ -215,6 +227,23 @@ export class PresenceStore {
     return { ok: true, seq: queued.seq, card: queued.card };
   }
 
+  /**
+   * v0.5.1: a hybrid scene's particle body follows its changes. When a change alters what the body forms (objects added,
+   * removed, moved, resized, hidden), the presentation carries the new particle form and when it changed (`bodyEcho`):
+   * the surfaces re-form the body for a moment, then it returns beside the card. A colour change only updates the form's
+   * brightness, quietly (the body is not re-formed for it).
+   */
+  private bodyEcho(card: CardSnapshot, document: SceneDocument, now: number): { presentation?: Presentation } {
+    const presentation = this.state.presentation;
+    if (presentation?.kind !== "interactive" || presentation.instance !== card.instance || !presentation.bodyScene) return {};
+    const body = toParticleScene(document).scene;
+    if (!body || JSON.stringify(body) === JSON.stringify(presentation.bodyScene)) return {};
+    // Shape: the same particle form apart from brightness (tone follows colour) is kept quietly, without re-forming.
+    const shape = (scene: unknown) => JSON.stringify(scene, (key, value) => key === "tone" ? undefined : value);
+    if (shape(body) === shape(presentation.bodyScene)) return { presentation: { ...presentation, bodyScene: body } };
+    return { presentation: { ...presentation, bodyScene: body, bodyEcho: now } };
+  }
+
   /** The scene state after a whole new scene: a new history, or a new revision of the open card's. */
   private sceneState(card: CardSnapshot, document: SceneDocument, now: number) {
     const history = this.sceneHistory?.instance === card.instance ? this.sceneHistory.state : null;
@@ -268,7 +297,10 @@ export class PresenceStore {
     }
     if (!result.ok) return fail(result.code, result.problem);
     this.sceneHistory = { instance: card.instance, state: result.state };
-    this.commit({ card: { ...card, scene: { ...this.sceneSnapshot(result.state), rendered: card.scene?.rendered ?? null, outcome: { request: command.request, ok: true, revision: result.state.revision, ...extra } } } });
+    this.commit({
+      card: { ...card, scene: { ...this.sceneSnapshot(result.state), rendered: card.scene?.rendered ?? null, outcome: { request: command.request, ok: true, revision: result.state.revision, ...extra } } },
+      ...this.bodyEcho(card, result.state.document, now),
+    });
     return { ok: true };
   }
 
@@ -281,9 +313,11 @@ export class PresenceStore {
     if (!card || card.instance !== report.instance) return false;
     const next = applyCardReport(card, report, this.clock.now());
     const meaningful = (c: CardSnapshot) => JSON.stringify({ ...c, reportedAt: 0, resources: null });
-    if (meaningful(next) === meaningful(card)) { this.state = { ...this.state, card: next }; return false; }
-    this.commit({ card: next });
-    return true;
+    const changed = meaningful(next) !== meaningful(card);
+    if (changed) this.commit({ card: next }); else this.state = { ...this.state, card: next };
+    // v0.5.1: the user's own change in the card is one more scene command, validated and recorded like Codex's.
+    if (report.edit) this.sceneCommand(editCommand(report.edit, next));
+    return changed || !!report.edit;
   }
 
   /** Wall-clock seconds until a playback reaches where it stops. */

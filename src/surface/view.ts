@@ -76,6 +76,8 @@ const STATE_WORDS: Partial<Record<ActivityState, string>> = {
 
 /** Remembered (per browser, best effort) so the microphone explanation is shown once, not every session. */
 const MIC_NOTE_KEY = "aion.presence.mic-note";
+/** v0.5.1: how long the body re-forms a hybrid scene after a change to its shape. */
+const BODY_ECHO_SECONDS = 4.5;
 
 /**
  * One Aion on one surface. Snapshots from the transport drive Aion's activity, persistent body and gestures.
@@ -108,6 +110,8 @@ export class PresenceView {
   private stream: MediaStream | null = null;
   private activity: ActivityState = "idle";
   private presentationId: string | null = null;
+  /** v0.5.1: the hybrid scene change the body last re-formed (presentation.bodyEcho). */
+  private bodyEcho: number | null = null;
   private gestureId: number | null = null;
   private expressionId: number | null = null;
   private sceneViewId: number | null = null;
@@ -329,6 +333,12 @@ export class PresenceView {
     }
     // v0.4.5: the interactive card on show follows the hub's card (its layout, Codex's commands).
     if (this.cardHost && snapshot.card?.instance === this.cardHost.instance) this.cardHost.apply(snapshot.card);
+    // v0.5.1: a hybrid scene that changed shape: the body re-forms it for a moment beside the card, then returns.
+    if (presentation?.kind === "interactive" && presentation.bodyEcho && presentation.bodyScene && presentation.id === this.presentationId && presentation.bodyEcho !== this.bodyEcho) {
+      const first = this.bodyEcho === null;
+      this.bodyEcho = presentation.bodyEcho;
+      if (!first || Date.now() - presentation.bodyEcho < 10_000) void this.visual.submit({ type: "scene", scene: presentation.bodyScene, hold: BODY_ECHO_SECONDS });
+    } else if (presentation?.kind !== "interactive") this.bodyEcho = null;
     this.immersive.update(snapshot.hub.display);
     this.updateFullscreenControl();
   };

@@ -1,4 +1,35 @@
-# MCP tools: discovery and reliability (v0.4.4, v0.4.5)
+# MCP tools: reference, discovery and reliability
+
+## Tool reference
+
+| Tool | Purpose |
+| --- | --- |
+| `open_presence` | Open Aion (embedded or companion); `display: "immersive"` for "Open Aion". Reports the mode, the immersive path, whether hooks are active, and `greeting.due` once per newly opened Presence. |
+| `set_presence_state` | `idle listening thinking working reading editing testing building responding presenting complete error`. |
+| `set_body_form` | `sphere`, `eyes` or `figure`: the persistent body. |
+| `express` | An expression (neutral, attentive, thinking, curious, happy, surprised, confused, sleepy, concerned) or a gesture (wave, nod, point, shrug, surprise, jump, step, turn, look-around, think): the eyes wear it, the figure acts it out. |
+| `show_portrait` | A real person's face, from public photos (Wikipedia first): a heritage oval particle portrait and the original photograph (hybrid). `style: "classic"`: the head-and-shoulders portrait. |
+| `show_image` | A picture of almost anything: `query` (+ `intent`) looks it up on open sources; `source` shows a local file; `detail: true` keeps it exact. |
+| `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap), any size from a mountain to a continent; `markers` pins places on it; `presentation: "hybrid"` adds a relief map card. |
+| `show_map` | A map of a continent, country, part of one, state or city, with its neighbours, and `markers` at real coordinates (colour, label, highlight). |
+| `mark_map` | Add, recolour, relabel, highlight or remove markers on the map or terrain on show, without forming it again. |
+| `set_colors` | Aion's base particle colour and accent colour (names in any language, presets, `#RRGGBB`), or `reset`; remembered. |
+| `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
+| `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
+| `set_scene_view` | Turn, tilt or zoom the 3D object on show, stop its turn, or reset the view. |
+| `show_stroke_animation` | Handwriting: a Chinese character or word (true outlines, `form` simplified/traditional, `highlight: "radical"`, `practice`), English letters, words and names, digits, music and maths symbols — written stroke by stroke beside a synchronized reference card. Never a guessed order. |
+| `play_animation` · `control_animation` | Short scenes of Aion's flexible figure (walk, think, notice, examine, touch, jump, point …; demos `thinking`, `exploring` …) and control of any animation: pause, resume, replay, speed, next/previous stroke, repeat a stroke or a character, complete. |
+| `show_music` · `play_music` · `music_lesson` | Engraved notation (clefs incl. alto, keys, ties, slurs, dynamics, bar lines; a glossary of 40 concepts), playback that lights each note, lessons in English and Chinese. |
+| `set_audio_visualizer` | How Aion moves with sound (microphone, Codex Voice Sync, another app, a tab, Aion's own music). |
+| `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
+| `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
+| `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model, v0.5's `generative-scene` with a Scene IR `scene`, routed to body, card or hybrid), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close), the app's commands, and for scenes `patch` (with `revision`), `undo`, `redo` and `revert`, each confirmed by the card; its state, selection, metadata and scene (with `full`, the whole document) as the user sees it. |
+| `clear_presentation` | Return to the persistent body now (also closes an interactive card). |
+
+`show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
+(`auto` · `body` · `card` · `hybrid`); every result reports the route taken and why.
+
+## Discovery and reliability (v0.4.4, v0.4.5)
 
 ## The report
 
@@ -89,3 +120,12 @@ operation would have cost several KB, so v0.5 extends the three card tools inste
 
 Result: **32 tools, 57,584 B** (largest 4,372 B), +10 B on v0.4.5, still under the 57,600 B target the tests enforce
 (`npm run mcp:budget`). Tool discovery with the real Codex is checked by `npm run codex:verify`.
+
+## v0.5.1: repair feedback without a new tool
+
+Reliability work in v0.5.1 changed what the existing tools *return*, not their metadata (still 57,584 B): a refused
+`show_interactive_card` scene or `control_interactive_card` patch lists every independent problem (up to 8), each with a
+`→` hint, plus "Attempt n of 3"; after three refusals within five minutes further invalid attempts get `repair-limit`.
+Patches are checked against the reported scene in the MCP server first (so hints are complete) and again,
+authoritatively, in the hub. The user's own edits in the card travel over the Card Bridge (`EDIT`), not over MCP.
+

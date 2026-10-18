@@ -1,0 +1,91 @@
+{
+  "measured": "npm run smoke -- --only=v05 --offline, headless Chrome 155, Apple M4, 1440x900, 2026-10-18, the same day and machine for both",
+  "v0.5.0 (main 27463b5)": {
+    "webgpu-body": {
+      "solarSystemBuiltMs": 161,
+      "patchEarthMs": 42,
+      "timelineBuiltMs": 88,
+      "periodsPatchMs": 40,
+      "openBuildCloseMs": 687,
+      "bodyFps": 60,
+      "cardFps": 60,
+      "cardDrawCalls": 20,
+      "cardTriangles": 27296,
+      "cardGeometries": 19,
+      "cardBuildMs": 9.2,
+      "cardHeapMB": 7.1
+    },
+    "canvas-body": {
+      "solarSystemBuiltMs": 109,
+      "patchEarthMs": 38,
+      "timelineBuiltMs": 83,
+      "periodsPatchMs": 38,
+      "openBuildCloseMs": 682,
+      "bodyFps": 60,
+      "cardFps": 60,
+      "cardDrawCalls": 20,
+      "cardTriangles": 27296,
+      "cardGeometries": 19,
+      "cardBuildMs": 9.2,
+      "cardHeapMB": 6.5
+    }
+  },
+  "v0.5.1 (this branch)": {
+    "webgpu-body": {
+      "solarSystemBuiltMs": 210,
+      "patchEarthMs": 45,
+      "timelineBuiltMs": 155,
+      "periodsPatchMs": 48,
+      "openBuildCloseMs": 719,
+      "bodyFps": 60,
+      "cardFps": 60,
+      "cardDrawCalls": 20,
+      "cardTriangles": 27296,
+      "cardGeometries": 19,
+      "cardBuildMs": 35.1,
+      "cardHeapMB": 11.2
+    },
+    "canvas-body": {
+      "solarSystemBuiltMs": 146,
+      "patchEarthMs": 42,
+      "timelineBuiltMs": 150,
+      "periodsPatchMs": 51,
+      "openBuildCloseMs": 716,
+      "bodyFps": 60,
+      "cardFps": 60,
+      "cardDrawCalls": 20,
+      "cardTriangles": 27296,
+      "cardGeometries": 19,
+      "cardBuildMs": 32.7,
+      "cardHeapMB": 10.4
+    }
+  },
+  "shadows (v0.5.1, Codex-generated scenes, engineering style, same page)": {
+    "dab (44 objects, static)": {
+      "on": {
+        "frameMs": 0.51,
+        "drawCalls": 43,
+        "buildMs": 45.1
+      },
+      "off": {
+        "frameMs": 0.36,
+        "drawCalls": 42,
+        "buildMs": 37.8
+      }
+    },
+    "gears (6 objects, animated)": {
+      "on": {
+        "fps": 60,
+        "frameMs": 0.48,
+        "drawCalls": 8,
+        "buildMs": 35.1
+      },
+      "off": {
+        "fps": 60,
+        "frameMs": 0.37,
+        "drawCalls": 7,
+        "buildMs": 31.8
+      }
+    }
+  }
+}

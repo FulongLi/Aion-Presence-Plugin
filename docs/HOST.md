@@ -83,3 +83,33 @@ click (autoplay policy); Enter Presence provides it. See [MICROPHONE.md](MICROPH
   main states and `responding` settles after 30 s.
 - Allowing the microphone once.
 - One click on Enter Presence for true fullscreen in the companion.
+
+## Lifecycle hooks
+
+| Codex event | Aion |
+| --- | --- |
+| `UserPromptSubmit` | thinking (with a small acknowledging nod) |
+| `PreToolUse` | editing · reading · testing · building · working, by tool and command |
+| `PostToolUse` | back to thinking after a short settle |
+| `Stop` | complete, then rest — after `responding`, Aion keeps answering for as long as the answer takes to say |
+| `Interrupt`, `SessionEnd` | idle |
+
+The hook prints nothing, always exits 0 and never blocks a tool. It forwards only the event name, the tool name,
+for shell tools the start of the command line, and at the end of a turn one number: how many seconds the final
+answer takes to say (computed from its length inside the hook; the text itself is never forwarded). Without trusted
+hooks Aion still works; the Skill then sets the main states itself.
+
+## Surfaces and immersive mode
+
+- **Embedded** when the host declares MCP Apps support (`io.modelcontextprotocol/ui` with
+  `text/html;profile=mcp-app`). Immersive asks the host for its fullscreen display mode; the host decides, and its
+  own composer or voice controls may stay visible — that is the host's UI, not something Aion fights.
+- **Companion** otherwise: a chrome-less Chromium app window (else the default browser) that opens in the
+  foreground and sizes itself to the screen. Browsers allow true fullscreen only from a user gesture, so it offers
+  one quiet **Enter Presence**; after that click Aion stays fullscreen for the whole session (visuals never leave
+  it). Esc always exits and is respected; **F** returns.
+
+Codex currently runs plugin skills, MCP servers and hooks, but its MCP Apps rendering (`enable_mcp_apps`) is under
+development and off by default, so with a default Codex Aion uses the companion window. Aion never pretends a
+capability exists; `open_presence` reports the mode and the immersive path it used. What every host and browser
+actually allows — assistant audio, fullscreen, foreground, always-on-top — is in this page.
