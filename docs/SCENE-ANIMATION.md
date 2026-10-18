@@ -1,4 +1,4 @@
-# Scene animation (v0.5)
+# Scene animation (v0.5, v0.5.1)
 
 Generated scenes move through a declarative animation engine (`src/scene/animation.ts`). Animations are data in the
 Scene IR, not code, and are evaluated by a pure function of time. The same engine runs in the card every frame and in
@@ -10,7 +10,7 @@ the unit tests without a browser.
 | --- | --- | --- |
 | `spin` | orientation: turns about the node's own axis | `speed` °/s, `axis` |
 | `orbit` | position: circles a centre (a node sharing the parent, or a point) on a circle or an ellipse | `period`, `center`, `radius`, `phase`, `eccentricity`, `inclination`, `axis`, `clockwise` |
-| `oscillate` | adds a waveform to position, rotation, scale, opacity or emission | `property`, `amplitude`, `period`, `phase`, `wave` (sine, square, triangle, saw), `axis` |
+| `oscillate` | adds a waveform to position, rotation, scale, opacity or emission; v0.5.1: `scale` with an `axis` swings that direction only (a surface's amplitude: `[0, 1, 0]`) | `property`, `amplitude`, `period`, `phase`, `wave` (sine, square, triangle, saw), `axis` |
 | `keyframes` | sets position, rotation, scale, colour, opacity, emission or visibility from keys | `keys [{t, value}]`, `easing` (linear, ease-in, ease-out, ease-in-out, step) |
 | `path` | position (and optionally orientation) along a path-like node | `path`, `duration`, `orient`, `easing` |
 | `flow` | a point cloud's particles stream along a path | `path`, `rate` units/s |

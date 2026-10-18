@@ -1,4 +1,4 @@
-# The Generative Visual Engine (v0.5)
+# The Generative Visual Engine (v0.5, v0.5.1)
 
 **One intelligence. One scene model. Multiple visual representations.**
 
@@ -14,7 +14,7 @@ place as the conversation goes on. There is no second model, API key or subscrip
 ```
 User ── "Create a 3D solar system" ──► Codex ── Scene IR document ──► show_interactive_card (app generative-scene)
                                                                           │
-                                         validate (src/scene/validate.ts) │ refused: code + problem, nothing shown
+                                         validate (src/scene/validate.ts) │ refused: every problem + a fix, attempt n of 3
                                          capabilities (capabilities.ts)   │ UNSUPPORTED: said plainly, nothing substituted
                                          Presentation Router 2.0 (router.ts)
                                             │                │                    │
@@ -46,7 +46,10 @@ User ── clicks Earth, "make this twice as large" ──► Codex ── insp
 | Three.js Renderer Adapter | `src/cards/apps/generativeScene/` — `compiler.ts` (Scene Compiler), `geometry.ts`, `app.ts` (the card) |
 | Card 2.0 integration | `scene-documents` capability and `LOAD_SCENE` (`src/cards/manifest.ts`, `protocol.ts`), `card.scene` (`src/cards/state.ts`), the page's card host (`src/surface/cards/host.ts`) |
 | MCP | the existing `show_/control_/inspect_interactive_card` (`src/host/mcp/server.ts`) — no new tools |
-| What Codex reads | `plugins/aion-presence/skills/aion-presence/SKILL.md` (Generated scenes) and `references/scene-ir.md` |
+| What Codex reads | `plugins/aion-presence/skills/aion-presence/SKILL.md` (Generated scenes) and `references/scene-ir.md`, `references/scene-examples.md` |
+| Repair hints (v0.5.1) | `src/scene/repair.ts` (used by `validate.ts` and `patch.ts`); bounded attempts in `src/host/mcp/server.ts` |
+| Visual styles (v0.5.1) | `src/scene/style.ts` (renderer-independent) → `src/cards/apps/generativeScene/staging.ts` (lights, reflections, shadows, ground) |
+| Direct edits (v0.5.1) | the card's transform tool (`app.ts`) → Card Bridge `EDIT` → `checkCardReport` (`src/cards/state.ts`) → the store's scene command |
 | Engineering backends (interface only) | `src/scene/cad.ts` — [FUTURE-CAD-INTEGRATION.md](FUTURE-CAD-INTEGRATION.md) |
 
 The concerns stay separate: interpretation is Codex's; representation is the Scene IR; the router decides
@@ -54,6 +57,41 @@ presentation; compilation (`SceneCompiler`) is separate from rendering (`ViewerE
 animation is a pure function of time; interaction (selection, camera) is state the card reports; and the
 authoritative scene state lives in the hub. Nothing in the Scene IR knows about Three.js. The particle body and the
 Three.js card are two adapters of one document, and neither tries to be the other.
+
+## v0.5.1: refinement
+
+v0.5.1 keeps the architecture and makes it work better from real natural language:
+
+- **Reliability**: a refused document or patch lists every independent problem with a fix (`repair.ts`), the MCP server
+  bounds the repair loop to three attempts, and valid-but-suspicious scenes come back with `Check:` notes. Codex's
+  references gained one-pass planning steps, common mistakes and validated worked examples.
+- **Rendering**: visual styles stage every scene (studio reflections so metals read as metal, key/fill/rim light, soft
+  shadows on a ground where appropriate, exposure), material presets, framing of the drawn shapes across their motion,
+  readable labels, a light-backdrop tone.
+- **Interaction**: a sectioned inspector, a tinted and outlined selection, Move/Rotate/Scale tools and Undo/Redo in the
+  card — every direct edit a validated patch recorded by the hub ([SCENE-INTERACTION.md](SCENE-INTERACTION.md)).
+- **Hybrid**: the particle body re-forms a hybrid scene briefly after a change to its shape.
+- **Evidence from the real Codex**: [SCENE-GENERATION-TESTS.md](SCENE-GENERATION-TESTS.md) — natural-language requests
+  through the Codex CLI, measured from request to confirmed render, kept separate from fixture-based tests.
+
+### Performance (v0.5.1)
+
+Measured the same day on the same machine (Apple M4, headless Chrome 155) with `npm run smoke -- --only=v05`, v0.5.0
+(main) against this version ([performance.json](media/v0.5.1/performance.json)):
+
+| | v0.5.0 | v0.5.1 |
+| --- | --- | --- |
+| Patch to confirmed render ("Make Earth three times larger") | 42 / 38 ms | 45 / 42 ms |
+| Solar system shown to confirmed render | 161 / 109 ms | 210 / 146 ms |
+| Body and card frame rate together | 60 / 60 fps | 60 / 60 fps |
+| Card draw calls, triangles (solar system) | 20, 27,296 | 20, 27,296 |
+| Card's own first build | 9.2 ms | 33–35 ms |
+| Card heap | 6.5–7.1 MB | 10.4–11.2 MB |
+
+(webgpu-body / canvas-body.) The first build of a card now also generates the studio environment (once per card) and
+samples the scene through its motion for framing and the ground; edits are unchanged within noise. Shadows, measured on
+two Codex-generated engineering scenes with and without them: +0.11–0.15 ms of CPU per frame, the animated one at 60 fps
+either way. Every card still releases everything on close (13 opened and closed, 0 leftovers).
 
 ## What was reused, and what was added
 

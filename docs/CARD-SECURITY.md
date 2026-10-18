@@ -41,6 +41,10 @@ document does not contain the token. Aion's own page CSP is unchanged (a `srcdoc
   and refuses other instances (409), malformed reports (400), oversized bodies (413) and floods (429).
 - A card cannot invoke host tools: it has no channel to the MCP server, and the page maps its messages to nothing but
   the card's own state.
+- v0.5.1: a generated-scene card may *propose* the user's own edits (`EDIT`: a transform of an existing object, undo,
+  redo). It cannot add, remove or restyle anything, cannot change another card, and cannot apply anything itself: the
+  hub validates the proposal (shape, object, base revision), applies it as an ordinary validated patch, and records it
+  in the history the user and Codex share. A refused proposal changes nothing.
 
 ## Rendering what a card says
 

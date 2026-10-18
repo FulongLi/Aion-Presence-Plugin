@@ -1,4 +1,4 @@
-# Scene IR (v0.5)
+# Scene IR (v0.5, v0.5.1)
 
 The Scene IR is the one description of a visual scene that Codex, the hub, the particle body and the interactive
 card share. It is versioned (`version: 1`), serializable JSON, renderer-independent, and validated everywhere it
@@ -42,8 +42,8 @@ Design choices:
 
 ## Validation
 
-`validateScene(input)` returns either `{ ok: true, document, stats }` (a **clean copy** with only known fields) or
-`{ ok: false, code, problem }`. The codes are:
+`validateScene(input)` returns either `{ ok: true, document, stats, warnings? }` (a **clean copy** with only known
+fields) or `{ ok: false, code, problem, issues }`. The codes are:
 
 | code | when |
 | --- | --- |
@@ -56,6 +56,30 @@ Design choices:
 
 Unknown fields are refused rather than ignored. A typo is never silently dropped, and no field can smuggle
 something in (`onClick`, `shader`, `url`, `script` all fail).
+
+**v0.5.1: every problem at once, with a fix.** Each object, animation and section is checked on its own, so a refused
+document lists up to 8 independent `issues` (`code`, `problem` with its location, `hint`); `problem` is the first.
+Hints come from `src/scene/repair.ts` and never change the document: a near-miss name (`"raduis"` → `radius`), a field
+in the wrong place (`color` on an object → `material: { color }`, `children` → `parent`), a type Aion has under another
+name (`cube` → `box`, `rotate` → `spin`), an example of the fields a type needs, the nearest existing ids for a broken
+reference, and the lowercase form of an invalid id. The MCP server fills in a missing `version` and `sceneId` (from the
+title) before validating and says so (`prepareSceneInput`); nothing else is ever filled in.
+
+`warnings` (at most four) flag a valid document that probably says something unintended: rotations that look like
+radians, a ground plane stood upright, a spin of under 2 °/s, an orbit period under half a second, or a scene so wide
+that its smallest objects vanish at the full view. They are reported with the result ("Check: …"), never applied.
+
+## Materials and styles (v0.5.1)
+
+- `material.preset`: `metal`, `steel`, `aluminium` (`aluminum` accepted), `copper`, `gold`, `brass`, `plastic`,
+  `rubber`, `glass`, `matte`, `ceramic`, `emissive`, `pcb`, `ferrite` (values in `MATERIAL_PRESET_VALUES`,
+  `src/scene/ir.ts`). The material's own fields win over its preset; both renderers resolve it the same way
+  (`materialOf`).
+- `environment.style`: `scientific`, `engineering`, `minimal`, `presentation`, `cinematic` — rendering presets for
+  lighting, reflections, exposure, backdrop, shadows, ground and grid (`src/scene/style.ts`). Absent, the intent picks
+  one. `environment.shadows` and `environment.ground` override the style; `stars` or a `lightSource` turn the studio
+  off (no ground, faint reflections). Above 250,000 estimated triangles shadows stay off unless asked for, and the card
+  says why in its state.
 
 ## Limits
 

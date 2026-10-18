@@ -1,4 +1,4 @@
-# Presentation Router 2.0 (v0.5)
+# Presentation Router 2.0 (v0.5, v0.5.1)
 
 The v0.4 Presentation Router (`src/core/presentationRouter.ts`) decides BODY, CARD or HYBRID by *kind*: a
 constellation is the body, code is a card, a portrait is both. Generated scenes have no fixed kind, since a "scene" can
@@ -57,7 +57,8 @@ compares that with what the runtime has: SUPPORTED, PARTIALLY_SUPPORTED or UNSUP
 | Requirement | Without a backend |
 | --- | --- |
 | `geometry:*`, `animation:*`, `feature:*` | supported (all built-ins), or approximated (an unknown feature) |
-| `render:shadows`, `post-processing`, `textures`, … | approximated, with a note of what is shown instead |
+| `render:shadows`, `render:environment-lighting`, `render:pbr-materials`, `render:styles` | supported where the card runs (v0.5.1) |
+| `render:bloom`, `post-processing`, `textures`, `refraction`, … | approximated, with a note of what is shown instead |
 | `asset:model-url`, `asset:texture-url` | unsupported (the scene is shown without them: partial) |
 | `compute:*`, `physics:*` with fidelity measured or approximate | **UNSUPPORTED**: refused, with what is missing ("accurate magnetic flux density needs a numerical field solver (FEM/BEM) …"); nothing is shown or substituted |
 | `compute:*`, `physics:*` with fidelity illustrative | PARTIALLY_SUPPORTED: shown, with "Illustrative visualization: not computed by a numerical solver" added to its disclosures |
@@ -74,6 +75,7 @@ v0.5 has no computational backends. A future one (a field solver, a CAD kernel) 
 | body → card | the body releases its form and steps aside as the card opens (no particle-to-mesh morph: the two are different representations, and the router does not fake one into the other) |
 | body → hybrid | the body keeps a particle form of the scene while the card opens beside it |
 | card → card (same card) | the open card updates in place: a new revision, the same objects |
+| hybrid → hybrid (a change) | v0.5.1: when a change alters the scene's shape (objects added, removed, moved, resized, hidden), the body re-forms the new arrangement for 4.5 s beside the card, then returns to itself; a colour-only change updates the form's brightness quietly |
 | card → body | the card closes and the body forms the scene |
 
 While a card is open, Aion's body stays alive: it steps aside by layout, turns toward the selected object, calms its
