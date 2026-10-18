@@ -1,5 +1,5 @@
 import { parseColor } from "../core/colors";
-import type { Easing, Keyframe, MaterialProps, SceneAnimation, SceneDocument, SceneNode, Vec3, Wave } from "./ir";
+import { MATERIAL_PRESET_VALUES, type Easing, type Keyframe, type MaterialProps, type SceneAnimation, type SceneDocument, type SceneNode, type Vec3, type Wave } from "./ir";
 import { add, apply, IDENTITY, mul, normalize, nodeTransform, quatAxisAngle, quatFromEuler, quatFromTo, quatLookAlong, quatMul, rotate, scaleVec, sub, unapply, type Quat, type Transform } from "./math";
 import { pathPoints, pointAt, samplePath, type SampledPath } from "./paths";
 
@@ -71,6 +71,12 @@ const ease = (t: number, easing: Easing = "linear") => {
   }
 };
 
+/** A scale swung by `amount` along an axis: each component by its share of the (normalized) axis. */
+function axisScale(scale: Vec3, axis: Vec3, amount: number): Vec3 {
+  const n = Math.hypot(...axis) || 1;
+  return scale.map((s, i) => s * Math.max(0, 1 + amount * Math.abs(axis[i]) / n)) as Vec3;
+}
+
 /** A waveform in −1…1 at `degrees` of its cycle. */
 export function wave(degrees: number, shape: Wave = "sine") {
   const cycle = ((degrees / 360) % 1 + 1) % 1;
@@ -120,8 +126,13 @@ function keyframeValue(keys: Keyframe[], t: number, easing: Easing | undefined):
 /** The node's own material values (a shared material merged under its own), for animations that change them. */
 export function materialOf(doc: SceneDocument, node: SceneNode): MaterialProps {
   if (node.material === undefined) return {};
-  if (typeof node.material === "string") { const shared = doc.materials?.find(m => m.id === node.material); if (!shared) return {}; const { id: _id, name: _name, ...props } = shared; return props; }
-  return node.material;
+  if (typeof node.material === "string") { const shared = doc.materials?.find(m => m.id === node.material); if (!shared) return {}; const { id: _id, name: _name, ...props } = shared; return withPreset(props); }
+  return withPreset(node.material);
+}
+
+/** A material's preset (v0.5.1) under its own fields: the explicit values win. */
+export function withPreset(props: MaterialProps): MaterialProps {
+  return props.preset ? { ...MATERIAL_PRESET_VALUES[props.preset], ...props } : props;
 }
 
 /**
@@ -234,7 +245,8 @@ export class PoseEvaluator {
         switch (a.property) {
           case "position": pose.position = add(pose.position, mul(axis, amplitude * w)); break;
           case "rotation": pose.quaternion = quatMul(pose.quaternion, quatAxisAngle(axis, amplitude * w)); break;
-          case "scale": pose.scale = mul(pose.scale, Math.max(0, 1 + amplitude * w)); break;
+          // v0.5.1: with an axis, only that direction swings (a surface's height: axis [0, 1, 0]); without one, all of it.
+          case "scale": pose.scale = a.axis ? axisScale(pose.scale, a.axis, amplitude * w) : mul(pose.scale, Math.max(0, 1 + amplitude * w)); break;
           case "opacity": pose.opacity = Math.max(0, Math.min(1, (pose.opacity ?? material.opacity ?? 1) + amplitude * w)); break;
           case "emissive": pose.emissiveIntensity = Math.max(0, (pose.emissiveIntensity ?? material.emissiveIntensity ?? 0) + amplitude * (w + 1) / 2); break;
           default: break;

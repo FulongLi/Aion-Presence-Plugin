@@ -60,7 +60,8 @@ import { newInstanceId } from "../../cards/protocol";
 import { describeSpec, type CardValue } from "../../cards/values";
 import type { CardSnapshot } from "../../cards/state";
 import { AssetError, BUNDLED_MODEL_NAMES, loadModel } from "../cardAssets";
-import { validateScene } from "../../scene/validate";
+import { prepareSceneInput, validateScene, type SceneIssue } from "../../scene/validate";
+import { applyPatch, type PatchIssue } from "../../scene/patch";
 import { routeScene, type RouteMode, type SceneRoute } from "../../scene/router";
 import { summarizeScene } from "../../scene/summary";
 import type { SceneDocument } from "../../scene/ir";
@@ -1154,6 +1155,29 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const SCENE_ACTIONS = ["patch", "undo", "redo", "revert"] as const;
   let sceneRequests = 0;
   const sceneRequest = () => `q${Date.now().toString(36)}${(++sceneRequests).toString(36)}`;
+  /**
+   * v0.5.1: bounded recovery. A refused scene or patch lists every problem found (with how to fix it) and counts the
+   * attempt; the third consecutive refusal within REPAIR_WINDOW_MS tells Codex to stop and say so, and any further
+   * invalid attempt is answered without details. A success, or a quiet window, starts the count again.
+   */
+  const REPAIR_ATTEMPTS = 3, REPAIR_WINDOW_MS = 5 * 60_000;
+  const repairs = new Map<"scene" | "patch", { failures: number; at: number }>();
+  const refuseScene = (kind: "scene" | "patch", code: string, issues: (SceneIssue | PatchIssue)[], notes: string[] = []): CallToolResult => {
+    const now = Date.now(), previous = repairs.get(kind);
+    const failures = previous && now - previous.at < REPAIR_WINDOW_MS ? previous.failures + 1 : 1;
+    repairs.set(kind, { failures, at: now });
+    if (failures > REPAIR_ATTEMPTS) {
+      return failure(`repair-limit: attempt ${failures}; the limit is ${REPAIR_ATTEMPTS}. Nothing was shown or changed. Do not call again for this request: tell the user it could not be built.`);
+    }
+    const list = issues.map((issue, i) => `${i + 1}. [${issue.code}] ${issue.problem}${issue.hint ? ` → ${issue.hint}` : ""}`).join("\n");
+    const next = failures === REPAIR_ATTEMPTS
+      ? `Attempt ${failures} of ${REPAIR_ATTEMPTS}: stop retrying. Tell the user plainly that the ${kind === "patch" ? "change" : "scene"} could not be made and why (one sentence from the problems above); offer a simpler version.`
+      : `Attempt ${failures} of ${REPAIR_ATTEMPTS}. Fix exactly ${issues.length === 1 ? "this problem" : `these ${issues.length} problems`}, keep everything else, and call again with the ${kind === "patch" ? "corrected patch" : "whole corrected document"}.`;
+    return failure(`${code}: ${issues.length === 1 ? "1 problem" : `${issues.length} problems`} in the ${kind}. Nothing was shown or changed.\n${list}${notes.length ? `\n(${notes.join("; ")})` : ""}\n${next}`);
+  };
+  const repaired = (kind: "scene" | "patch") => { repairs.delete(kind); };
+  /** Valid but probably not meant, and what was filled in: said with the result (v0.5.1). */
+  const sceneNotes = (warnings: string[] = [], notes: string[] = []) => [...notes, ...warnings].length ? ` Check: ${[...notes, ...warnings].join("; ")}.` : "";
   const currentMode = (snapshot: HubSnapshot): RouteMode | "none" => snapshot.presentation ? snapshot.presentation.route : "none";
   /** The router's explanation, as Codex receives it. */
   const routeOutput = (route: SceneRoute) => ({
@@ -1183,8 +1207,11 @@ export function createAionServer(options: AionServerOptions): McpServer {
       return cardResult(ctx, before, "The generated scene is open. Pass scene to replace it, or control_interactive_card with action patch to change it.");
     }
     if (args.model !== undefined) return failure(`invalid-arguments: ${manifest.name} takes no model.`);
-    const checked = validateScene(args.scene);
-    if (!checked.ok) return failure(`${checked.code}: ${checked.problem}. Nothing was shown or changed; fix the scene and call again.`);
+    const prepared = prepareSceneInput(args.scene);
+    const checked = validateScene(prepared.input);
+    if (!checked.ok) return refuseScene("scene", checked.code, checked.issues, prepared.notes);
+    repaired("scene");
+    const check = sceneNotes(checked.warnings, prepared.notes);
     let document: SceneDocument = checked.document;
     const route = routeScene({ document, preference: args.presentation, current: currentMode(before) });
     if (route.capability.status === "UNSUPPORTED") {
@@ -1198,7 +1225,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const notes = document.disclosure?.length ? ` Tell the user: ${document.disclosure.join(" ")}` : "";
     if (route.mode === "body") {
       const shown = await link.run(backend => backend.apply({ type: "present", content: { kind: "scene", scene: route.particle.scene!, label: title }, ...(args.hold_seconds !== undefined ? { hold: args.hold_seconds } : {}), presentation: "body" }));
-      return withRoute(result(summarize(shown, modeFor(ctx), `Aion's body forms "${title}" (${route.reason}).${notes} Answer in your own voice; do not narrate this tool call.`)), route);
+      return withRoute(result(summarize(shown, modeFor(ctx), `Aion's body forms "${title}" (${route.reason}).${notes}${check} Answer in your own voice; do not narrate this tool call.`)), route);
     }
     // A card (or a hybrid): the open generated scene keeps its card and history — the new scene is a new revision.
     const instance = open ? open.instance : newInstanceId();
@@ -1225,7 +1252,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
         : rendered && rendered.revision >= revision ? (rendered.ok ? `It is built (revision ${revision}) and ${card.state.playing === false || card.lifecycle === "paused" ? "paused" : "running"}.` : `The card could not build it: ${rendered.problem ?? "failed"}.`)
           : watched(snapshot, ctx) ? `Accepted as revision ${revision}; the card has not confirmed it is built yet.` : "Aion is not open, so nothing displays it yet.";
     const failed = !!rendered && rendered.revision >= revision && !rendered.ok;
-    const outcome = cardResult(ctx, snapshot, `${open ? "Updated" : "Opened"} the generated scene "${title}" as ${route.mode === "hybrid" ? "a card while the body forms it" : "a card beside the body"}. ${status}${notes} `
+    const outcome = cardResult(ctx, snapshot, `${open ? "Updated" : "Opened"} the generated scene "${title}" as ${route.mode === "hybrid" ? "a card while the body forms it" : "a card beside the body"}. ${status}${notes}${check} `
       + "The user can turn, zoom and select objects. Answer in your own voice; do not narrate this tool call.");
     return withRoute(failed ? { ...outcome, isError: true } : outcome, route);
   };
@@ -1235,6 +1262,14 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (action === "patch" && !patch) return failure("invalid-arguments: action patch needs patch: [operations].");
     if (action !== "patch" && (patch || revision !== undefined)) return failure(`invalid-arguments: ${action} takes no patch or revision.`);
     if (!card.scene) return failure("no-scene: the card has no scene yet; use show_interactive_card with a scene first.");
+    // v0.5.1: checked here first against the scene as reported, so a refusal lists every problem and how to fix it (the
+    // hub checks it again against its own, authoritative, revision).
+    let warnings: string[] | undefined;
+    if (action === "patch") {
+      const local = applyPatch(card.scene.document, patch, { selected: card.selection?.objectId ?? null });
+      if (!local.ok) return refuseScene("patch", local.code, local.issues);
+      warnings = local.warnings;
+    }
     const request = sceneRequest();
     const after = await link.run(backend => backend.apply({
       type: "scene", action: action === "revert" ? "reset" : action, request, ...(patch ? { ops: patch } : {}), ...(revision !== undefined ? { base: revision } : {}),
@@ -1242,6 +1277,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const outcome = after.card?.scene?.outcome;
     if (!outcome || outcome.request !== request) return failure("card-changed: the card closed or changed before the change was applied.");
     if (!outcome.ok) return { ...cardResult(ctx, after, `${outcome.code ?? "invalid-patch"}: ${outcome.problem ?? "failed"}. Nothing changed; the scene is still at revision ${outcome.revision}.`), isError: true };
+    if (action === "patch") repaired("patch");
     const what = `${outcome.summary ?? action}${outcome.changed?.length ? ` (${outcome.changed.slice(0, 8).join(", ")}${outcome.changed.length > 8 ? "…" : ""})` : ""}`;
     if (!watched(after, ctx)) return cardResult(ctx, after, `Accepted as revision ${outcome.revision}: ${what}. Aion is not open, so it is not displayed yet.`);
     const snapshot = await waitForCard(next => next.instance !== card.instance || next.lifecycle === "error" || (next.scene?.rendered?.revision ?? 0) >= outcome.revision, 8_000);
@@ -1251,7 +1287,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const undone = await link.run(backend => backend.apply({ type: "scene", action: "undo", request: sceneRequest() }));
       return { ...cardResult(ctx, undone, `The card could not build revision ${outcome.revision}: ${rendered.problem ?? "failed"}. The change was undone (now revision ${undone.card?.scene?.revision ?? "?"}); the previous scene stays on show.`), isError: true };
     }
-    return cardResult(ctx, snapshot, `Done and rendered (revision ${outcome.revision}): ${what}. Answer in your own voice; do not narrate this tool call.`);
+    return cardResult(ctx, snapshot, `Done and rendered (revision ${outcome.revision}): ${what}.${sceneNotes(warnings)} Answer in your own voice; do not narrate this tool call.`);
   };
 
   server.registerTool("show_interactive_card", {

@@ -54,7 +54,32 @@ export type SurfaceKind = typeof SURFACES[number];
 /** A colour: #rrggbb (names such as "blue" are accepted on input and normalized to hex). */
 export type SceneColor = string;
 
+/**
+ * v0.5.1: material presets — physically plausible defaults for common materials (metalness, roughness, colour, opacity,
+ * emission). Explicit fields on the material win over its preset ({ "preset": "metal", "color": "#b87333" }).
+ */
+export const MATERIAL_PRESETS = ["metal", "steel", "aluminium", "copper", "gold", "brass", "plastic", "rubber", "glass", "matte", "ceramic", "emissive", "pcb", "ferrite"] as const;
+export type MaterialPreset = typeof MATERIAL_PRESETS[number];
+export const MATERIAL_PRESET_VALUES: Record<MaterialPreset, Omit<MaterialProps, "preset">> = {
+  metal: { color: "#b8bec6", metalness: 0.9, roughness: 0.32 },
+  steel: { color: "#9aa3ad", metalness: 0.85, roughness: 0.4 },
+  aluminium: { color: "#c9ced4", metalness: 0.8, roughness: 0.48 },
+  copper: { color: "#c87533", metalness: 0.95, roughness: 0.3 },
+  gold: { color: "#d4a63a", metalness: 0.95, roughness: 0.24 },
+  brass: { color: "#c9a24a", metalness: 0.9, roughness: 0.36 },
+  plastic: { color: "#d9dde2", metalness: 0, roughness: 0.42 },
+  rubber: { color: "#2a2d31", metalness: 0, roughness: 0.92 },
+  glass: { color: "#cfe6f2", metalness: 0, roughness: 0.05, opacity: 0.3 },
+  matte: { color: "#c9d3dd", metalness: 0, roughness: 0.95 },
+  ceramic: { color: "#eceae4", metalness: 0, roughness: 0.28 },
+  emissive: { color: "#ffd27a", emissive: "#ffb84d", emissiveIntensity: 1.6 },
+  pcb: { color: "#1f6b3a", metalness: 0.1, roughness: 0.6 },
+  ferrite: { color: "#3b3e44", metalness: 0.3, roughness: 0.72 },
+};
+
 export interface MaterialProps {
+  /** v0.5.1: a preset the other fields refine. */
+  preset?: MaterialPreset;
   color?: SceneColor;
   /** 0 (invisible) … 1 (opaque). */
   opacity?: number;
@@ -234,7 +259,16 @@ export interface SceneCamera {
   frame?: string[];
 }
 
+/**
+ * v0.5.1: visual styles — rendering presets (lighting, background, shadows, ground, exposure), not scenes. The same
+ * engine renders every scene; a style only changes how it is lit and staged. Absent, the scene's intent picks one.
+ */
+export const VISUAL_STYLES = ["scientific", "engineering", "minimal", "presentation", "cinematic"] as const;
+export type VisualStyle = typeof VISUAL_STYLES[number];
+
 export interface SceneEnvironment {
+  /** v0.5.1: the rendering preset (default: from the intent — engineering → engineering, abstract → cinematic, …). */
+  style?: VisualStyle;
   background?: SceneColor;
   /** Ambient light 0…2. */
   ambient?: number;
@@ -245,6 +279,10 @@ export interface SceneEnvironment {
   grid?: boolean;
   axes?: boolean;
   stars?: boolean;
+  /** v0.5.1: soft shadows from the key light (default: by style; off for space scenes and very large ones). */
+  shadows?: boolean;
+  /** v0.5.1: a ground that catches shadows under the scene (default: by style). */
+  ground?: boolean;
 }
 
 export interface SceneTimeline {

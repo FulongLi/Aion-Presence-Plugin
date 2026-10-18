@@ -1,3 +1,4 @@
+import { materialOf, withPreset } from "./animation";
 import { ANIMATION_TYPES, NODE_TYPES, type SceneDocument } from "./ir";
 
 /**
@@ -26,13 +27,20 @@ export interface RuntimeCapabilities {
 export const DEFAULT_RUNTIME: RuntimeCapabilities = Object.freeze({ card: true, body: true, compute: [], physics: [] });
 
 /** What the generative scene runtime implements (everything else is unsupported or approximated). */
-export const SUPPORTED_FEATURES = ["labels", "annotations", "metadata", "selection", "hierarchy", "transparency", "emissive", "wireframe", "timeline", "camera", "grid", "axes", "stars", "repeat", "units"] as const;
+export const SUPPORTED_FEATURES = [
+  "labels", "annotations", "metadata", "selection", "hierarchy", "transparency", "emissive", "wireframe", "timeline", "camera", "grid", "axes", "stars", "repeat", "units",
+  // v0.5.1
+  "styles", "material-presets", "shadows", "direct-editing",
+] as const;
+/** Rendering the card does (v0.5.1): a `render:` requirement for one of these is supported. */
+export const SUPPORTED_RENDER = ["shadows", "environment-lighting", "pbr-materials", "styles"] as const;
 /** Rendering features that are approximated when asked for (drawn, but not as asked). */
 export const APPROXIMATED_RENDER: Record<string, string> = {
-  shadows: "shadows are not cast; lighting is a simple key light and ambient light",
   "post-processing": "no post-processing (bloom, depth of field) is applied",
+  bloom: "no bloom: emissive objects glow by their own colour only",
   textures: "surfaces use flat colours; image textures are not loaded into generated scenes",
-  reflections: "no reflections; metalness and roughness approximate the look",
+  reflections: "reflections are of a neutral studio environment, not of the scene itself",
+  refraction: "glass is drawn as a clear, reflective surface; light is not refracted",
   volumetric: "volumes are drawn as translucent surfaces or point clouds",
 };
 /** Assets a generated scene cannot load (the CAD viewer loads models; scenes have no network). */
@@ -81,11 +89,13 @@ export function requirementsOf(doc: SceneDocument): string[] {
     if (n.metadata) needs.add("feature:metadata");
     if (n.parent) needs.add("feature:hierarchy");
     if (n.repeat) needs.add("feature:repeat");
-    const m = typeof n.material === "object" ? n.material : undefined;
+    const m = typeof n.material === "object" ? withPreset(n.material) : undefined;
     if (m?.opacity !== undefined && m.opacity < 1) needs.add("feature:transparency");
     if (m?.emissive || m?.emissiveIntensity) needs.add("feature:emissive");
+    if (n.material !== undefined && materialOf(doc, n).preset) needs.add("feature:material-presets");
   }
-  for (const m of doc.materials ?? []) { if (m.opacity !== undefined && m.opacity < 1) needs.add("feature:transparency"); if (m.emissive) needs.add("feature:emissive"); }
+  for (const raw of doc.materials ?? []) { const m = withPreset(raw); if (m.opacity !== undefined && m.opacity < 1) needs.add("feature:transparency"); if (m.emissive) needs.add("feature:emissive"); }
+  if (doc.environment?.style) needs.add("feature:styles");
   for (const a of doc.animations ?? []) needs.add(`animation:${a.type}`);
   if (doc.animations?.length) needs.add("feature:timeline");
   for (const r of doc.requirements ?? []) needs.add(r);
@@ -112,7 +122,8 @@ export function checkCapabilities(doc: SceneDocument, runtime: RuntimeCapabiliti
         else report.approximated.push({ requirement, note: `${name} is not available; the scene is shown without it` });
         break;
       case "render":
-        if (APPROXIMATED_RENDER[name]) report.approximated.push({ requirement, note: APPROXIMATED_RENDER[name] });
+        if ((SUPPORTED_RENDER as readonly string[]).includes(name) && runtime.card) report.supported.push(requirement);
+        else if (APPROXIMATED_RENDER[name]) report.approximated.push({ requirement, note: APPROXIMATED_RENDER[name] });
         else report.approximated.push({ requirement, note: `${name} rendering is not available; the scene is shown without it` });
         break;
       case "asset":
@@ -146,6 +157,7 @@ export function availableCapabilities(runtime: RuntimeCapabilities = DEFAULT_RUN
   return [
     ...(runtime.body ? ["mode:body"] : []), ...(runtime.card ? ["mode:card", "mode:hybrid"] : []),
     ...NODE_TYPES.map(t => `geometry:${t}`), ...ANIMATION_TYPES.map(t => `animation:${t}`), ...SUPPORTED_FEATURES.map(f => `feature:${f}`),
+    ...(runtime.card ? SUPPORTED_RENDER.map(r => `render:${r}`) : []),
     ...runtime.compute.map(c => `compute:${c}`), ...runtime.physics.map(p => `physics:${p}`),
   ];
 }

@@ -1,39 +1,54 @@
 import { parseColor } from "../core/colors";
 import {
-  ANIMATED_PROPERTIES, ANIMATION_TYPES, COORDINATE_SYSTEMS, EASINGS, FIDELITY_LEVELS, INTENT_KINDS, INTERACTION_LEVELS, isSceneId, LENGTH_UNITS, NODE_TYPES,
-  PATH_TYPES, POINT_DISTRIBUTIONS, PRESENTATION_MODES, SCENE_IR_LIMITS, SCENE_IR_VERSION, SCENE_LAYOUTS, SURFACES, WAVES,
+  ANIMATED_PROPERTIES, ANIMATION_TYPES, COORDINATE_SYSTEMS, EASINGS, FIDELITY_LEVELS, INTENT_KINDS, INTERACTION_LEVELS, isSceneId, LENGTH_UNITS, MATERIAL_PRESETS, NODE_TYPES,
+  PATH_TYPES, POINT_DISTRIBUTIONS, PRESENTATION_MODES, SCENE_IR_LIMITS, SCENE_IR_VERSION, SCENE_LAYOUTS, SURFACES, VISUAL_STYLES, WAVES,
   type AnimatedProperty, type Keyframe, type KeyValue, type MaterialProps, type NodeType, type PointsSpec, type SceneAnimation, type SceneDocument, type SceneMaterial,
   type SceneNode, type SceneRepeat, type Vec3,
 } from "./ir";
+import { animationHint, ANIMATION_EXAMPLES, fieldHint, GEOMETRY_EXAMPLES, geometryHint, idHint, referenceHint } from "./repair";
 
 /**
  * Strict validation of a Scene IR document, wherever it comes from (Codex through the MCP tools, the hub, the page, the
  * card). It returns a clean copy with only known fields — never the input object — with colours normalized to #rrggbb,
- * or the first problem with its code and where it is, in plain words for the model. Unknown fields, types and names
+ * or the problems with their codes and where they are, in plain words for the model. Unknown fields, types and names
  * are refused rather than ignored; every number must be finite and within SCENE_IR_LIMITS; every reference (a parent, a
  * material, an orbit's centre, a path) must name something that exists, and the hierarchy must be a tree.
+ *
+ * v0.5.1: a refused document lists up to SCENE_ISSUE_LIMIT independent problems at once (each object and animation is
+ * checked on its own), each with a repair hint (repair.ts), so one corrected attempt usually suffices. `problem` is the
+ * first of them. An accepted document may carry `warnings`: valid, but probably not what was meant (radians given as
+ * degrees, a ground plane stood upright) — reported, never changed.
  */
 export const SCENE_ERROR_CODES = [
   "invalid-scene", "unsupported-geometry", "unsupported-animation", "resource-limit", "invalid-reference", "unsupported-version",
 ] as const;
 export type SceneErrorCode = typeof SCENE_ERROR_CODES[number];
 
-export type SceneCheck = { ok: true; document: SceneDocument; stats: SceneStats } | { ok: false; code: SceneErrorCode; problem: string };
+/** One problem in a refused document: what is wrong and where (in `problem`), and how to fix it. */
+export interface SceneIssue { code: SceneErrorCode; problem: string; hint?: string }
+export const SCENE_ISSUE_LIMIT = 8;
+
+export type SceneCheck =
+  | { ok: true; document: SceneDocument; stats: SceneStats; warnings?: string[] }
+  | { ok: false; code: SceneErrorCode; problem: string; issues: SceneIssue[] };
 
 /** What a scene costs to build (checked against the limits; reported with resources). */
 export interface SceneStats { nodes: number; instances: number; triangles: number; particles: number; animations: number; bytes: number }
 
 export class SceneProblem extends Error {
-  constructor(readonly code: SceneErrorCode, message: string) { super(message); }
+  constructor(readonly code: SceneErrorCode, message: string, readonly hint?: string) { super(message); }
 }
-const fail = (message: string, code: SceneErrorCode = "invalid-scene"): never => { throw new SceneProblem(code, message); };
+const fail = (message: string, code: SceneErrorCode = "invalid-scene", hint?: string): never => { throw new SceneProblem(code, message, hint); };
 const L = SCENE_IR_LIMITS;
 
 // eslint-disable-next-line no-control-regex -- matching control characters is the point
 const CONTROL = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069]/u;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 function only(value: Record<string, unknown>, allowed: readonly string[], where: string) {
-  for (const key of Object.keys(value)) if (!allowed.includes(key)) fail(`${where}: unknown field "${key.slice(0, 32)}"`);
+  const unknown = Object.keys(value).filter(key => !allowed.includes(key)).slice(0, 4);
+  if (!unknown.length) return;
+  const list = unknown.map(key => `"${key.slice(0, 32)}"`).join(", ");
+  fail(`${where}: unknown field${unknown.length > 1 ? "s" : ""} ${list}`, "invalid-scene", unknown.map(key => `${key.slice(0, 32)}: ${fieldHint(key, allowed)}`).join("; "));
 }
 export function num(value: unknown, where: string, min: number, max: number): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) fail(`${where} must be a number from ${min} to ${max}`);
@@ -66,19 +81,20 @@ export function color(value: unknown, where: string): string {
   if (!parsed) fail(`${where} must be a colour (#rrggbb or a name such as "blue")`);
   return parsed!.hex;
 }
-const id = (value: unknown, where: string) => { if (!isSceneId(value)) fail(`${where} must be an id (lowercase letters, digits, "-", "_", ".")`); return value as string; };
+const id = (value: unknown, where: string) => { if (!isSceneId(value)) fail(`${where} must be an id (lowercase letters, digits, "-", "_", ".")`, "invalid-scene", idHint(value)); return value as string; };
 function points(value: unknown, where: string, min = 2): Vec3[] {
   if (!Array.isArray(value) || value.length < min || value.length > L.points) fail(`${where} must list ${min} to ${L.points} points`);
   return (value as unknown[]).map((point, i) => vec3(point, `${where}[${i}]`));
 }
 
 // ── Materials ──────────────────────────────────────────────────────────────────────────────────────────────────────
-const MATERIAL_FIELDS = ["color", "opacity", "emissive", "emissiveIntensity", "metalness", "roughness", "wireframe", "unlit", "dashed"] as const;
+const MATERIAL_FIELDS = ["preset", "color", "opacity", "emissive", "emissiveIntensity", "metalness", "roughness", "wireframe", "unlit", "dashed"] as const;
 export function materialProps(value: unknown, where: string, extra: readonly string[] = []): MaterialProps {
   if (!isRecord(value)) fail(`${where} must be an object`);
   const m = value as Record<string, unknown>;
   only(m, [...MATERIAL_FIELDS, ...extra], where);
   const out: MaterialProps = {};
+  if (m.preset !== undefined) out.preset = oneOf(m.preset === "aluminum" ? "aluminium" : m.preset, MATERIAL_PRESETS, `${where}.preset`);
   if (m.color !== undefined) out.color = color(m.color, `${where}.color`);
   if (m.opacity !== undefined) out.opacity = num(m.opacity, `${where}.opacity`, 0, 1);
   if (m.emissive !== undefined) out.emissive = color(m.emissive, `${where}.emissive`);
@@ -153,18 +169,28 @@ function particles(value: unknown, where: string): PointsSpec {
   return out;
 }
 
-function node(value: unknown, index: number): SceneNode {
+function node(value: unknown, index: number, attempt: Attempt = direct): SceneNode | undefined {
   const where = `objects[${index}]`;
   if (!isRecord(value)) fail(`${where} must be an object`);
   const o = value as Record<string, unknown>;
   if (typeof o.type !== "string" || !(NODE_TYPES as readonly string[]).includes(o.type)) {
-    fail(`${where}.type "${String(o.type).slice(0, 24)}" is not a geometry Aion builds (${NODE_TYPES.join(", ")})`, "unsupported-geometry");
+    fail(`${where}${typeof o.id === "string" ? ` "${o.id.slice(0, 64)}"` : ""}.type "${String(o.type).slice(0, 24)}" is not a geometry Aion builds (${NODE_TYPES.join(", ")})`, "unsupported-geometry", geometryHint(o.type));
   }
   const type = o.type as NodeType;
   const fields = NODE_FIELDS[type];
-  only(o, [...COMMON, ...fields.required, ...fields.optional], `${where} (${type})`);
-  for (const key of fields.required) if (o[key] === undefined) fail(`${where}: a ${type} needs ${key}`);
-  const n: SceneNode = { id: id(o.id, `${where}.id`), type };
+  const label = `${where}${typeof o.id === "string" ? ` "${o.id.slice(0, 64)}"` : ""}`;
+  // Independent checks first, each reported on its own (an object with a bad id and an unknown field shows both).
+  const checks = [
+    attempt(() => { id(o.id, `${label}.id`); return true; }),
+    attempt(() => { only(o, [...COMMON, ...fields.required, ...fields.optional], `${label} (${type})`); return true; }),
+    attempt(() => {
+      const missing = fields.required.filter(key => o[key] === undefined);
+      if (missing.length) fail(`${label}: a ${type} needs ${missing.join(" and ")}`, "invalid-scene", `for example ${GEOMETRY_EXAMPLES[type]}`);
+      return true;
+    }),
+  ];
+  if (checks.some(ok => ok !== true)) return undefined;
+  const n: SceneNode = { id: o.id as string, type };
   const at = `${where} "${n.id}"`;
   if (o.name !== undefined) n.name = text(o.name, `${at}.name`, L.text);
   if (o.parent !== undefined) n.parent = id(o.parent, `${at}.parent`);
@@ -253,18 +279,28 @@ function keyValue(property: AnimatedProperty, value: unknown, where: string): Ke
   }
 }
 
-function animation(value: unknown, index: number): SceneAnimation {
+function animation(value: unknown, index: number, attempt: Attempt = direct): SceneAnimation | undefined {
   const where = `animations[${index}]`;
   if (!isRecord(value)) fail(`${where} must be an object`);
   const a = value as Record<string, unknown>;
   if (typeof a.type !== "string" || !(ANIMATION_TYPES as readonly string[]).includes(a.type)) {
-    fail(`${where}.type "${String(a.type).slice(0, 24)}" is not an animation Aion runs (${ANIMATION_TYPES.join(", ")})`, "unsupported-animation");
+    fail(`${where}${typeof a.id === "string" ? ` "${a.id.slice(0, 64)}"` : ""}.type "${String(a.type).slice(0, 24)}" is not an animation Aion runs (${ANIMATION_TYPES.join(", ")})`, "unsupported-animation", animationHint(a.type));
   }
   const type = a.type as SceneAnimation["type"];
   const fields = ANIMATION_FIELDS[type];
-  only(a, [...ANIMATION_COMMON, ...fields.required, ...fields.optional], `${where} (${type})`);
-  for (const key of fields.required) if (a[key] === undefined) fail(`${where}: a ${type} animation needs ${key}`);
-  const out: SceneAnimation = { id: id(a.id, `${where}.id`), target: id(a.target, `${where}.target`), type };
+  const label = `${where}${typeof a.id === "string" ? ` "${a.id.slice(0, 64)}"` : ""}`;
+  const checks = [
+    attempt(() => { id(a.id, `${label}.id`); return true; }),
+    attempt(() => { id(a.target, `${label}.target`); return true; }),
+    attempt(() => { only(a, [...ANIMATION_COMMON, ...fields.required, ...fields.optional], `${label} (${type})`); return true; }),
+    attempt(() => {
+      const missing = fields.required.filter(key => a[key] === undefined);
+      if (missing.length) fail(`${label}: a ${type} animation needs ${missing.join(" and ")}`, "invalid-scene", `for example ${ANIMATION_EXAMPLES[type]}`);
+      return true;
+    }),
+  ];
+  if (checks.some(ok => ok !== true)) return undefined;
+  const out: SceneAnimation = { id: a.id as string, target: a.target as string, type };
   const at = `${where} "${out.id}"`;
   if (a.axis !== undefined) {
     out.axis = vec3(a.axis, `${at}.axis`, -1, 1);
@@ -335,184 +371,282 @@ export function nodeTriangles(n: SceneNode): number {
 }
 
 // ── The document ───────────────────────────────────────────────────────────────────────────────────────────────────
+const ENVIRONMENT_FIELDS = ["style", "background", "ambient", "light", "lightSource", "grid", "axes", "stars", "shadows", "ground"];
 const DOCUMENT_FIELDS = ["version", "sceneId", "title", "intent", "units", "coordinateSystem", "disclosure", "requirements", "objects", "materials", "animations", "camera", "environment", "timeline", "presentation"];
 const REQUIREMENT = /^(geometry|animation|feature|compute|physics|asset|render):[a-z0-9-]{1,40}$/;
 
 /** The serialized size of a document (what crosses the hub and the Card Bridge). */
 export const documentBytes = (value: unknown) => { try { return new TextEncoder().encode(JSON.stringify(value)).length; } catch { return Infinity; } };
 
+/** Collecting problems: each part of the document is checked on its own, up to SCENE_ISSUE_LIMIT problems. */
+class TooMany extends Error {}
+type Attempt = <T>(check: () => T) => T | undefined;
+/** Outside a collection (a node checked on its own): the first problem throws. */
+const direct: Attempt = check => check();
+function collector(issues: SceneIssue[]): Attempt {
+  return <T>(check: () => T): T | undefined => {
+    try { return check(); } catch (error) {
+      if (!(error instanceof SceneProblem)) throw error;
+      issues.push({ code: error.code, problem: error.message, ...(error.hint ? { hint: error.hint.slice(0, 400) } : {}) });
+      if (issues.length >= SCENE_ISSUE_LIMIT) throw new TooMany();
+      return undefined;
+    }
+  };
+}
+
 export function validateScene(input: unknown): SceneCheck {
+  const issues: SceneIssue[] = [];
+  const attempt = collector(issues);
+  const refused = (): SceneCheck => ({ ok: false, code: issues[0].code, problem: issues[0].problem, issues });
   try {
     const bytes = documentBytes(input);
-    if (bytes > L.bytes) fail(`the scene is ${Math.round(bytes / 1024)} KB; at most ${L.bytes / 1024} KB (use repeat, points or fewer objects)`, "resource-limit");
+    if (bytes > L.bytes) fail(`the scene is ${Math.round(bytes / 1024)} KB; at most ${L.bytes / 1024} KB`, "resource-limit", "use repeat for copies, points for many particles, shared materials, and fewer decimals");
     if (!isRecord(input)) fail("a scene must be an object");
     const d = input as Record<string, unknown>;
-    only(d, DOCUMENT_FIELDS, "scene");
-    if (d.version !== SCENE_IR_VERSION) fail(`version must be ${SCENE_IR_VERSION} (this Aion reads Scene IR version ${SCENE_IR_VERSION})`, "unsupported-version");
-    const doc: SceneDocument = { version: SCENE_IR_VERSION, sceneId: id(d.sceneId, "sceneId"), title: text(d.title, "title", L.title), objects: [] };
-    if (d.intent !== undefined) {
-      if (!isRecord(d.intent)) fail("intent must be an object");
+    attempt(() => only(d, DOCUMENT_FIELDS, "scene"));
+    attempt(() => { if (d.version !== SCENE_IR_VERSION) fail(`version must be ${SCENE_IR_VERSION} (this Aion reads Scene IR version ${SCENE_IR_VERSION})`, "unsupported-version", `"version": ${SCENE_IR_VERSION}`); });
+    const doc: SceneDocument = { version: SCENE_IR_VERSION, sceneId: attempt(() => id(d.sceneId, "sceneId")) ?? "scene", title: attempt(() => text(d.title, "title", L.title)) ?? "Scene", objects: [] };
+    if (d.intent !== undefined) attempt(() => {
+      if (!isRecord(d.intent)) fail("intent must be an object", "invalid-scene", "{ \"kind\": \"concrete\", \"fidelity\": \"illustrative\", \"interaction\": \"inspect\" }");
       const i = d.intent as Record<string, unknown>;
       only(i, ["kind", "summary", "fidelity", "interaction"], "intent");
-      doc.intent = { kind: oneOf(i.kind, INTENT_KINDS, "intent.kind") };
-      if (i.summary !== undefined) doc.intent.summary = text(i.summary, "intent.summary", 160);
-      if (i.fidelity !== undefined) doc.intent.fidelity = oneOf(i.fidelity, FIDELITY_LEVELS, "intent.fidelity");
-      if (i.interaction !== undefined) doc.intent.interaction = oneOf(i.interaction, INTERACTION_LEVELS, "intent.interaction");
-    }
-    if (d.units !== undefined) {
-      if (!isRecord(d.units)) fail("units must be an object");
+      const intent: NonNullable<SceneDocument["intent"]> = { kind: oneOf(i.kind, INTENT_KINDS, "intent.kind") };
+      if (i.summary !== undefined) intent.summary = text(i.summary, "intent.summary", 160);
+      if (i.fidelity !== undefined) intent.fidelity = oneOf(i.fidelity, FIDELITY_LEVELS, "intent.fidelity");
+      if (i.interaction !== undefined) intent.interaction = oneOf(i.interaction, INTERACTION_LEVELS, "intent.interaction");
+      doc.intent = intent;
+    });
+    if (d.units !== undefined) attempt(() => {
+      if (!isRecord(d.units)) fail("units must be an object", "invalid-scene", "{ \"length\": \"m\", \"time\": \"s\", \"angle\": \"deg\" }");
       const u = d.units as Record<string, unknown>;
       only(u, ["length", "time", "angle"], "units");
-      if (u.time !== undefined && u.time !== "s") fail("units.time must be \"s\"");
-      if (u.angle !== undefined && u.angle !== "deg") fail("units.angle must be \"deg\"");
+      if (u.time !== undefined && u.time !== "s") fail("units.time must be \"s\"", "invalid-scene", "times are always seconds");
+      if (u.angle !== undefined && u.angle !== "deg") fail("units.angle must be \"deg\"", "invalid-scene", "angles are always degrees: 90 is a quarter turn");
       doc.units = { length: oneOf(u.length ?? "unit", LENGTH_UNITS, "units.length"), time: "s", angle: "deg" };
-    }
-    if (d.coordinateSystem !== undefined) doc.coordinateSystem = oneOf(d.coordinateSystem, COORDINATE_SYSTEMS, "coordinateSystem");
-    if (d.disclosure !== undefined) {
+    });
+    if (d.coordinateSystem !== undefined) attempt(() => { doc.coordinateSystem = oneOf(d.coordinateSystem, COORDINATE_SYSTEMS, "coordinateSystem"); });
+    if (d.disclosure !== undefined) attempt(() => {
       if (!Array.isArray(d.disclosure) || d.disclosure.length > L.disclosures) fail(`disclosure must list at most ${L.disclosures} notes`);
       doc.disclosure = (d.disclosure as unknown[]).map((note, i) => text(note, `disclosure[${i}]`, L.disclosure));
-    }
-    if (d.requirements !== undefined) {
+    });
+    if (d.requirements !== undefined) attempt(() => {
       if (!Array.isArray(d.requirements) || d.requirements.length > L.requirements) fail(`requirements must list at most ${L.requirements} capabilities`);
       doc.requirements = (d.requirements as unknown[]).map((r, i) => {
         if (typeof r !== "string" || !REQUIREMENT.test(r)) fail(`requirements[${i}] must be like "compute:magnetic-field" (geometry|animation|feature|compute|physics|asset|render)`);
         return r as string;
       });
-    }
+    });
     // Materials.
-    if (d.materials !== undefined) {
+    if (d.materials !== undefined) attempt(() => {
       if (!Array.isArray(d.materials) || d.materials.length > L.materials) fail(`materials must list at most ${L.materials}`, "resource-limit");
-      doc.materials = (d.materials as unknown[]).map(material);
+      const list = (d.materials as unknown[]).map((m, i) => attempt(() => material(m, i)));
       const seen = new Set<string>();
-      for (const m of doc.materials) { if (seen.has(m.id)) fail(`materials: "${m.id}" is defined twice`); seen.add(m.id); }
-    }
-    // Nodes.
-    if (!Array.isArray(d.objects)) fail("objects must be a list");
-    if ((d.objects as unknown[]).length > L.nodes) fail(`at most ${L.nodes} objects (use repeat or points for many similar ones)`, "resource-limit");
-    doc.objects = (d.objects as unknown[]).map(node);
-    checkGraph(doc);
+      for (const m of list) if (m) attempt(() => { if (seen.has(m.id)) fail(`materials: "${m.id}" is defined twice`); seen.add(m.id); });
+      doc.materials = list.filter((m): m is SceneMaterial => !!m);
+    });
+    // Nodes: each on its own. Ids of objects that failed still count as existing, so one mistake is reported once.
+    const known = new Set<string>();
+    let objectsOk = false;
+    attempt(() => {
+      if (!Array.isArray(d.objects)) fail("objects must be a list", "invalid-scene", "\"objects\": [{ \"id\": \"core\", \"type\": \"box\", \"size\": [1, 1, 1] }]");
+      if ((d.objects as unknown[]).length > L.nodes) fail(`at most ${L.nodes} objects`, "resource-limit", "use repeat (copies of one object) or points (many particles)");
+      for (const raw of d.objects as unknown[]) if (isRecord(raw) && isSceneId(raw.id)) known.add(raw.id);
+      const before = issues.length;
+      doc.objects = (d.objects as unknown[]).map((raw, i) => attempt(() => node(raw, i, attempt))).filter((n): n is SceneNode => !!n);
+      objectsOk = issues.length === before;
+      checkGraph(doc, attempt, known, d.materials !== undefined && !doc.materials ? null : new Set((doc.materials ?? []).map(m => m.id)), d.objects as unknown[]);
+    });
     // Animations.
-    if (d.animations !== undefined) {
+    if (d.animations !== undefined) attempt(() => {
       if (!Array.isArray(d.animations) || d.animations.length > L.animations) fail(`animations must list at most ${L.animations}`, "resource-limit");
-      doc.animations = (d.animations as unknown[]).map(animation);
-      checkAnimations(doc);
-    }
-    if (d.camera !== undefined) {
-      if (!isRecord(d.camera)) fail("camera must be an object");
+      doc.animations = (d.animations as unknown[]).map((raw, i) => attempt(() => animation(raw, i, attempt))).filter((a): a is SceneAnimation => !!a);
+      checkAnimations(doc, attempt, known, d.animations as unknown[]);
+    });
+    const ref = (value: string, where: string) => { if (!known.has(value)) fail(`${where}: no object "${value}"`, "invalid-reference", referenceHint(value, [...known])); return value; };
+    if (d.camera !== undefined) attempt(() => {
+      if (!isRecord(d.camera)) fail("camera must be an object", "invalid-scene", "{ \"position\": [8, 6, 10], \"target\": [0, 0, 0] }");
       const c = d.camera as Record<string, unknown>;
       only(c, ["position", "target", "fov", "frame"], "camera");
-      doc.camera = {};
-      if (c.position !== undefined) doc.camera.position = vec3(c.position, "camera.position");
-      if (c.target !== undefined) doc.camera.target = vec3(c.target, "camera.target");
-      if (c.fov !== undefined) doc.camera.fov = num(c.fov, "camera.fov", 10, 120);
+      const camera: NonNullable<SceneDocument["camera"]> = {};
+      if (c.position !== undefined) camera.position = vec3(c.position, "camera.position");
+      if (c.target !== undefined) camera.target = vec3(c.target, "camera.target");
+      if (c.fov !== undefined) camera.fov = num(c.fov, "camera.fov", 10, 120);
       if (c.frame !== undefined) {
         if (!Array.isArray(c.frame) || c.frame.length > 32) fail("camera.frame must list at most 32 ids");
-        doc.camera.frame = (c.frame as unknown[]).map((f, i) => ref(doc, id(f, `camera.frame[${i}]`), `camera.frame[${i}]`));
+        camera.frame = (c.frame as unknown[]).map((f, i) => ref(id(f, `camera.frame[${i}]`), `camera.frame[${i}]`));
       }
-    }
-    if (d.environment !== undefined) {
-      if (!isRecord(d.environment)) fail("environment must be an object");
+      doc.camera = camera;
+    });
+    if (d.environment !== undefined) attempt(() => {
+      if (!isRecord(d.environment)) fail("environment must be an object", "invalid-scene", "{ \"style\": \"engineering\" }");
       const e = d.environment as Record<string, unknown>;
-      only(e, ["background", "ambient", "light", "lightSource", "grid", "axes", "stars"], "environment");
-      doc.environment = {};
-      if (e.background !== undefined) doc.environment.background = color(e.background, "environment.background");
-      if (e.ambient !== undefined) doc.environment.ambient = num(e.ambient, "environment.ambient", 0, 2);
-      if (e.lightSource !== undefined) doc.environment.lightSource = ref(doc, id(e.lightSource, "environment.lightSource"), "environment.lightSource");
-      for (const flag of ["light", "grid", "axes", "stars"] as const) if (e[flag] !== undefined) doc.environment[flag] = bool(e[flag], `environment.${flag}`);
-    }
-    if (d.timeline !== undefined) {
-      if (!isRecord(d.timeline)) fail("timeline must be an object");
+      only(e, ENVIRONMENT_FIELDS, "environment");
+      const env: NonNullable<SceneDocument["environment"]> = {};
+      if (e.style !== undefined) env.style = oneOf(e.style, VISUAL_STYLES, "environment.style");
+      if (e.background !== undefined) env.background = color(e.background, "environment.background");
+      if (e.ambient !== undefined) env.ambient = num(e.ambient, "environment.ambient", 0, 2);
+      if (e.lightSource !== undefined) env.lightSource = ref(id(e.lightSource, "environment.lightSource"), "environment.lightSource");
+      for (const flag of ["light", "grid", "axes", "stars", "shadows", "ground"] as const) if (e[flag] !== undefined) env[flag] = bool(e[flag], `environment.${flag}`);
+      doc.environment = env;
+    });
+    if (d.timeline !== undefined) attempt(() => {
+      if (!isRecord(d.timeline)) fail("timeline must be an object", "invalid-scene", "{ \"speed\": 1, \"autoplay\": true }");
       const t = d.timeline as Record<string, unknown>;
       only(t, ["speed", "autoplay"], "timeline");
-      doc.timeline = {};
-      if (t.speed !== undefined) doc.timeline.speed = num(t.speed, "timeline.speed", 0, 1000);
-      if (t.autoplay !== undefined) doc.timeline.autoplay = bool(t.autoplay, "timeline.autoplay");
-    }
-    if (d.presentation !== undefined) {
-      if (!isRecord(d.presentation)) fail("presentation must be an object");
+      const timeline: NonNullable<SceneDocument["timeline"]> = {};
+      if (t.speed !== undefined) timeline.speed = num(t.speed, "timeline.speed", 0, 1000);
+      if (t.autoplay !== undefined) timeline.autoplay = bool(t.autoplay, "timeline.autoplay");
+      doc.timeline = timeline;
+    });
+    if (d.presentation !== undefined) attempt(() => {
+      if (!isRecord(d.presentation)) fail("presentation must be an object", "invalid-scene", "{ \"labels\": true }");
       const p = d.presentation as Record<string, unknown>;
       only(p, ["mode", "layout", "labels"], "presentation");
-      doc.presentation = {};
-      if (p.mode !== undefined) doc.presentation.mode = oneOf(p.mode, PRESENTATION_MODES, "presentation.mode");
-      if (p.layout !== undefined) doc.presentation.layout = oneOf(p.layout, SCENE_LAYOUTS, "presentation.layout");
-      if (p.labels !== undefined) doc.presentation.labels = bool(p.labels, "presentation.labels");
-    }
+      const presentation: NonNullable<SceneDocument["presentation"]> = {};
+      if (p.mode !== undefined) presentation.mode = oneOf(p.mode, PRESENTATION_MODES, "presentation.mode");
+      if (p.layout !== undefined) presentation.layout = oneOf(p.layout, SCENE_LAYOUTS, "presentation.layout");
+      if (p.labels !== undefined) presentation.labels = bool(p.labels, "presentation.labels");
+      doc.presentation = presentation;
+    });
+    if (issues.length) return refused();
     const stats = sceneStats(doc);
-    if (stats.instances > L.instances) fail(`the scene has ${stats.instances} objects after repeats; at most ${L.instances}`, "resource-limit");
-    if (stats.triangles > L.triangles) fail(`the scene would build about ${stats.triangles.toLocaleString("en")} triangles; at most ${L.triangles.toLocaleString("en")}`, "resource-limit");
-    if (stats.particles > L.particles) fail(`the scene has ${stats.particles} particles; at most ${L.particles}`, "resource-limit");
-    return { ok: true, document: doc, stats: { ...stats, bytes: documentBytes(doc) } };
+    if (stats.instances > L.instances) fail(`the scene has ${stats.instances} objects after repeats; at most ${L.instances}`, "resource-limit", "lower repeat counts");
+    if (stats.triangles > L.triangles) fail(`the scene would build about ${stats.triangles.toLocaleString("en")} triangles; at most ${L.triangles.toLocaleString("en")}`, "resource-limit", triangleHint(doc));
+    if (stats.particles > L.particles) fail(`the scene has ${stats.particles} particles; at most ${L.particles}`, "resource-limit", "lower particles.count");
+    void objectsOk;
+    const warnings = sceneWarnings(doc);
+    return { ok: true, document: doc, stats: { ...stats, bytes: documentBytes(doc) }, ...(warnings.length ? { warnings } : {}) };
   } catch (error) {
-    if (error instanceof SceneProblem) return { ok: false, code: error.code, problem: error.message };
-    return { ok: false, code: "invalid-scene", problem: "the scene could not be read" };
+    if (error instanceof TooMany) return refused();
+    if (error instanceof SceneProblem) { issues.push({ code: error.code, problem: error.message, ...(error.hint ? { hint: error.hint } : {}) }); return refused(); }
+    if (issues.length) return refused();
+    return { ok: false, code: "invalid-scene", problem: "the scene could not be read", issues: [{ code: "invalid-scene", problem: "the scene could not be read" }] };
   }
 }
 
-function ref(doc: SceneDocument, value: string, where: string) {
-  if (!doc.objects.some(n => n.id === value)) fail(`${where}: no object "${value}"`, "invalid-reference");
-  return value;
+/**
+ * Codex's input before validation (v0.5.1): the two fields a generated document most often leaves out, filled in where
+ * the intent is unambiguous — `version` (there is one) and `sceneId` (from the title) — each said in `notes`, so the
+ * result reports it. Nothing else is ever filled in or changed.
+ */
+export function prepareSceneInput(input: unknown): { input: unknown; notes: string[] } {
+  if (!isRecord(input)) return { input, notes: [] };
+  const out: Record<string, unknown> = { ...input }, notes: string[] = [];
+  if (out.version === undefined) { out.version = SCENE_IR_VERSION; notes.push(`"version" was missing: read as ${SCENE_IR_VERSION}`); }
+  if (out.sceneId === undefined && typeof out.title === "string") {
+    const slug = out.title.normalize("NFKD").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48);
+    if (slug && isSceneId(slug)) { out.sceneId = slug; notes.push(`"sceneId" was missing: "${slug}", from the title`); }
+  }
+  return { input: out, notes };
+}
+
+/** Which objects cost the most triangles (what to simplify first). */
+function triangleHint(doc: SceneDocument): string {
+  const costly = doc.objects.map(n => ({ id: n.id, t: nodeTriangles(n) * (n.repeat?.count ?? 1) })).sort((a, b) => b.t - a.t).slice(0, 3);
+  return `the largest: ${costly.map(c => `"${c.id}" ≈${c.t.toLocaleString("en")}`).join(", ")} (lower repeat counts, parametric resolution or tube points)`;
 }
 
 /** Ids unique, parents existing, the hierarchy a tree of bounded depth, materials and paths existing. */
-function checkGraph(doc: SceneDocument) {
+function checkGraph(doc: SceneDocument, attempt: Attempt, known: Set<string>, materials: Set<string> | null, raw: unknown[]) {
   const byId = new Map<string, SceneNode>();
+  const ids = [...known];
+  // Objects that failed their own checks still say where they hang (a missing parent is reported in the same round).
+  const parsed = new Set(doc.objects.map(n => n.id));
+  for (const r of raw) if (isRecord(r) && isSceneId(r.id) && !parsed.has(r.id) && isSceneId(r.parent) && !known.has(r.parent)) {
+    attempt(() => fail(`"${r.id}".parent: no object "${r.parent}"`, "invalid-reference", `${referenceHint(r.parent as string, ids)} (a parent is usually a group)`));
+  }
   for (const n of doc.objects) {
-    if (byId.has(n.id)) fail(`objects: "${n.id}" is used twice (ids must be unique)`);
+    attempt(() => { if (byId.has(n.id)) fail(`objects: "${n.id}" is used twice (ids must be unique)`, "invalid-scene", `rename one, e.g. "${n.id}-2"`); });
     byId.set(n.id, n);
   }
-  const materials = new Set((doc.materials ?? []).map(m => m.id));
-  for (const n of doc.objects) {
-    if (n.parent !== undefined && !byId.has(n.parent)) fail(`"${n.id}".parent: no object "${n.parent}"`, "invalid-reference");
+  for (const n of doc.objects) attempt(() => {
+    if (n.parent !== undefined && !known.has(n.parent)) fail(`"${n.id}".parent: no object "${n.parent}"`, "invalid-reference", `${referenceHint(n.parent, ids)} (a parent is usually a group)`);
     if (n.parent === n.id) fail(`"${n.id}" cannot be its own parent`, "invalid-reference");
-    if (typeof n.material === "string" && !materials.has(n.material)) fail(`"${n.id}".material: no material "${n.material}"`, "invalid-reference");
+    if (typeof n.material === "string" && materials && !materials.has(n.material)) {
+      fail(`"${n.id}".material: no material "${n.material}"`, "invalid-reference", materials.size ? referenceHint(n.material, [...materials]) : `define it in materials ([{ "id": "${n.material}", "color": … }]) or give the object its own material { "color": … }`);
+    }
     const path = n.particles?.path;
-    if (path !== undefined && !PATH_TYPES.includes(byId.get(path)?.type as NodeType)) fail(`"${n.id}".particles.path must name a ${PATH_TYPES.join(", ")} object`, "invalid-reference");
+    if (path !== undefined && byId.has(path) && !PATH_TYPES.includes(byId.get(path)!.type)) fail(`"${n.id}".particles.path must name a ${PATH_TYPES.join(", ")} object`, "invalid-reference");
+    if (path !== undefined && !known.has(path)) fail(`"${n.id}".particles.path: no object "${path}"`, "invalid-reference", referenceHint(path, ids));
     // Depth and cycles.
     let depth = 0;
     for (let p = n.parent; p !== undefined; p = byId.get(p)?.parent) {
-      if (++depth > L.depth) fail(`"${n.id}" is nested more than ${L.depth} deep, or its parents form a cycle`, "invalid-reference");
+      if (++depth > L.depth) fail(`"${n.id}" is nested more than ${L.depth} deep, or its parents form a cycle`, "invalid-reference", "every chain of parents must end at an object without a parent");
     }
-  }
+  });
 }
 
-function checkAnimations(doc: SceneDocument) {
+function checkAnimations(doc: SceneDocument, attempt: Attempt, known: Set<string>, raw: unknown[]) {
   const byId = new Map(doc.objects.map(n => [n.id, n]));
+  const ids = [...known];
+  const animationIds = raw.map(a => isRecord(a) && typeof a.id === "string" ? a.id : "").filter(Boolean);
   const animations = new Map<string, SceneAnimation>();
   for (const a of doc.animations ?? []) {
-    if (animations.has(a.id)) fail(`animations: "${a.id}" is used twice`);
+    attempt(() => { if (animations.has(a.id)) fail(`animations: "${a.id}" is used twice`, "invalid-scene", `rename one, e.g. "${a.id}-2" (animation ids are separate from object ids)`); });
     animations.set(a.id, a);
   }
   const sameParent = (a: SceneAnimation, other: string, what: string) => {
-    const node = byId.get(other);
-    if (!node) fail(`animation "${a.id}".${what}: no object "${other}"`, "invalid-reference");
-    if (node!.parent !== byId.get(a.target)!.parent) fail(`animation "${a.id}".${what}: "${other}" must share "${a.target}"'s parent`, "invalid-reference");
+    if (!known.has(other)) fail(`animation "${a.id}".${what}: no object "${other}"`, "invalid-reference", referenceHint(other, ids));
+    const node = byId.get(other), target = byId.get(a.target);
+    if (node && target && node.parent !== target.parent) fail(`animation "${a.id}".${what}: "${other}" must share "${a.target}"'s parent`, "invalid-reference", `give "${a.target}" and "${other}" the same parent, or use a point [x, y, z]`);
   };
-  for (const a of animations.values()) {
+  for (const a of animations.values()) attempt(() => {
     const target = byId.get(a.target);
-    if (!target) fail(`animation "${a.id}".target: no object "${a.target}"`, "invalid-reference");
+    if (!known.has(a.target)) fail(`animation "${a.id}".target: no object "${a.target}"`, "invalid-reference", referenceHint(a.target, ids));
     if (typeof a.center === "string") { sameParent(a, a.center, "center"); if (a.center === a.target) fail(`animation "${a.id}" cannot orbit itself`, "invalid-reference"); }
     if (a.lookAt !== undefined) { sameParent(a, a.lookAt, "lookAt"); if (a.lookAt === a.target) fail(`animation "${a.id}" cannot face itself`, "invalid-reference"); }
     if (a.path !== undefined) {
       const path = byId.get(a.path);
-      if (!path || !PATH_TYPES.includes(path.type)) fail(`animation "${a.id}".path must name a ${PATH_TYPES.join(", ")} object`, "invalid-reference");
+      if (!known.has(a.path)) fail(`animation "${a.id}".path: no object "${a.path}"`, "invalid-reference", referenceHint(a.path, ids));
+      if (path && !PATH_TYPES.includes(path.type)) fail(`animation "${a.id}".path must name a ${PATH_TYPES.join(", ")} object`, "invalid-reference", `"${a.path}" is a ${path.type}`);
       if (a.type === "path" || a.type === "flow") sameParent(a, a.path, "path");
     }
-    if (a.type === "flow" && target!.type !== "points") fail(`animation "${a.id}": flow moves a points object's particles`, "unsupported-animation");
+    if (a.type === "flow" && target && target.type !== "points") fail(`animation "${a.id}": flow moves a points object's particles`, "unsupported-animation", `"${a.target}" is a ${target.type}: for one object along a path use type "path"`);
     if (a.type === "couple") {
       const source = animations.get(a.source!);
-      if (!source || (source.type !== "spin" && source.type !== "couple")) fail(`animation "${a.id}".source must name a spin (or couple) animation`, "invalid-reference");
+      if (!source || (source.type !== "spin" && source.type !== "couple")) {
+        fail(`animation "${a.id}".source must name a spin (or couple) animation`, "invalid-reference", source ? `"${a.source}" is a ${source.type}` : referenceHint(a.source!, animationIds));
+      }
       // A chain of couplings must end in a spin.
       let steps = 0;
       for (let s = source; s && s.type === "couple"; s = animations.get(s.source!)!) if (++steps > 32 || s === a) fail(`animation "${a.id}": its couplings form a cycle`, "invalid-reference");
     }
-  }
+  });
   // Orbit centres must not form a cycle (a orbits b orbits a).
   const centre = (nodeId: string) => (doc.animations ?? []).find(a => a.type === "orbit" && a.target === nodeId && typeof a.center === "string")?.center as string | undefined;
-  for (const n of doc.objects) {
+  for (const n of doc.objects) attempt(() => {
     let steps = 0;
     for (let c = centre(n.id); c !== undefined; c = centre(c)) if (++steps > L.depth || c === n.id) fail(`"${n.id}": its orbit centres form a cycle`, "invalid-reference");
-  }
+  });
 }
+
+/**
+ * Valid, but probably not what was meant: reported with the scene (so Codex can correct it in the next patch), never
+ * changed. At most four.
+ */
+export function sceneWarnings(doc: SceneDocument): string[] {
+  const out: string[] = [];
+  const add = (note: string) => { if (out.length < 4 && !out.includes(note)) out.push(note); };
+  const radian = (v: number) => v !== 0 && Math.abs(v) <= 6.3 && !Number.isInteger(v) && [0.7854, 1.0472, 1.5708, 2.0944, 3.1416, 4.7124, 6.2832].some(r => Math.abs(Math.abs(v) - r) < 0.002);
+  for (const n of doc.objects) {
+    if (n.rotation?.some(radian)) add(`"${n.id}".rotation [${n.rotation.join(", ")}] looks like radians; rotations are degrees (90 is a quarter turn)`);
+    if ((n.type === "plane" || n.type === "parametric") && n.rotation && Math.abs(Math.abs(n.rotation[0]) - 90) < 1 && /ground|floor|base|table|deck|board|surface/.test(`${n.id} ${n.name ?? ""}`.toLowerCase())) {
+      add(`"${n.id}" is a ${n.type}, already flat in x–z (y is up): rotation [${n.rotation.join(", ")}] stands it upright`);
+    }
+  }
+  for (const a of doc.animations ?? []) {
+    if (a.type === "spin" && a.speed !== undefined && a.speed !== 0 && Math.abs(a.speed) < 2) add(`animation "${a.id}": spin speed is in degrees per second (${a.speed}°/s is barely moving; 360 is one turn a second)`);
+    if (a.type === "orbit" && a.period !== undefined && a.period < 0.5) add(`animation "${a.id}": an orbit period is seconds per cycle (${a.period} s is very fast)`);
+  }
+  // Scale: the smallest visible object against the scene's extent (tiny ones vanish at the full view).
+  const solids = doc.objects.filter(n => !["group", "line", "polyline", "curve", "circle", "text", "points"].includes(n.type));
+  const sizeOf = (n: SceneNode) => n.radius ?? (n.size ? Math.max(...n.size) / 2 : undefined) ?? n.outer ?? (n.width !== undefined ? Math.max(n.width, n.depth ?? 0) / 2 : undefined) ?? n.height;
+  const sizes = solids.map(sizeOf).filter((v): v is number => typeof v === "number" && v > 0);
+  const reach = Math.max(0, ...doc.objects.filter(n => !n.parent).map(n => Math.hypot(...(n.position ?? [0, 0, 0]))));
+  if (sizes.length && reach > 0 && reach / Math.min(...sizes) > 5_000) add(`the scene reaches ${round(reach)} ${doc.units?.length ?? "unit"}s while its smallest object is ${round(Math.min(...sizes))}: at the full view small objects are invisible (compress the scale and say so in disclosure)`);
+  return out;
+}
+const round = (v: number) => Math.round(v * 1000) / 1000;
 
 /** How much a scene builds: nodes, instances (a repeat copies the node's own geometry), triangles and particles. */
 export function sceneStats(doc: SceneDocument): Omit<SceneStats, "bytes"> {
