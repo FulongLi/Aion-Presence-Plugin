@@ -1,6 +1,6 @@
 import { CARD_LAYOUTS, CARD_LIMITS, checkCommand, checkConfig, checkState, type CardAppManifest, type CardCapability, type CardLayout, type CardResources } from "./manifest";
 import { cleanCardText, isObjectId, type CardValue } from "./values";
-import type { SceneDocument } from "../scene/ir";
+import { isSceneId, type SceneDocument } from "../scene/ir";
 import { validateScene } from "../scene/validate";
 
 /**
@@ -11,16 +11,20 @@ import { validateScene } from "../scene/validate";
  * no message that runs code.
  *
  *   Aion → card   INITIALIZE LOAD_ASSET LOAD_SCENE SET_STATE SET_CAMERA EXECUTE_COMMAND PAUSE RESUME RESIZE RESET DISPOSE
- *   card → Aion   READY LOADING STATE_CHANGED SELECTION_CHANGED INTERACTION ERROR RESOURCE_STATUS DISPOSED RESULT
+ *   card → Aion   READY LOADING STATE_CHANGED SELECTION_CHANGED INTERACTION ERROR RESOURCE_STATUS DISPOSED RESULT EDIT
  *
  * Requests carry an `id`; the card answers with RESULT and `re` set to that id (request/response correlation).
  * v0.5: LOAD_SCENE hands a `scene-documents` application a Scene IR document and its revision; the card validates it
  * again, applies it incrementally, and answers only once it is built (an accepted command is not a rendered result).
+ * v0.5.1: EDIT is the user's own change to a scene in the card — an object moved, turned or resized with the transform
+ * tool, or undo/redo. The card proposes it; it is never applied in the card. The hub turns it into a validated scene
+ * patch against the revision it was made from (a stale one is refused), records it in the history, and the card shows it
+ * only when that new revision arrives (LOAD_SCENE) — so every direct edit is undoable and Codex sees it.
  */
 export const CARD_PROTOCOL_VERSION = 1;
 
 export const TO_CARD = ["INITIALIZE", "LOAD_ASSET", "LOAD_SCENE", "SET_STATE", "SET_CAMERA", "EXECUTE_COMMAND", "PAUSE", "RESUME", "RESIZE", "RESET", "DISPOSE"] as const;
-export const FROM_CARD = ["READY", "LOADING", "STATE_CHANGED", "SELECTION_CHANGED", "INTERACTION", "ERROR", "RESOURCE_STATUS", "DISPOSED", "RESULT"] as const;
+export const FROM_CARD = ["READY", "LOADING", "STATE_CHANGED", "SELECTION_CHANGED", "INTERACTION", "ERROR", "RESOURCE_STATUS", "DISPOSED", "RESULT", "EDIT"] as const;
 export type ToCardType = typeof TO_CARD[number];
 export type FromCardType = typeof FROM_CARD[number];
 
@@ -30,7 +34,7 @@ export const REQUEST_ID = /^r[a-z0-9]{1,24}$/;
 
 /** Messages an application may send only with a capability (the rest are core). */
 export const CAPABILITY_MESSAGES: Partial<Record<FromCardType, CardCapability>> = {
-  SELECTION_CHANGED: "selection", INTERACTION: "interaction-events", RESOURCE_STATUS: "resource-status",
+  SELECTION_CHANGED: "selection", INTERACTION: "interaction-events", RESOURCE_STATUS: "resource-status", EDIT: "scene-documents",
 };
 /** Messages Aion sends only to an application with a capability. */
 export const CAPABILITY_REQUESTS: Partial<Record<ToCardType, CardCapability>> = { LOAD_ASSET: "model-assets", SET_CAMERA: "camera", LOAD_SCENE: "scene-documents" };
@@ -44,7 +48,8 @@ export interface CardAssetInfo { id: string; name: string; kind: "model"; bytes:
 export interface ToCardPayloads {
   INITIALIZE: { app: string; config: Record<string, CardValue>; state?: Record<string, CardValue>; layout: CardLayout; reducedMotion: boolean; theme: CardTheme; limits: CardResources };
   LOAD_ASSET: { asset: CardAssetInfo; data: ArrayBuffer };
-  LOAD_SCENE: { revision: number; document: SceneDocument };
+  /** v0.5.1: `history` — how many changes can be undone and redone at this revision (the card's undo and redo buttons). */
+  LOAD_SCENE: { revision: number; document: SceneDocument; history?: { undo: number; redo: number } };
   SET_STATE: { state: Record<string, CardValue> };
   SET_CAMERA: { view?: string; focus?: string };
   EXECUTE_COMMAND: { command: string; value?: CardValue };
@@ -64,6 +69,29 @@ export interface CardSelection {
   screen?: { x: number; y: number };
 }
 
+/**
+ * v0.5.1: a change the user made in the card, proposed to the hub (see EDIT above). `base`: the revision it was made
+ * from. A transform sets the object's document transform (position, Euler degrees, scale), in its parent's frame.
+ */
+export type SceneEdit = { request: string; base: number } & (
+  | { action: "transform"; id: string; position?: [number, number, number]; rotation?: [number, number, number]; scale?: number | [number, number, number] }
+  | { action: "undo" | "redo" }
+);
+export const EDIT_REQUEST = /^u[a-z0-9]{4,32}$/;
+
+/** Why a proposed edit is malformed, or null (the hub checks it again against the scene itself). */
+export function editProblem(p: unknown): string | null {
+  if (!isRecord(p) || typeof p.request !== "string" || !EDIT_REQUEST.test(p.request) || !Number.isInteger(p.base) || !finite(p.base, 1, 1e9)) return "needs a request id and the base revision";
+  if (p.action === "undo" || p.action === "redo") return onlyKeys(p, ["request", "base", "action"]) ? null : "unknown fields";
+  if (p.action !== "transform" || !onlyKeys(p, ["request", "base", "action", "id", "position", "rotation", "scale"]) || !isSceneId(p.id)) return "a transform needs an object id";
+  const vec = (v: unknown, limit: number, min = -limit) => Array.isArray(v) && v.length === 3 && v.every(x => finite(x, min, limit));
+  if (p.position !== undefined && !vec(p.position, 100_000)) return "position must be [x, y, z]";
+  if (p.rotation !== undefined && !vec(p.rotation, 3600)) return "rotation must be [x, y, z] degrees";
+  if (p.scale !== undefined && !(finite(p.scale, 1e-4, 1e4) || vec(p.scale, 1e4, 1e-4))) return "scale must be a number or [x, y, z]";
+  if (p.position === undefined && p.rotation === undefined && p.scale === undefined) return "a transform changes position, rotation or scale";
+  return null;
+}
+
 export interface ResourceStatus {
   fps: number; frameMs: number; drawCalls: number; triangles: number; geometries: number; textures: number; programs: number;
   /** Whether a render loop is running right now (false when paused on demand, suspended or disposed). */
@@ -81,6 +109,7 @@ export interface FromCardPayloads {
   RESOURCE_STATUS: ResourceStatus;
   DISPOSED: { geometries: number; textures: number; urls: number; loops: number };
   RESULT: { ok: boolean; problem?: string };
+  EDIT: SceneEdit;
 }
 
 export type Envelope<T extends string, P> = { v: typeof CARD_PROTOCOL_VERSION; instance: string; type: T; id?: string; re?: string; payload: P };
@@ -186,6 +215,11 @@ export function parseFromCard(raw: unknown, instance: string, manifest: CardAppM
     case "DISPOSED":
       if (!onlyKeys(p, ["geometries", "textures", "urls", "loops"]) || ["geometries", "textures", "urls", "loops"].some(key => !finite(p[key], 0, 1e6))) return bad("invalid counters");
       break;
+    case "EDIT": {
+      const problem = editProblem(p);
+      if (problem) return bad(problem);
+      break;
+    }
     case "RESULT":
       if (typeof message.re !== "string") return bad("must answer a request");
       if (!onlyKeys(p, ["ok", "problem"]) || typeof p.ok !== "boolean" || (p.problem !== undefined && cleanCardText(p.problem, 200) !== p.problem)) return bad("needs ok (and a short problem)");
@@ -226,10 +260,12 @@ export function parseToCard(raw: unknown, instance: string, manifest: CardAppMan
       break;
     }
     case "LOAD_SCENE": {
-      if (!onlyKeys(p, ["revision", "document"]) || !Number.isInteger(p.revision) || !finite(p.revision, 1, 1e9)) return bad("needs a revision and a document");
+      if (!onlyKeys(p, ["revision", "document", "history"]) || !Number.isInteger(p.revision) || !finite(p.revision, 1, 1e9)) return bad("needs a revision and a document");
+      const history = p.history as Record<string, unknown> | undefined;
+      if (history !== undefined && (!isRecord(history) || !onlyKeys(history, ["undo", "redo"]) || !Number.isInteger(history.undo) || !Number.isInteger(history.redo) || !finite(history.undo, 0, 1e4) || !finite(history.redo, 0, 1e4))) return bad("invalid history");
       const scene = validateScene(p.document);
       if (!scene.ok) return bad(`${scene.code}: ${scene.problem}`);
-      return { ok: true, message: { ...message, payload: { revision: p.revision, document: scene.document } } as ToCardMessage };
+      return { ok: true, message: { ...message, payload: { revision: p.revision, document: scene.document, ...(history ? { history: { undo: history.undo as number, redo: history.redo as number } } : {}) } } as ToCardMessage };
     }
     case "SET_STATE":
       if (!checkState(manifest, p.state).ok) return bad("invalid state");

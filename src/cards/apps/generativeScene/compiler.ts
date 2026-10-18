@@ -212,18 +212,19 @@ function makeMaterial(node: SceneNode, kind: GeometryClass, props: MaterialProps
       };
     case "points": {
       const size = node.particles?.pointSize ?? 3;
-      return { material: new PointsMaterial({ color, size, sizeAttenuation: false, transparent: true, opacity, depthWrite: false, blending: props.emissive ? AdditiveBlending : undefined }), texture: null };
+      return { material: new PointsMaterial({ color, size, sizeAttenuation: false, transparent: true, opacity, depthWrite: false, ...(props.emissive ? { blending: AdditiveBlending } : {}) }), texture: null };
     }
     case "sprite": {
       const texture = textTexture(node.text ?? "", props.color ?? "#e8edf2");
       return { material: new SpriteMaterial({ map: texture, transparent: true, depthWrite: false, opacity }), texture };
     }
     case "mesh": {
-      const side = node.type === "plane" || node.type === "ring" || node.type === "parametric" || node.type === "mesh" || (node.type === "torus" && (node.arc ?? 360) < 360) ? DoubleSide : undefined;
-      if (props.unlit) return { material: new MeshBasicMaterial({ color, transparent, opacity, wireframe: props.wireframe === true, side, depthWrite: !transparent || opacity > 0.6 }), texture: null };
+      const double = node.type === "plane" || node.type === "ring" || node.type === "parametric" || node.type === "mesh" || (node.type === "torus" && (node.arc ?? 360) < 360) || props.preset === "glass";
+      const side = double ? { side: DoubleSide } : {};
+      if (props.unlit) return { material: new MeshBasicMaterial({ color, transparent, opacity, wireframe: props.wireframe === true, ...side, depthWrite: !transparent || opacity > 0.6 }), texture: null };
       return {
         material: new MeshStandardMaterial({
-          color, transparent, opacity, wireframe: props.wireframe === true, side, depthWrite: !transparent || opacity > 0.6,
+          color, transparent, opacity, wireframe: props.wireframe === true, ...side, depthWrite: !transparent || opacity > 0.6,
           metalness: props.metalness ?? 0.05, roughness: props.roughness ?? 0.65,
           emissive: new Color(props.emissive ?? "#000000"), emissiveIntensity: props.emissiveIntensity ?? (props.emissive ? 1 : 0),
         }),

@@ -48,6 +48,7 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
       loading: (phase, progress) => send("LOADING", { phase, progress: Math.max(0, Math.min(1, progress)) }),
       error: (code, message, fatal) => send("ERROR", { code, message: message.slice(0, 200), fatal }),
       interaction: kind => send("INTERACTION", { kind }),
+      edit: edit => { if (manifest.capabilities.includes("scene-documents")) send("EDIT", edit); },
     },
   });
   const reply = (re: string | undefined, ok: boolean, problem?: string) => {
@@ -93,7 +94,7 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
           }
         case "LOAD_SCENE": {
           if (!app?.loadScene) return reply(message.id, false, "this application takes no scenes");
-          const result = await app.loadScene(message.payload.revision, message.payload.document);
+          const result = await app.loadScene(message.payload.revision, message.payload.document, message.payload.history);
           return reply(message.id, result.ok, result.ok ? undefined : result.problem);
         }
         case "SET_STATE": app?.setState?.(message.payload.state); return reply(message.id, true);

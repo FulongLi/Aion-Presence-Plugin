@@ -4,12 +4,13 @@ import type { CardAppManifest } from "../manifest";
  * The generative scene (v0.5): a general-purpose Three.js scene runtime on Card 2.0. Unlike Earth–Moon and the CAD
  * viewer it represents no particular subject: it builds whatever validated Scene IR document (src/scene) it is handed,
  * keeps it as it is patched (objects keep their identity), animates it on one timeline and lets the user select and
- * inspect any object. See docs/GENERATIVE-VISUAL-ENGINE.md.
+ * inspect any object. v0.5.1 (1.1.0): visual styles, and the user's own edits (move, rotate, scale, undo, redo) proposed
+ * to the hub as validated patches. See docs/GENERATIVE-VISUAL-ENGINE.md.
  */
 export const GENERATIVE_SCENE_MANIFEST = {
   id: "generative-scene",
   name: "Generated Scene",
-  version: "1.0.0",
+  version: "1.1.0",
   entry: "generative-scene",
   description: "Builds any validated Scene IR document as an interactive 3D scene: objects, materials, labels, a timeline of animations, selection and inspection.",
   capabilities: ["webgl", "scene-documents", "selection", "camera", "simulation-time", "visibility", "interaction-events", "resource-status"],
@@ -43,6 +44,11 @@ export const GENERATIVE_SCENE_MANIFEST = {
     changes: { type: "text", max: 120 },
     /** Milliseconds the last revision took to build. */
     buildMs: { type: "number", min: 0, max: 600_000 },
+    /** v0.5.1: the visual style it is staged with, and whether it casts shadows. */
+    style: { type: "enum", values: ["scientific", "engineering", "minimal", "presentation", "cinematic"] },
+    shadows: { type: "boolean" },
+    /** v0.5.1: the transform tool the user has picked (none, move, rotate, scale). */
+    tool: { type: "enum", values: ["none", "move", "rotate", "scale"] },
   },
   resources: { assets: [], maxAssetBytes: 0, maxTriangles: 600_000, maxTextures: 64, maxTextureSize: 1024, maxLoadSeconds: 15 },
   display: { minWidth: 320, minHeight: 240, layouts: ["compact", "expanded", "fullscreen"], defaultLayout: "expanded" },

@@ -1,6 +1,6 @@
 import { CARD_LAYOUTS, CARD_LIMITS, checkState, type CardAppManifest, type CardLayout } from "./manifest";
 import { CARD_LIFECYCLE, type CardLifecycle } from "./lifecycle";
-import { CARD_INSTANCE, selectionProblem, validResources, type CardSelection, type ResourceStatus } from "./protocol";
+import { CARD_INSTANCE, editProblem, selectionProblem, validResources, type CardSelection, type ResourceStatus, type SceneEdit } from "./protocol";
 import { cleanCardText, type CardValue } from "./values";
 import type { SceneDocument } from "../scene/ir";
 import type { HistoryEntry } from "../scene/history";
@@ -73,6 +73,8 @@ export interface CardReport {
   interacting?: boolean;
   /** v0.5: the scene revision the card has built (ok) or refused to build (with why). */
   scene?: { revision: number; ok: boolean; problem?: string };
+  /** v0.5.1: the user's own change in the card (moved, turned, resized; undo, redo): the hub makes it a scene patch. */
+  edit?: SceneEdit;
 }
 
 export const CARD_REPORT_BYTES = 96 * 1024;
@@ -85,7 +87,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
  */
 export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifest: CardAppManifest | undefined): { ok: true; report: CardReport } | { ok: false; problem: string; stale?: boolean } {
   if (!isRecord(raw)) return { ok: false, problem: "not an object" };
-  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting", "scene"];
+  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting", "scene", "edit"];
   if (Object.keys(raw).some(key => !allowed.includes(key))) return { ok: false, problem: "unknown fields" };
   if (typeof raw.window !== "string" || !/^[a-z0-9]{8,32}$/.test(raw.window)) return { ok: false, problem: "invalid window" };
   if (typeof raw.instance !== "string" || !CARD_INSTANCE.test(raw.instance)) return { ok: false, problem: "invalid instance" };
@@ -143,6 +145,15 @@ export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifes
     if (!isRecord(scene) || Object.keys(scene).some(key => !["revision", "ok", "problem"].includes(key)) || !Number.isInteger(scene.revision) || (scene.revision as number) < 1
       || (scene.revision as number) > (card.scene?.revision ?? 0) || typeof scene.ok !== "boolean" || (scene.problem !== undefined && cleanCardText(scene.problem, 200) !== scene.problem)) return { ok: false, problem: "invalid scene acknowledgement" };
     report.scene = { revision: scene.revision as number, ok: scene.ok as boolean, ...(scene.problem !== undefined ? { problem: scene.problem as string } : {}) };
+  }
+  if (raw.edit !== undefined) {
+    if (!manifest.capabilities.includes("scene-documents") || !card.scene) return { ok: false, problem: "edit needs a generated scene" };
+    const problem = editProblem(raw.edit);
+    if (problem) return { ok: false, problem: `edit: ${problem}` };
+    const edit = raw.edit as SceneEdit;
+    if (edit.base > card.scene.revision) return { ok: false, problem: "edit: from a revision that does not exist" };
+    if (edit.action === "transform" && !card.scene.document.objects.some(n => n.id === edit.id)) return { ok: false, problem: "edit: no such object" };
+    report.edit = structuredClone(edit);
   }
   return { ok: true, report };
 }

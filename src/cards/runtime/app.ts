@@ -1,5 +1,5 @@
 import type { CardAppManifest, CardLayout, CardResources } from "../manifest";
-import type { CardAssetInfo, CardSelection, CardTheme, FromCardPayloads, ResourceStatus } from "../protocol";
+import type { CardAssetInfo, CardSelection, CardTheme, FromCardPayloads, ResourceStatus, SceneEdit } from "../protocol";
 import type { CardValue } from "../values";
 import type { SceneDocument } from "../../scene/ir";
 
@@ -29,6 +29,8 @@ export interface CardEmitter {
   loading(phase: string, progress: number): void;
   error(code: string, message: string, fatal: boolean): void;
   interaction(kind: FromCardPayloads["INTERACTION"]["kind"]): void;
+  /** v0.5.1 (scene-documents): proposes the user's own change to the scene (applied only when the hub confirms it). */
+  edit(edit: SceneEdit): void;
 }
 
 export interface CardContext extends CardInit {
@@ -44,7 +46,7 @@ export interface CardApp {
   start(): Promise<void> | void;
   loadAsset?(asset: CardAssetInfo, data: ArrayBuffer): Promise<void>;
   /** v0.5 (scene-documents): builds a validated scene revision; answers only once it is built (or why not). */
-  loadScene?(revision: number, document: SceneDocument): Promise<CommandResult> | CommandResult;
+  loadScene?(revision: number, document: SceneDocument, history?: { undo: number; redo: number }): Promise<CommandResult> | CommandResult;
   command(name: string, value: CardValue | undefined): Promise<CommandResult> | CommandResult;
   setState?(state: Record<string, CardValue>): void;
   /** Emits any state change still waiting (the runtime calls it before answering a request, so state precedes the answer). */
