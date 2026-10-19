@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { chromium } from "playwright-core";
-import { codexToolInventory, findCodex, MARKETPLACE_NAME, PLUGIN_ID } from "./lib/codex";
-import { toolMetadataReport } from "../src/host/mcp/budget";
+import { homedir } from "node:os";
+import { codexToolInventory, findCodex, liveAionTools, MARKETPLACE_NAME, PLUGIN_ID } from "./lib/codex";
+import { codexExposureReport, CODEX_PLUGIN_BUDGET, toolMetadataReport } from "../src/host/mcp/budget";
 import { TOOL_NAMES } from "../src/host/mcp/toolNames";
 import { CODEX_HOOK_EVENTS, REPO_ROOT } from "./lib/pluginPackage";
 
@@ -21,13 +22,15 @@ import { CODEX_HOOK_EVENTS, REPO_ROOT } from "./lib/pluginPackage";
  *   browser · the greeting wave · a portrait (hybrid), a terrain and a form · responding · clean shutdown.
  *
  * Options: --github (install A from GitHub instead of the local HEAD; needs the branch pushed), --ref <ref>,
- * --offline (skip the public portrait/terrain lookups). Needs Codex (CODEX_BIN) and, for the surface, Chrome.
+ * --offline (skip the public portrait/terrain lookups), --live (v0.5.2: one real Codex turn reads `ALL_TOOLS` in a new
+ * conversation — what the model is actually given; uses your login, linked, and one turn of your account).
+ * Needs Codex (CODEX_BIN) and, for the surface, Chrome.
  */
 const codex = findCodex();
 if (!codex) { console.log("codex:verify: no Codex CLI found (install Codex or set CODEX_BIN); skipped"); process.exit(0); }
 const argv = process.argv.slice(2);
 const option = (name: string) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
-const github = argv.includes("--github"), offline = argv.includes("--offline");
+const github = argv.includes("--github"), offline = argv.includes("--offline"), live = argv.includes("--live");
 const ref = option("--ref") ?? execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
 const chromePath = process.env.CHROME_PATH ?? ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/usr/bin/google-chrome", "/usr/bin/chromium"].find(existsSync);
 
@@ -107,6 +110,23 @@ try {
   const hooks = JSON.parse(readFileSync(join(cache, "hooks", "hooks.json"), "utf8")) as { hooks: Record<string, unknown> };
   check(Object.keys(hooks.hooks).every(event => (CODEX_HOOK_EVENTS as readonly string[]).includes(event)) && "PreToolUse" in hooks.hooks, `hooks are discoverable (${Object.keys(hooks.hooks).join(", ")})`);
 
+  if (live) {
+    // v0.5.2: the model's own tool list in a new conversation — the only layer that showed the v0.5.1 regression.
+    const auth = join(process.env.CODEX_HOME ?? join(homedir(), ".codex"), "auth.json");
+    if (!existsSync(auth)) console.log("  ! --live: Codex is not logged in (no auth.json); skipped");
+    else {
+      const userConfig = (() => { try { return readFileSync(join(homedir(), ".codex", "config.toml"), "utf8"); } catch { return ""; } })();
+      const model = userConfig.match(/^model\s*=\s*"([^"]+)"/m)?.[1];
+      writeFileSync(join(home, "config.toml"), `${model ? `model = "${model}"\nmodel_reasoning_effort = "low"\n` : ""}[features]\nplugins = true\nhooks = true\n`);
+      const { symlinkSync } = await import("node:fs");
+      symlinkSync(auth, join(home, "auth.json"));
+      const work = mkdtempSync(join(E2E, "live-"));
+      homes.push(work);
+      const seen = await liveAionTools(codex, home, work);
+      check(seen !== null && TOOL_NAMES.every(name => seen.includes(name)), `a new Codex conversation holds all ${TOOL_NAMES.length} Aion tools in ALL_TOOLS (${seen ? `${seen.length}${TOOL_NAMES.some(name => !seen.includes(name)) ? `; missing: ${TOOL_NAMES.filter(name => !seen.includes(name)).join(", ")}` : ""}` : "no answer"})`);
+      rmSync(join(home, "auth.json"));
+    }
+  }
   console.log("B. One-command fallback: git clone → node scripts/install.mjs");
   const homeB = freshHome();
   const clone = join(mkdtempSync(join(E2E, "clone-")), "Aion-Presence-Plugin");
@@ -133,8 +153,12 @@ try {
   try {
     await new Promise(resolve => setTimeout(resolve, 500));
     check(existsSync(join(pluginData, "first-run-complete")), "the first session after installation is recorded as the first run");
-    const tools = (await client.listTools()).tools.map(tool => tool.name);
+    const listedTools = (await client.listTools()).tools;
+    const tools = listedTools.map(tool => tool.name);
     check(TOOL_NAMES.every(name => tools.includes(name)), `${tools.length} tools, every one registered`);
+    // v0.5.2: what Codex itself charges (its plugin budget, the instructions counted on every tool) decides exposure.
+    const exposure = codexExposureReport(listedTools, client.getInstructions() ?? "");
+    check(exposure.ok, `Codex exposes all ${exposure.tools.length} tools to the model: ${exposure.total} B of its ${CODEX_PLUGIN_BUDGET.total} B plugin budget${exposure.hidden.length ? `; hidden: ${exposure.hidden.join(", ")}` : ""}${exposure.truncated.length ? `; cut: ${exposure.truncated.join(", ")}` : ""}`);
     const opened = (await call("open_presence", { body: "figure" })).structuredContent as { surface: { mode: string }; url?: string; greeting: { due: boolean; line?: string } };
     check(opened.surface.mode === "companion", "open_presence: companion mode (Codex declares no MCP Apps rendering)");
     check(opened.greeting.due && /^Hi, I'm Aion/.test(opened.greeting.line ?? ""), "the greeting is due, with Aion's introduction");

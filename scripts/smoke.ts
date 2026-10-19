@@ -151,6 +151,7 @@ try {
   if (section("embedded")) await embedded();
   if (section("v45")) { for (const renderer of ["auto", "canvas"] as const) await v45(renderer); await cardFallback(); }
   if (section("v05")) for (const renderer of ["auto", "canvas"] as const) await v05(renderer);
+  if (section("terrain") && !offline) for (const renderer of ["auto", "canvas"] as const) await terrain(renderer);
 } finally {
   await browser.close();
   await hub.stop();
@@ -263,6 +264,66 @@ async function v4(renderer: "auto" | "canvas") {
   check(!(await view<boolean>("v.orbit.active")), "the 3D view ends with it");
   check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   await page.close();
+}
+
+/**
+ * v0.5.2, the terrain regression: real elevation through the real MCP tools, as Codex calls them, for the places and
+ * styles people ask for — each must *form* as a height field in the renderer (a successful result is not enough), body
+ * and hybrid, with a pin on the relief and a map beside. Network-backed (AWS Terrain Tiles, OpenStreetMap); skipped
+ * with --offline.
+ */
+async function terrain(renderer: "auto" | "canvas") {
+  console.log(`v0.5.2: terrain, real elevation (${renderer})`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  console.log(`  ${(await diag(page)).renderer}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const aion = await connectAion({ home, resolver: new VisualResolver({ env: {} }) });
+  const shot = (moment: string) => page.screenshot({ path: join(OUT, `terrain-${renderer}-${moment}.png`) });
+  const forms = async (kind: "heightfield" | "map", ms = 30_000) => {
+    for (let waited = 0; waited < ms; waited += 250) {
+      if (await view<boolean>(`v.visual.phase === 'holding' && v.visual.target.visual.kind === '${kind}'`)) return true;
+      await pause(250);
+    }
+    return false;
+  };
+  const cases: { moment: string; tool: string; args: Record<string, unknown>; kind: "heightfield" | "map"; route?: string }[] = [
+    { moment: "scotland", tool: "show_terrain", args: { region: "Scotland" }, kind: "heightfield" },
+    { moment: "china", tool: "show_terrain", args: { region: "China" }, kind: "heightfield" },
+    { moment: "united-kingdom", tool: "show_terrain", args: { region: "United Kingdom" }, kind: "heightfield" },
+    { moment: "swiss-alps", tool: "show_terrain", args: { region: "Swiss Alps" }, kind: "heightfield" },
+    { moment: "scotland-topography", tool: "show_terrain", args: { region: "Scotland", style: "topography" }, kind: "heightfield" },
+    { moment: "scotland-relief", tool: "show_terrain", args: { region: "Scotland", style: "relief" }, kind: "heightfield" },
+    { moment: "scotland-body", tool: "show_terrain", args: { region: "Scotland", presentation: "body" }, kind: "heightfield", route: "body" },
+    { moment: "scotland-hybrid", tool: "show_terrain", args: { region: "Scotland", presentation: "hybrid" }, kind: "heightfield", route: "hybrid" },
+    { moment: "scotland-glasgow", tool: "show_terrain", args: { region: "Scotland", markers: [{ place: "Glasgow", color: "red" }] }, kind: "heightfield" },
+    { moment: "scotland-map", tool: "show_map", args: { region: "Scotland" }, kind: "map" },
+  ];
+  try {
+    for (const item of cases) {
+      const started = performance.now();
+      const result = await aion.call(item.tool, item.args) as { isError?: boolean; content: { text: string }[]; structuredContent?: { shown?: string } };
+      const seconds = ((performance.now() - started) / 1000).toFixed(1);
+      check(!result.isError, `${item.tool} ${JSON.stringify(item.args)}: ${result.isError ? result.content[0]?.text : `${result.structuredContent?.shown} (${seconds} s)`}`);
+      if (result.isError) continue;
+      check(await forms(item.kind), `  it forms as a ${item.kind} in the renderer`);
+      if (item.route) {
+        const state = await until(page, s => s.route === item.route && (item.route !== "hybrid" || s.card === "shown"), 8_000);
+        check(state.route === item.route && (item.route !== "hybrid" || state.card === "shown"), `  routed ${item.route}${item.route === "hybrid" ? ", with the relief map card" : ""}`);
+      }
+      if (item.moment === "scotland-glasgow") {
+        await pause(1_500);
+        check(((await view<{ visible: number } | undefined>("v.markerLayer.positions.get('glasgow')"))?.visible ?? 0) > 0.9, "  the Glasgow pin stands on the relief");
+      }
+      await pause(1_200);
+      await shot(item.moment);
+      await aion.call("clear_presentation", {});
+      await until(page, s => s.phase === "sphere", 6_000);
+    }
+    check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally {
+    await aion.close();
+    await page.close();
+  }
 }
 
 /**
