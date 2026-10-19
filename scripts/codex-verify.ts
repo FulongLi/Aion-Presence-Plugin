@@ -117,7 +117,8 @@ try {
     else {
       const userConfig = (() => { try { return readFileSync(join(homedir(), ".codex", "config.toml"), "utf8"); } catch { return ""; } })();
       const model = userConfig.match(/^model\s*=\s*"([^"]+)"/m)?.[1];
-      writeFileSync(join(home, "config.toml"), `${model ? `model = "${model}"\nmodel_reasoning_effort = "low"\n` : ""}[features]\nplugins = true\nhooks = true\n`);
+      // Prepended: the file already holds the marketplace and the plugin's enablement (top-level keys come first in TOML).
+      if (model) writeFileSync(join(home, "config.toml"), `model = "${model}"\nmodel_reasoning_effort = "low"\n${readFileSync(join(home, "config.toml"), "utf8")}`);
       const { symlinkSync } = await import("node:fs");
       symlinkSync(auth, join(home, "auth.json"));
       const work = mkdtempSync(join(E2E, "live-"));
