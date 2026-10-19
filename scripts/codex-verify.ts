@@ -122,7 +122,7 @@ try {
       symlinkSync(auth, join(home, "auth.json"));
       const work = mkdtempSync(join(E2E, "live-"));
       homes.push(work);
-      const seen = await liveAionTools(codex, home, work);
+      const seen = await liveAionTools(codex, home, work, false, join(E2E, "verify-live-rollout.jsonl"));
       check(seen !== null && TOOL_NAMES.every(name => seen.includes(name)), `a new Codex conversation holds all ${TOOL_NAMES.length} Aion tools in ALL_TOOLS (${seen ? `${seen.length}${TOOL_NAMES.some(name => !seen.includes(name)) ? `; missing: ${TOOL_NAMES.filter(name => !seen.includes(name)).join(", ")}` : ""}` : "no answer"})`);
       rmSync(join(home, "auth.json"));
     }

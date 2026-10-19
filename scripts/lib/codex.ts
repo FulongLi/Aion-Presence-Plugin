@@ -84,9 +84,9 @@ export async function installedAionExposure(codex: string, env: NodeJS.ProcessEn
  * asks the model to run `ALL_TOOLS.filter(...)` in code mode; the answer is read from the session rollout — the tool's
  * own output, not the model's retelling. `resume`: the same conversation as the last turn. Uses one turn of the account.
  */
-export async function liveAionTools(codex: string, home: string, workdir: string, resume = false): Promise<string[] | null> {
+export async function liveAionTools(codex: string, home: string, workdir: string, resume = false, keep?: string): Promise<string[] | null> {
   const { execFileSync } = await import("node:child_process");
-  const { existsSync, readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { copyFileSync, existsSync, readdirSync, readFileSync, statSync } = await import("node:fs");
   const { join } = await import("node:path");
   const js = "text(JSON.stringify({aionTools:ALL_TOOLS.filter(x=>x.name.includes('aion_presence')).map(x=>x.name.replace('mcp__aion_presence__',''))}));";
   const prompt = `Do not do anything else. Call exec once with exactly this JavaScript, then reply with only its raw output:\n\n${js}`;
@@ -96,6 +96,7 @@ export async function liveAionTools(codex: string, home: string, workdir: string
   const walk = (dir: string): string[] => readdirSync(dir).flatMap(name => { const path = join(dir, name); return statSync(path).isDirectory() ? walk(path) : [path]; });
   const sessions = join(home, "sessions");
   const rollouts = existsSync(sessions) ? walk(sessions).filter(file => file.endsWith(".jsonl")).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs) : [];
+  if (keep && rollouts[0]) copyFileSync(rollouts[0], keep);
   for (const file of rollouts.slice(0, 1)) {
     const outputs = readFileSync(file, "utf8").split("\n").filter(line => line.includes("custom_tool_call_output") && line.includes("aionTools"));
     const last = outputs.at(-1);
