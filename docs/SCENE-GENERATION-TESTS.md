@@ -82,12 +82,34 @@ document; D, with 56 objects, is the longest), 4.5–14 s for an edit.
   person watched these runs.
 - Latency depends on the Codex service at that moment.
 
+## Results — 2026-10-19: real terrain and maps (scenario H, v0.5.2)
+
+`npm run scene:eval -- --only geo`, Codex 0.163.0-alpha.10.2, gpt-6.1-sol, effort low; one session after "Open Aion.".
+"Formed" means the hub showed a presentation of that kind during the turn (a terrain holds 14 s, so it is watched while
+the turn runs).
+
+| Request | Codex called | Outcome | Turn |
+| --- | --- | --- | --- |
+| "Show me the terrain of Scotland." | `show_terrain {region: "Scotland"}` | terrain formed (0–1,032 m) | 6.7 s |
+| "Show me China's topography." | `show_terrain {region: "China", style: "topography"}` | terrain formed | 6.6 s |
+| "Show me the map of Scotland." | `show_map {region: "Scotland"}` | map formed | 5.3 s |
+| "Show me the terrain of Scotland and mark Glasgow." | `show_terrain {region: "Scotland", markers: [{place: "Glasgow"}]}` | terrain with the Glasgow pin | 6.4 s |
+
+| Scotland with Glasgow (written by Codex) | China's topography (written by Codex) | Hybrid, WebGPU (smoke) |
+| --- | --- | --- |
+| ![Scotland terrain with a Glasgow pin](media/v0.5.2/terrain-scotland-glasgow-codex.png) | ![China topography](media/v0.5.2/terrain-china-topography-codex.png) | ![Scotland relief with its elevation card](media/v0.5.2/terrain-scotland-hybrid-webgpu.png) |
+
+With v0.5.1 installed these requests could not reach `show_terrain` at all (it was hidden from the conversation:
+[MCP-TOOLS.md](MCP-TOOLS.md#v052-the-terrain-regression)). One run each; no person watched these runs.
+
 ## Level 4: manual procedure (for a person)
 
 1. Install this branch: `codex plugin marketplace add <path to this checkout>` then
    `codex plugin add aion-presence@spirit-connect`; restart Codex.
 2. Say "Open Aion." Then, one at a time, the requests A–G above (E and F in order, in one conversation). Click an object
-   before E4.
+   before E4. For terrain (H), in a **new** conversation: "Show me the terrain of Scotland.", "Show me China's
+   topography.", "Show me the map of Scotland.", "Show me the terrain of Scotland and mark Glasgow." — each should form
+   real relief (or the map) in the Aion window, never a generated landscape.
 3. For each, note: did a scene appear without a visible error; how long from pressing Enter until it appeared; whether
    Codex said "Attempt n of 3" or retried; whether the scene matches the request; whether Codex's words match what is
    on screen.

@@ -1,6 +1,6 @@
 # Geographic coverage (measured)
 
-Measured by `npm run geo:coverage` on 2026-10-11 against the live services: 42 of 42 regions passed (61 s, requests spaced for Nominatim's usage policy). Map: what was framed, by whom, the window in degrees, and the size of the map sent to the surface. Markers: the coordinates found (and by whom). Terrain: grid, elevation tiles zoom and source, real elevation range.
+Measured by `npm run geo:coverage` on 2026-10-19 against the live services: 42 of 42 regions passed (71 s, requests spaced for Nominatim's usage policy). Map: what was framed, by whom, the window in degrees, and the size of the map sent to the surface. Markers: the coordinates found (and by whom). Terrain: grid, elevation tiles zoom and source, real elevation range.
 
 This is a sample across the hard cases, not a claim of complete worldwide coverage. Every one of Aion's offline regions (≈ 270 countries and named parts, plus continents and groups) is also checked offline by `tests/v41.test.ts` on every test run.
 
@@ -43,8 +43,8 @@ This is a sample across the hard cases, not a claim of complete worldwide covera
 | ✓ Indonesia | archipelago | Indonesia · natural-earth · 54.5° × 24.1° · 8089 vertices · 133 KB | — | — |
 | ✓ California | state · OSM | California · nominatim · 13.3° × 11.2° · 1518 vertices · 26 KB | San Francisco 37.77, -122.42 (natural-earth) | 121×140 · aws-terrain-tiles z5 · nominatim · 0–3676 m |
 | ✓ Bavaria | state · OSM | Bayern · nominatim · 5.9° × 3.9° · 2562 vertices · 42 KB | — | — |
-| ✓ Hokkaido | island · OSM | 北海道地方 · nominatim · 8.5° × 5.4° · 718 vertices · 12 KB | — | — |
-| ✓ 四川 | Chinese name · OSM | 四川省 · nominatim · 13.4° × 9.9° · 4900 vertices · 80 KB | — | — |
+| ✓ Hokkaido | island · OSM | 北海道 · nominatim · 8.5° × 5.4° · 718 vertices · 12 KB | — | — |
+| ✓ 四川 | Chinese name · OSM | 四川省 · nominatim · 13.4° × 9.9° · 4906 vertices · 80 KB | — | — |
 | ✓ Swiss Alps | range · OSM | Swiss Alps · nominatim · 4.4° × 2.1° · 1554 vertices · 26 KB | — | 140×92 · aws-terrain-tiles z7 · nominatim · 171–4183 m |
 | ✓ Grand Canyon | landmark · OSM | Grand Canyon · nominatim · 4.2° × 3.3° · 4 vertices · 0 KB | — | 160×160 · aws-terrain-tiles z7 · nominatim · 370–3454 m |
 | ✓ Mount Everest | point · OSM | 珠穆朗玛峰 ཇོ་མོ་གླང་མ། सगरमाथा · nominatim · 3.8° × 3.3° · 362 vertices · 6 KB | — | 160×160 · aws-terrain-tiles z7 · nominatim · 54–7667 m |
