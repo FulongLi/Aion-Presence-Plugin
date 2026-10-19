@@ -147,7 +147,7 @@ test("Visual Intent Policy: natural requests map to the right tool, with argumen
   assert.match(TOOL_DESCRIPTIONS.show_form(), /What does Orion look like\?.*Show me the yin-yang/);
   assert.match(TOOL_DESCRIPTIONS.show_clock, /what time it is/);
   assert.match(TOOL_DESCRIPTIONS.set_body_form, /take a human form/);
-  assert.match(TOOL_DESCRIPTIONS.show_form(), /astronomy\.orion/);
+  assert.match(TOOL_DESCRIPTIONS.show_form(), /astronomy\.\{orion,/);
 });
 
 test("responding: once, immediately before the final answer", () => {

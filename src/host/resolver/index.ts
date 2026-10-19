@@ -1,4 +1,4 @@
-import { errorCode, ResolveError } from "../../visual/errors";
+import { errorCode, errorDetail, ResolveError } from "../../visual/errors";
 import { buildHeightField, encodeHeightField, HEIGHTFIELD_MIME } from "../../visual/heightfield";
 import { fitForIntent, type HeightField, type ImageFit, type ImageIntent, type TerrainStyle } from "../../visual/types";
 import { loadLocalAsset, matchLocalAsset } from "./assets";
@@ -119,22 +119,26 @@ export class VisualResolver {
   terrain(region: string, style: TerrainStyle = "terrain", signal?: AbortSignal, include: [number, number][] = []): Promise<ResolvedTerrain> {
     const key = include.length ? `${style}:${include.map(([lon, lat]) => `${lon.toFixed(3)},${lat.toFixed(3)}`).join(";")}` : style;
     return this.run("terrain", region, key, signal, async (bounded, trace) => {
+      let cause: string | undefined;
       for (const provider of this.terrains) {
         const started = Date.now();
         try {
           const source = await provider.resolve(region, style, bounded, { include });
-          const field = buildHeightField(source, style);
+          let field: ReturnType<typeof buildHeightField>, bytes: Uint8Array;
+          try { field = buildHeightField(source, style); bytes = encodeHeightField(field); } catch { throw new ResolveError("heightfield-failed"); }
           trace.chain.push({ provider: provider.name, outcome: "selected", ms: Date.now() - started });
           trace.provider = source.provider;
-          return { field, bytes: encodeHeightField(field), mime: HEIGHTFIELD_MIME, label: source.label, source: { provider: source.provider } };
+          return { field, bytes, mime: HEIGHTFIELD_MIME, label: source.label, source: { provider: source.provider } };
         } catch (error) {
           bounded.throwIfAborted();
           const outcome = errorCode(error);
           trace.chain.push({ provider: provider.name, outcome, ms: Date.now() - started });
           if (outcome === "region-not-found") throw new ResolveError("region-not-found");
+          cause ??= outcome;
         }
       }
-      throw new ResolveError("terrain-unavailable");
+      // v0.5.2: which stage failed travels with the stable code (see terrainCause in the MCP server).
+      throw new ResolveError("terrain-unavailable", cause);
     });
   }
 
@@ -188,13 +192,13 @@ export class VisualResolver {
       return value;
     } catch (error) {
       if (signal?.aborted) { trace.status = "cancelled"; throw error; }
-      const code = errorCode(error);
+      const code = errorCode(error), detail = timeout.signal.aborted ? "timeout" : errorDetail(error) ?? code;
       const failure = timeout.signal.aborted ? `${family}-unavailable`
         : /^(portrait|image|terrain|region|place)-(not-found|unavailable)$/.test(code) ? code
           : code === "geocoder-unavailable" ? (family === "place" ? "place-unavailable" : "region-unavailable") : `${family}-unavailable`;
       trace.status = "failed";
-      trace.error = code !== failure ? `${failure} (${code})` : failure;
-      throw new ResolveError(failure);
+      trace.error = detail !== failure ? `${failure} (${detail})` : failure;
+      throw new ResolveError(failure, detail);
     } finally {
       timeout.clear();
       trace.ms = Date.now() - started;
