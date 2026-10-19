@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "aion-presence",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Aion is how Codex becomes visually present. Codex does the reasoning and the work; while Aion is open you meet it as one embodied presence: a living particle body (a sphere, expressive eyes or a stick figure) that listens, reflects real activity, answers, gestures, and shows things as particles, maps with marked places, 3D objects or high-fidelity cards, in the colours you choose; teaches handwriting — about 9,500 Chinese characters in their true stroke shapes, English letters and words, music symbols — and music with exact notation and playback, moves as a flexible figure, opens interactive 3D cards beside its body — an Earth–Moon system, a glTF/GLB CAD viewer, and any scene you describe (a solar system, a timeline, a circuit), generated, animated and edited step by step — you can turn, select and ask about — and moves with real sound — your voice, its own voice, the music you play. No API key, no second model.",
   "author": {
     "name": "Spirit Connect",
