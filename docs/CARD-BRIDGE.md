@@ -42,6 +42,8 @@ Card → Aion messages must be plain JSON (no functions, binary data or cycles) 
 | `RESIZE` | `width, height, layout` | |
 | `RESET` | `{}` | |
 | `DISPOSE` | `{}` | the card releases everything, answers `DISPOSED`, closes its port |
+| `LOAD_ROUTE` (v0.6) | `revision, route` (a GeoRoute, validated again in the card) | needs `route-documents`; the card answers once it has drawn it |
+| `LOAD_TILE` (v0.6) | `tile {z, x, y}, mime (image/png \| image/jpeg), data: ArrayBuffer` (≤ 768 KB) | needs `map-tiles`; bytes transferred, never a URL |
 
 Every request carries an `id`; the card answers with `RESULT {ok, problem?}` and `re`. Requests time out after 4 s
 (INITIALIZE and LOAD_ASSET get the manifest's load time); a `RESULT` that answers nothing is dropped. Before answering,
@@ -61,6 +63,13 @@ the runtime flushes pending state, so whoever waits for the answer already has t
 | `DISPOSED` | `geometries, textures, urls, loops` (what is left) | — |
 | `RESULT` | `ok, problem?` with `re` | — |
 | `EDIT` (v0.5.1) | `request` (`/^u[a-z0-9]{4,32}$/`), `base` (revision), and `action: "transform", id, position?, rotation?, scale?` or `action: "undo" \| "redo"` | `scene-documents` |
+| `CURSOR` (v0.6) | `distance` (metres along the route) or `null` — at most about 20 a second | `route-documents` |
+| `TILE_REQUEST` (v0.6) | `tiles`: 1–16 `{z, x, y}` the card shows and lacks | `map-tiles` |
+
+v0.6: `CURSOR` is handled on the page (the body shows the same place along the route at once) and never travels to the
+hub; the card's reported state carries the highlight Codex asked for. A `TILE_REQUEST` names tiles only by their grid
+coordinates; the page fetches them from Aion's hub two at a time, and the hub serves only tiles around the open route
+([ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)).
 
 `EDIT` is a *proposal*: the user moved, turned or resized an object with the card's transform tool, or pressed Undo or
 Redo. The page forwards it in its next card report (`edit`); the hub validates it again (the object exists, the base

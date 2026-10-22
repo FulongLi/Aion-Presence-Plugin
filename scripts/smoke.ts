@@ -52,6 +52,13 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 complete); the figure jumping over a box (its props drawn) and returning; a local photograph as a
  *                 heritage oval; Codex Voice Sync reconnecting by itself when Aion is opened again (stand-in bridge)
  *
+ *   welcome       v0.6: the first-run welcome on a fresh installation — shown once, examples, copy, Get started, remembered;
+ *                 a returning user's window without it; shown again on request; Skip; it steps aside for a presentation
+ *   v06           v0.6 through the real MCP tools and real routing: Scotland's terrain → a cycling route on it (kept, not
+ *                 re-formed) with the Route Explorer card (tiles, route, profile), the highest point on both, the profile's
+ *                 pointer on the terrain, reversed, a waypoint, a marker, removed (terrain kept), a hike and a walk on
+ *                 their own surroundings, impossible routes refused with nothing invented, the card closed with nothing left
+ *
  * Screenshots land in .e2e/smoke/. Needs a local Chrome (CHROME_PATH overrides); skips with a message when there
  * is none. `-- --offline` skips the public portrait and terrain lookups. `-- --only=v42,listening` runs only those sections.
  */
@@ -66,6 +73,8 @@ if (!existsSync(pagePath)) { console.error("smoke: run npm run build first"); pr
 mkdirSync(OUT, { recursive: true });
 
 const home = mkdtempSync(join(tmpdir(), "aion-smoke-"));
+// v0.6: the shared hub is a returning user's (the first-run welcome has its own section, on a fresh hub).
+writeFileSync(join(home, "welcome-complete"), "smoke\n");
 /** What the stand-in bridge plays next (see scripts/lib/fakeBridge.ts). */
 let bridgeSignal = "music";
 const hub = new PresenceHub({
@@ -152,6 +161,8 @@ try {
   if (section("v45")) { for (const renderer of ["auto", "canvas"] as const) await v45(renderer); await cardFallback(); }
   if (section("v05")) for (const renderer of ["auto", "canvas"] as const) await v05(renderer);
   if (section("terrain") && !offline) for (const renderer of ["auto", "canvas"] as const) await terrain(renderer);
+  if (section("welcome")) await welcome();
+  if (section("v06") && !offline) for (const renderer of ["auto", "canvas"] as const) await v06(renderer);
 } finally {
   await browser.close();
   await hub.stop();
@@ -862,9 +873,10 @@ async function embedded() {
       page.on("pageerror", error => errors.push(error.message));
       try {
         await page.exposeFunction("hostCallTool", (params: { name: string; arguments?: Record<string, unknown> }) => aion.client.callTool(params));
-        const opened = await aion.call("open_presence", { display: "immersive", body: "figure" }) as { structuredContent: { surface: { mode: string }; window_opened: boolean; immersive: { path: string } } };
+        // v0.6: Aion's own window is the default; this host is asked to embed it, as a user would ask.
+        const opened = await aion.call("open_presence", { display: "immersive", body: "figure", surface: "embedded" }) as { structuredContent: { surface: { mode: string }; window_opened: boolean; immersive: { path: string } } };
         check(opened.structuredContent.surface.mode === "embedded" && !opened.structuredContent.window_opened && opened.structuredContent.immersive.path === "host-fullscreen",
-          "open_presence chooses embedded mode, asks the host for fullscreen and opens no window");
+          "open_presence (embedding asked for) chooses embedded mode, asks the host for fullscreen and opens no window");
         await page.goto(refuse ? `${base}?refuse=1` : base);
         await pause(3_500);
         const log = await page.evaluate("window.hostLog") as string[];
@@ -1591,3 +1603,181 @@ async function cardFallback() {
 writeFileSync(join(OUT, "result.txt"), failures.length ? failures.join("\n") : "ok");
 console.log(failures.length ? `\n${failures.length} smoke check(s) failed` : `\n✓ the Presence surface renders and follows the presence state (screenshots in ${OUT})`);
 process.exit(failures.length ? 1 : 0);
+
+/**
+ * v0.6: the first-run welcome and the Route Explorer, through the real MCP tools in the real renderer. The welcome runs
+ * on a hub of its own (a fresh installation); routes use the real routing service (FOSSGIS Valhalla), the real elevation
+ * model and OpenStreetMap's tiles, so this section needs the network (`--offline` skips it).
+ */
+async function welcome() {
+  console.log("v0.6: first-run welcome");
+  const fresh = mkdtempSync(join(tmpdir(), "aion-welcome-"));
+  const own = new PresenceHub({ home: fresh, port: 0, page: () => readFileSync(pagePath, "utf8"), bridge: { locate: () => null } });
+  await own.start();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  try {
+    await page.goto(`${own.surfaceUrl}&debug=1&mic=0`);
+    await until(page, state => state.frames > 30, 10_000);
+    await page.addStyleTag({ content: "#debug { display: none !important; }" });
+    check(own.snapshot().hub.welcome, "a fresh installation: the hub says the welcome is due");
+    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
+    const examples = await page.locator(".welcome-prompt").allTextContents();
+    check(examples.length === 3 && examples.some(text => /Scotland/.test(text)) && examples.some(text => /cycling route from Glasgow to Edinburgh/.test(text)) && examples.some(text => /solar system/.test(text)),
+      `three example requests: ${examples.join(" · ")}`);
+    check(/powered by Codex/.test(await page.locator(".welcome-intro").textContent() ?? ""), "it presents Aion as Codex's visual companion");
+    await pause(1_200);
+    const body = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
+    await page.screenshot({ path: join(OUT, "v06-welcome.png") });
+    check(body > 30, "the particle body stays visible and alive above it");
+    // In an immersive window before its click, Enter Presence stands beneath the welcome: both fit, the body above them.
+    own.apply({ type: "open", display: "immersive" });
+    await pause(2_200);
+    await page.screenshot({ path: join(OUT, "v06-welcome-immersive.png") });
+    own.apply({ type: "open", display: "auto" });
+    await pause(600);
+    await page.locator(".welcome-copy").first().click();
+    // The clipboard answers asynchronously: wait (briefly) for what the welcome says.
+    let said = "";
+    for (let i = 0; i < 20 && !/Copied|Selected/.test(said); i++) { await pause(100); said = await page.locator(".welcome-status").textContent() ?? ""; }
+    check(/Copied|Selected/.test(said), `an example click copies it (or selects it to copy): "${said}"`);
+    await page.locator(".welcome-start").click();
+    await pause(900);
+    check(!(await page.locator("#welcome").isVisible()), "Get started closes it");
+    for (let i = 0; i < 20 && own.snapshot().hub.welcome; i++) await pause(150);
+    check(!own.snapshot().hub.welcome && existsSync(join(fresh, "welcome-complete")), "it is remembered as seen (welcome-complete in the plugin data)");
+    await page.reload();
+    await until(page, state => state.frames > 30, 10_000);
+    await pause(2_500);
+    check(!(await page.locator("#welcome").isVisible()), "a returning user's window opens without it");
+    own.apply({ type: "welcome", show: true });
+    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 }).then(() => check(true, "\"Show me the introduction again\" brings it back"), () => check(false, "\"Show me the introduction again\" brings it back"));
+    await page.keyboard.press("Escape");
+    await page.locator(".welcome-skip").click({ timeout: 2_000 }).catch(() => {});
+    await pause(900);
+    check(!(await page.locator("#welcome").isVisible()), "Skip (or Escape) closes it again");
+    // A request that shows something while the welcome is up: it steps aside by itself.
+    own.apply({ type: "welcome", show: true });
+    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
+    own.apply({ type: "present", content: { kind: "form", form: "tao.yin-yang", label: visualForms.label("tao.yin-yang") }, hold: 6 });
+    await pause(1_200);
+    check(!(await page.locator("#welcome").isVisible()), "it steps aside as soon as Aion shows something");
+    check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await page.close(); await own.stop(); }
+}
+
+async function v06(renderer: "auto" | "canvas") {
+  console.log(`v0.6: Route Explorer (${renderer}), real routing and elevation`);
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`, { width: 1440, height: 900 });
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const aion = await connectAion({ home, resolver: new VisualResolver({ env: {} }) });
+  // Evidence screenshots without the diagnostics panel (it is only there to read the view's state).
+  await page.addStyleTag({ content: "#debug { display: none !important; }" });
+  const shot = (moment: string) => page.screenshot({ path: join(OUT, `v06-${renderer}-${moment}.png`) });
+  type Result = { isError?: boolean; content: { text: string }[]; structuredContent?: { journey?: Record<string, unknown>; card?: { state: Record<string, unknown> }; presentation?: { kind: string; route: string } | null } };
+  const call = (tool: string, args: Record<string, unknown> = {}) => aion.call(tool, args) as Promise<Result>;
+  const card = () => hub.snapshot().card;
+  const formed = async (ms = 30_000) => { for (let w = 0; w < ms; w += 250) { if (await view<boolean>("v.visual.phase === 'holding' && v.visual.target.visual.kind === 'heightfield'")) return true; await pause(250); } return false; };
+  const drawn = () => view<{ points: number; a: number[] | null; b: number[] | null; cursor: number[] | null; highlight: number[] | null; visible: number }>("v.markerLayer.routeDrawn");
+  const frameOf = async () => (await (await page.locator("#workspace iframe").elementHandle())?.contentFrame()) ?? null;
+  const settle = async (ok: () => boolean | Promise<boolean>, ms = 12_000) => { for (let w = 0; w < ms && !(await ok()); w += 200) await pause(200); return ok(); };
+  try {
+    // "Show me Scotland's terrain." → "Plan a cycling route from Glasgow to Edinburgh."
+    check(!(await call("show_terrain", { region: "Scotland" })).isError && await formed(), "Scotland's terrain forms");
+    const formedRevision = await view<number>("v.visual.revision");
+    const started = performance.now();
+    const planned = await call("plan_route", { from: "Glasgow", to: "Edinburgh", mode: "cycling" });
+    const journey = planned.structuredContent?.journey ?? {};
+    check(!planned.isError && Number(journey.distance_km) > 60 && Number(journey.distance_km) < 95, `a real cycling route: ${planned.isError ? planned.content[0].text : `${journey.distance_km} km, ${journey.duration}, ↑${journey.ascent_m} m (${((performance.now() - started) / 1000).toFixed(1)} s)`}`);
+    check(planned.structuredContent?.presentation?.kind === "interactive" && planned.structuredContent.presentation.route === "hybrid", "routed hybrid: the particle terrain and the Route Explorer card");
+    check(await settle(() => card()?.route?.rendered?.ok === true), "the card drew the route (confirmed revision)");
+    check(await view<number>("v.visual.revision") === formedRevision && await view<string>("v.visual.phase") === "holding", "the terrain on show was kept, not formed again");
+    check(await settle(async () => (await drawn()).points >= 10 && (await drawn()).visible > 0.9), `the route rests on the particle terrain (${(await drawn()).points} points)`);
+    const ends = await drawn();
+    check(!!ends.a && !!ends.b, "A and B stand on the terrain");
+    check(await settle(() => card()?.state.tiles === "ok", 15_000), `the card's map has its OpenStreetMap tiles (${String(card()?.state.tiles)})`);
+    await pause(800);
+    await shot("scotland-route");
+    // Performance: the body with the route overlay and the card beside it, then while the profile's pointer sweeps
+    // (CURSOR messages, the overlay redrawing the pointer each frame).
+    const perf: Record<string, number> = { planSeconds: Math.round((performance.now() - started) / 100) / 10 };
+    const fps = async (during?: () => Promise<void>) => {
+      const f0 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number, t0 = performance.now();
+      if (during) await during(); else await pause(2_000);
+      return Math.round(((await page.evaluate("window.aionPresence.runtime.quality().frames") as number) - f0) / ((performance.now() - t0) / 1000));
+    };
+    perf.bodyFps = await fps();
+    const sweepFrame = await frameOf();
+    perf.bodyFpsSweeping = await fps(async () => {
+      const box = sweepFrame ? await sweepFrame.locator(".rx-profile canvas").boundingBox() : null;
+      for (let i = 0; i < 40 && sweepFrame && box; i++) { await sweepFrame.locator(".rx-profile canvas").hover({ position: { x: box.width * (0.1 + 0.8 * i / 40), y: box.height / 2 } }); await pause(50); }
+    });
+    perf.cardFps = card()?.resources?.fps ?? -1;
+    perf.overlayPoints = (await drawn()).points;
+    perf.tiles = Number(card()?.resources?.textures ?? -1);
+    writeFileSync(join(OUT, `v06-${renderer}-performance.json`), JSON.stringify({ renderer, ...perf }, null, 2));
+    console.log(`  · ${JSON.stringify(perf)}`);
+    check(perf.bodyFps > 20 && perf.bodyFpsSweeping > 20, `the body stays smooth beside the route and its card (${perf.bodyFps} fps; ${perf.bodyFpsSweeping} fps while the pointer sweeps the profile)`);
+    await page.mouse.move(5, 5);
+    // "Show me the highest point."
+    const highest = await call("control_interactive_card", { action: "show", value: "highest" });
+    check(!highest.isError && card()?.state.highlight === "highest" && typeof card()?.state.highlightM === "number", `the highest point is highlighted (${card()?.state.highlightM} m at km ${card()?.state.highlightKm})`);
+    check(await settle(async () => !!(await drawn()).highlight), "…on the terrain too, at the same place along the route");
+    await pause(900);
+    await shot("highest");
+    // Pointing along the profile moves the place on the terrain (CURSOR, page-local).
+    const frame = await frameOf();
+    if (frame) {
+      const box = await frame.locator(".rx-profile canvas").boundingBox();
+      if (box) await frame.locator(".rx-profile canvas").hover({ position: { x: box.width * 0.62, y: box.height * 0.5 } });
+      check(await settle(async () => !!(await drawn()).cursor, 3_000), "pointing at the profile shows the same place on the particle terrain");
+      await shot("hover");
+      await frame.locator(".rx-profile canvas").hover({ position: { x: 2, y: 2 } }).catch(() => {});
+      await page.mouse.move(5, 5);
+    }
+    // "Reverse the route."
+    const reversed = await call("plan_route", { reverse: true });
+    check(!reversed.isError && reversed.structuredContent?.journey?.from === "Edinburgh" && card()?.route?.revision === 2, "reversed: a new route from Edinburgh, revision 2 of the same card");
+    check(await settle(() => card()?.route?.rendered?.revision === 2 && card()?.route?.rendered?.ok === true), "the card redrew it");
+    check(await view<number>("v.visual.revision") === formedRevision, "the terrain stayed formed through the change");
+    await pause(800);
+    await shot("reversed");
+    // A waypoint and a marker on the route's terrain.
+    const via = await call("plan_route", { via: ["Linlithgow"] });
+    check(!via.isError && (via.structuredContent?.journey?.via as string[] | undefined)?.[0] === "Linlithgow", "a waypoint: via Linlithgow");
+    const marked = await call("mark_map", { add: [{ place: "Stirling", color: "yellow" }] });
+    check(!marked.isError && hub.snapshot().presentation?.kind === "interactive" && card()?.route?.revision === 3, "a marker added on the route's terrain keeps the route");
+    // "Remove the route": the terrain stays.
+    const cleared = await call("plan_route", { clear: true });
+    check(!cleared.isError && hub.snapshot().presentation?.kind === "terrain" && !card(), "removing the route keeps the terrain");
+    await pause(1_200);
+    check(await view<number>("v.visual.revision") === formedRevision && (await drawn()).points === 0, "the body did not re-form; only the route left");
+    // Scenario B and C: a hike and a walk, each on its own surroundings.
+    for (const [moment, args] of [["hiking", { from: "Ambleside", to: "Grasmere", mode: "hiking" }], ["walking", { from: "Edinburgh Castle", to: "Arthur's Seat", mode: "walking" }]] as const) {
+      const result = await call("plan_route", args);
+      const j = result.structuredContent?.journey ?? {};
+      check(!result.isError, `${moment}: ${result.isError ? result.content[0].text : `${j.from} → ${j.to}, ${j.distance_km} km, ${j.duration}, ↑${j.ascent_m} m ↓${j.descent_m} m, highest ${j.highest_m} m`}`);
+      if (result.isError) continue;
+      check(await formed() && await settle(async () => (await drawn()).points >= 10), `  its terrain forms with the route on it (${(await drawn()).points} points)`);
+      await settle(() => card()?.state.tiles === "ok", 12_000);
+      await pause(900);
+      await shot(moment);
+    }
+    // Scenario E: no route — said plainly, nothing drawn, what is on show unchanged.
+    const before = hub.snapshot().presentation?.id;
+    const none = await call("plan_route", { from: "London", to: "New York", mode: "walking" });
+    check(!!none.isError && /route-too-long|route-not-found/.test(none.content[0].text) && hub.snapshot().presentation?.id === before, `an impossible route is refused, nothing invented: ${none.content[0].text.slice(0, 90)}`);
+    const unroutable = await call("plan_route", { from: "-80.0, 0.0", to: "-80.1, 0.2", mode: "walking" });
+    check(!!unroutable.isError && /route-point-unroutable/.test(unroutable.content[0].text) && hub.snapshot().presentation?.id === before, "a place outside the routing data is refused, the view unchanged");
+    // The user's ×: the card closes, the terrain stays; nothing is left behind in the frame.
+    await page.locator("#workspace .ws-close").click();
+    check(await settle(() => hub.snapshot().presentation?.kind === "terrain"), "closing the card keeps the terrain");
+    await settle(async () => (await view<{ closed: number }>("v.cardHistory")).closed >= 1, 4_000);
+    const left = await view<{ geometries: number; textures: number; urls: number; loops: number }[]>("v.cardHistory.leftovers");
+    check(left.length > 0 && left.every(l => l.geometries + l.textures + l.urls + l.loops === 0), `nothing left behind (${JSON.stringify(left.at(-1))})`);
+    await aion.call("clear_presentation", {});
+    await until(page, s => s.phase === "sphere", 6_000);
+    check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await aion.close(); await page.close(); }
+}

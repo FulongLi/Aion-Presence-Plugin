@@ -47,6 +47,7 @@ list, verbatim, into `plugins/aion-presence/THIRD-PARTY-NOTICES.md`, which is in
 | Chinese Writing Pack: simplified ↔ traditional tables (OpenCC 1.4.2) | `packs/chinese-writing` | Apache-2.0 | license file, modification notes |
 | Natural Earth (country outlines, cities, the Earth–Moon land mask) | runtime data | Public domain | credited |
 | OpenStreetMap (via Nominatim, Photon), AWS Terrain Tiles, Wikimedia, Wikidata, Openverse | fetched at run time, not bundled | ODbL / per-source terms | credited in README and on the cards that show them |
+| v0.6 routes: OpenStreetMap map tiles, Valhalla routing on FOSSGIS e.V.'s server (or the user's own), OpenRouteService (the user's key) | fetched at run time, not bundled | OSM data ODbL; each service's usage policy | "© OpenStreetMap contributors" and the routing service always visible on the Route Explorer map ([ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)) |
 
 The Chinese Writing Pack is "mere aggregation": a separate directory read at run time, never mixed into Aion's code.
 Its LGPL and Arphic terms let anyone copy and redistribute **those files** under those licenses, commercially or not;

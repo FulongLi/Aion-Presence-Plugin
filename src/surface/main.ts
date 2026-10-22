@@ -44,6 +44,7 @@ async function boot() {
     root, card: element("card"), status: element("status"), fullscreen: element<HTMLButtonElement>("fullscreen"), debug: element("debug"),
     entry: element("entry"), enter: element<HTMLButtonElement>("enter"), markers: element<HTMLCanvasElement>("markers"), scene: element<HTMLCanvasElement>("scene"),
     sound: { root: element("sound"), label: element("sound-label"), action: element<HTMLButtonElement>("sound-action") }, workspace: element("workspace"),
+    welcome: element("welcome"), elsewhere: element("elsewhere"),
   }, transport ?? fallback, { debug });
   if (transport instanceof McpAppsTransport) sizeEmbedded(transport, root);
   // Diagnostics only (?debug=1): the view, for checking the live chain from a test or the console.

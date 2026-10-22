@@ -38,6 +38,7 @@ import type { SceneDocument } from "../../scene/ir";
 import { validateScene } from "../../scene/validate";
 import { PATCH_LIMITS } from "../../scene/patch";
 import { toParticleScene } from "../../scene/particleAdapter";
+import { validateRoute, type GeoRoute } from "../../visual/geo/route";
 
 /**
  * The hub's small local protocol: what every surface receives (HubSnapshot) and the commands the MCP
@@ -65,6 +66,15 @@ export interface HubInfo {
   /** Aion opened by itself (first run) and Codex has not introduced it yet. */
   introduction: boolean;
   /**
+   * v0.6: a companion window is being launched right now (by any Aion process): another "Open Aion" waits for it rather
+   * than opening a second window.
+   */
+  launching: boolean;
+  /** v0.6: the getting-started welcome should be on show (the first launch, or the user asked to see it again). */
+  welcome: boolean;
+  /** v0.6: where the latest "Open Aion" put Aion (an embedded view shows a short note while it is in its own window). */
+  surfaceMode: "companion" | "embedded";
+  /**
    * What the companion windows report about themselves: is one of them focused, on screen (not covered or
    * minimized), or in true fullscreen? A window that has not reported yet counts as visible.
    */
@@ -83,13 +93,18 @@ export type HubCommand =
   | { type: "activity"; state: (typeof ACTIVITY_STATES)[number]; label?: string }
   | { type: "body"; body: (typeof AION_BODIES)[number] }
   | { type: "present"; content: PresentationContent; hold?: number; presentation?: PresentationPreference; detail?: boolean; rate?: number }
-  | { type: "clear" }
+  /** v0.6 `keep: "terrain"`: a route's card was closed — the route goes, the terrain it was drawn on stays a while. */
+  | { type: "clear"; keep?: "terrain" }
   /** `greet`: a newly opened Presence waves once (default: when no companion window is connected). */
-  | { type: "open"; display?: DisplayPreference; greet?: boolean; introduce?: boolean }
+  | { type: "open"; display?: DisplayPreference; greet?: boolean; introduce?: boolean; surface?: "companion" | "embedded" }
   /** Codex has given (or is giving) Aion's introduction. */
   | { type: "introduced" }
   /** A new companion window is on its way to the foreground: the open ones retire once it has connected. */
   | { type: "supersede" }
+  /** v0.6: a companion window is being launched (other processes wait for it instead of opening another); `failed`: it could not be. */
+  | { type: "launching"; failed?: boolean }
+  /** v0.6: show the welcome again (`show`), or the user has seen it (`done`: remembered, never shown again unasked). */
+  | { type: "welcome"; show?: boolean; done?: boolean }
   /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
   | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number }
   /** Turn, tilt or zoom the 3D object on show. */
@@ -211,6 +226,12 @@ const presentationSchema = z.discriminatedUnion("kind", [
     layout: z.enum(CARD_LAYOUTS), config: z.record(z.string(), cardValue), asset: cardAsset.optional(),
     bodyScene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene").optional(),
     scene: z.custom<SceneDocument>(value => validateScene(value).ok, "a valid Scene IR document").optional(),
+    terrain: z.object({
+      media: heightFieldRef, style: z.enum(TERRAIN_STYLES), label: clean(cleanLine, LIMITS.title),
+      region: clean(cleanLine, 80).optional(), elevation: z.object({ min: z.number().finite(), max: z.number().finite() }).strict().optional(),
+      credit: clean(cleanLine, LIMITS.title).optional(), markers: markers.optional(),
+    }).strict().optional(),
+    geoRoute: z.custom<GeoRoute>(value => validateRoute(value).ok, "a valid route document").optional(),
   }).strict().refine(value => {
     const manifest = cardRegistry.get(value.app);
     if (!manifest || !manifest.display.layouts.includes(value.layout) || !checkConfig(manifest, value.config).ok) return false;
@@ -218,6 +239,8 @@ const presentationSchema = z.discriminatedUnion("kind", [
     if (value.asset && (!manifest.resources.assets.includes("model") || value.asset.bytes > manifest.resources.maxAssetBytes)) return false;
     // v0.5: only a scene-documents application takes a scene, and its particle form is that scene's own (the adapter's).
     if (value.scene !== undefined && !manifest.capabilities.includes("scene-documents")) return false;
+    // v0.6: only a route-documents application takes a route, and only it forms terrain beside the card.
+    if ((value.geoRoute !== undefined || value.terrain !== undefined) && !manifest.capabilities.includes("route-documents")) return false;
     if (value.bodyScene !== undefined && manifest.capabilities.includes("scene-documents")) {
       const checked = value.scene === undefined ? null : validateScene(value.scene);
       return !!checked?.ok && JSON.stringify(value.bodyScene) === JSON.stringify(toParticleScene(checked.document).scene);
@@ -242,10 +265,12 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("present"), content: presentationSchema, hold: z.number().min(0).max(LIMITS.hold.max).optional(),
     presentation: z.enum(PRESENTATION_PREFERENCES).optional(), detail: z.boolean().optional(), rate: z.number().min(RATE_LIMITS.min).max(RATE_LIMITS.max).optional(),
   }).strict(),
-  z.object({ type: z.literal("clear") }).strict(),
-  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("clear"), keep: z.literal("terrain").optional() }).strict(),
+  z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional(), surface: z.enum(["companion", "embedded"]).optional() }).strict(),
   z.object({ type: z.literal("introduced") }).strict(),
   z.object({ type: z.literal("supersede") }).strict(),
+  z.object({ type: z.literal("launching"), failed: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("welcome"), show: z.boolean().optional(), done: z.boolean().optional() }).strict(),
   z.object({
     type: z.literal("express"), expression: z.enum(EYE_EXPRESSIONS).optional(), gesture: z.enum(FIGURE_GESTURES).optional(),
     seconds: z.number().min(1).max(30).optional(),

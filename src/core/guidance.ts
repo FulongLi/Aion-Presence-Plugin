@@ -35,7 +35,36 @@ export const ONBOARDING_EXAMPLES: readonly OnboardingExample[] = [
   { say: "a human form", ask: "Ask me to take a human form.", tool: "set_body_form", args: { body: "figure" } },
   { say: "my eyes", ask: "Ask me to show you my eyes.", tool: "set_body_form", args: { body: "eyes" } },
   { say: "Saturn in 3D", ask: "Ask me to show you Saturn in 3D.", tool: "show_scene", args: { preset: "saturn" } },
+  { say: "a journey", ask: "Ask me to plan a cycling route from Glasgow to Edinburgh.", tool: "plan_route", args: { from: "Glasgow", to: "Edinburgh", mode: "cycling" } },
 ];
+
+/**
+ * v0.6: the first-run welcome in Aion's window — three example requests, each backed by a real tool and arguments (the
+ * tests run them through the tool schemas), in English and Chinese. The window cannot send them to Codex (no host offers
+ * that), so they are offered to copy and say or paste.
+ */
+export type WelcomeLanguage = "en" | "zh";
+export interface WelcomeExample { title: Record<WelcomeLanguage, string>; prompt: Record<WelcomeLanguage, string>; tool: string; args: Record<string, unknown> }
+export const WELCOME_EXAMPLES: readonly WelcomeExample[] = [
+  { title: { en: "Explore the world", zh: "探索世界" }, prompt: { en: "Show me the terrain of Scotland.", zh: "展示苏格兰的地形。" }, tool: "show_terrain", args: { region: "Scotland" } },
+  { title: { en: "Plan a journey", zh: "规划旅程" }, prompt: { en: "Plan a cycling route from Glasgow to Edinburgh.", zh: "规划一条从格拉斯哥到爱丁堡的骑行路线。" }, tool: "plan_route", args: { from: "Glasgow", to: "Edinburgh", mode: "cycling" } },
+  { title: { en: "Visualize an idea", zh: "呈现想法" }, prompt: { en: "Create an interactive solar system.", zh: "创建一个可交互的太阳系。" }, tool: "show_interactive_card", args: { app: "generative-scene" } },
+];
+
+/** The welcome's words: short (read in well under half a minute), Aion as Codex's visual presence, never a second AI. */
+export function welcomeText(language: WelcomeLanguage, identity: AionIdentity = AION_IDENTITY) {
+  return language === "zh" ? {
+    title: `欢迎使用 ${identity.name} Presence`, tagline: "让你的想法，呈现在眼前。",
+    intro: `你好，我是 ${identity.name}——你的视觉伙伴，由 Codex 驱动。你可以让我探索地点、呈现想法、构建可交互的三维场景，或者规划一段旅程。告诉我你想看什么就好。`,
+    hint: "在 Codex 中说出或输入其中任何一句；点击即可复制。", copy: "复制", copied: "已复制，粘贴到 Codex 即可。", select: "已选中，按 ⌘C 或 Ctrl+C 复制。",
+    start: "开始", skip: "跳过",
+  } : {
+    title: `Welcome to ${identity.name} Presence`, tagline: "Your ideas, brought into view.",
+    intro: `Hello, I'm ${identity.name} — your visual companion, powered by Codex. Ask me to explore places, visualize ideas, build interactive 3D scenes or plan journeys. Just tell me what you'd like to see.`,
+    hint: "Say or type any of these in Codex — click one to copy it.", copy: "Copy", copied: "Copied: paste it into Codex.", select: "Selected: press ⌘C or Ctrl+C to copy.",
+    start: "Get started", skip: "Skip",
+  };
+}
 
 const list = (items: string[]) => items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
 

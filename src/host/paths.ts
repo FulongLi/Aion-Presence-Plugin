@@ -20,6 +20,8 @@ export const APPEARANCE_FILE = "appearance.json";
 export const AUDIO_FILE = "audio.json";
 /** Codex Voice Sync (v0.4.3): whether the user opted in to Aion following Codex's voice, and what macOS has shown. */
 export const VOICE_SYNC_FILE = "voice-sync.json";
+/** v0.6: the first-run welcome was seen (Get started, Skip, or the user went straight to something): never shown again unasked. */
+export const WELCOME_FILE = "welcome-complete";
 /** Hook events seen this recently mean the plugin's hooks are trusted and running. */
 export const HOOKS_ACTIVE_MS = 30 * 60_000;
 /** The companion surface's preferred local port (any free port is used when it is taken). */

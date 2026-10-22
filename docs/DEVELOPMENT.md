@@ -34,6 +34,7 @@ real MCP tools (`patch`, `undo`, `inspect`, … as well).
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge |
 | `npm run geo:coverage` · `npm run geo:build -- <dir>` | Geography against live services · rebuild the bundled world from Natural Earth ([MAPS.md](MAPS.md)) |
+| `npm run route:verify` | v0.6: the acceptance routes against the real routing service and elevation model; evidence in `docs/media/v0.6.0/routes.json` ([ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)) |
 | `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild, export and re-verify the Chinese Writing Pack |
 | `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol |
 | `npm run cards:models` · `cards:earth-mask` | Regenerate the CAD viewer's transformer · the Earth–Moon land mask |
@@ -45,11 +46,18 @@ build behind).
 
 ## Environment
 
-`AION_PRESENCE_SURFACE=companion`, `AION_PRESENCE_BROWSER=default|chrome|none`, `AION_PRESENCE_PORT` (47231),
+`AION_PRESENCE_SURFACE=companion|embedded` (v0.6: companion is the default; embedded restores v0.5's choice where the host
+renders MCP Apps), `AION_PRESENCE_BROWSER=default|chrome|none`, `AION_PRESENCE_PORT` (47231),
 `AION_PRESENCE_HOME`, `AION_PRESENCE_AUTO_OPEN=first-run|always|never`, `AION_PRESENCE_DEBUG=1` (open the companion with
 diagnostics; `npm run diagnose` prints them). On the companion URL: `&debug=1` for diagnostics (surface, fullscreen,
 microphone, VAD, host → effective activity, route, card, hooks), `&renderer=canvas` for the fallback, `&mic=0` to skip
 listening.
+
+Routes (v0.6): `AION_ROUTING_PROVIDER=valhalla|openrouteservice`, `AION_ROUTING_VALHALLA_URL` (your own Valhalla, e.g.
+`http://localhost:8002`), `AION_ROUTING_ORS_KEY` (your OpenRouteService key; never commit it), `AION_PRESENCE_TILES=off`.
+`npm run route:verify` plans the acceptance routes against the real service. For looking at real renderer output while
+driving the tools by hand: `npx tsx scripts/route/live.ts` (a real Aion on port 47300; `curl -s localhost:47301/call -d
+'{"name":"plan_route","args":{…}}'`; development only, never shipped).
 
 ## Releases
 

@@ -1,6 +1,6 @@
 {
   "name": "aion-presence-plugin",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "description": "Aion Presence: a visual embodiment layer for Codex. Codex is the intelligence; Aion is the body.",
@@ -54,6 +54,7 @@
     "scene:eval": "tsx scripts/scene-eval.ts",
     "geo:coverage": "tsx scripts/geo-coverage.ts",
     "geo:build": "tsx scripts/geo/build-world.ts",
+    "route:verify": "tsx scripts/route/verify.ts",
     "audio:eval": "tsx scripts/audio-eval.ts",
     "audio:verify": "tsx scripts/audio-verify.ts",
     "audio-bridge:build": "sh native/audio-bridge/build.sh native/audio-bridge/build",

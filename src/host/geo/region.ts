@@ -26,7 +26,8 @@ export interface GeoRegion {
   point?: [number, number];
   /** How it is framed before any markers: a window (groups), or around its parts. */
   window?: RegionGroup["window"]; centre?: RegionGroup["centre"]; world?: boolean;
-  provider: "natural-earth" | "nominatim" | "photon";
+  /** v0.6 "route": the surroundings of a planned route (a box around it, no lookup). */
+  provider: "natural-earth" | "nominatim" | "photon" | "route";
 }
 
 const primary = (region: WorldRegion) => { const keep = primaryExtent(region.polygons); return keep.map(i => region.polygons[i]); };
@@ -138,7 +139,9 @@ export function regionFrame(region: GeoRegion, markers: readonly [number, number
   const polygons = region.focus;
   const parts = polygons.length ? polygons : [];
   const points = [...(region.point ? [region.point] : []), ...markers];
-  // A point place is shown with the country around it: a city on its own would be a dot in nothing.
+  // A point place is shown with the country around it: a city on its own would be a dot in nothing. v0.6: a route's
+  // surroundings are framed tightly (a few kilometres is a whole hike), so the terrain's detail is spent on them.
+  if (region.provider === "route") return frameAround(parts, points, { minSpan: 0.0006, margin: 0.01 });
   const minSpan = region.point && !parts.length ? 0.05 : 0.012;
   return frameAround(parts, points, { minSpan, margin: 0.08 });
 }
@@ -164,10 +167,14 @@ export interface FoundPlace { label: string; lon: number; lat: number; provider:
  * A place to mark, by name, preferring one inside the region on show ("Glasgow" on Scotland is Glasgow, Scotland):
  * the offline gazetteer within the region's countries, then Nominatim bounded to the view, then anywhere, then Photon.
  */
-export async function locatePlace(name: string, near: { region?: GeoRegion; frame?: Frame } | undefined, signal: AbortSignal, request?: Fetcher): Promise<FoundPlace> {
+export async function locatePlace(name: string, near: { region?: GeoRegion; frame?: Frame; gazetteerFirst?: boolean } | undefined, signal: AbortSignal, request?: Fetcher): Promise<FoundPlace> {
   const countries = new Set(near?.region?.ids.map(id => id.split(".")[0]) ?? []);
   const local = findPlace(name, countries.size ? place => countries.has(place.country) || (near?.frame ? inside(near.frame, [place.lon, place.lat], 0) : false) : undefined);
   if (local) return { label: local.name, lon: local.lon, lat: local.lat, provider: "natural-earth" };
+  // v0.6: a route's places need not be in the region on show: a city Aion knows anywhere comes before a search bounded
+  // to the view (which could find a street named after it there).
+  const known = near?.gazetteerFirst ? findPlace(name) : null;
+  if (known) return { label: known.name, lon: known.lon, lat: known.lat, provider: "natural-earth" };
   const window = near?.frame ? frameWindow(near.frame) : null;
   const attempts: URLSearchParams[] = [];
   const base = { q: name, format: "jsonv2", limit: "1" };

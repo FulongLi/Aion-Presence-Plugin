@@ -33,9 +33,13 @@ async function firstRun(host: { embedded: boolean }) {
   if (host.embedded || process.env.AION_PRESENCE_BROWSER === "none") return;
   const before = await link.run(backend => backend.state());
   if (before.hub.viewers > 0) return;
-  await link.run(backend => backend.apply({ type: "open", greet: true, introduce: true }));
+  await link.run(backend => backend.apply({ type: "open", greet: true, introduce: true, surface: "companion" }));
   const url = link.current?.surfaceUrl;
-  if (url) await openBrowser(url);
+  // v0.6: other Aion processes (another conversation's "Open Aion") wait for this window instead of opening another.
+  if (url) {
+    await link.run(backend => backend.apply({ type: "launching" }));
+    if (!await openBrowser(url)) await link.run(backend => backend.apply({ type: "launching", failed: true }));
+  }
 }
 
 const server = createAionServer({

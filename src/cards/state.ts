@@ -4,6 +4,7 @@ import { CARD_INSTANCE, editProblem, selectionProblem, validResources, type Card
 import { cleanCardText, type CardValue } from "./values";
 import type { SceneDocument } from "../scene/ir";
 import type { HistoryEntry } from "../scene/history";
+import type { GeoRoute } from "../visual/geo/route";
 
 /**
  * The interactive card as Aion's hub knows it (v0.4.5): independent of any page's DOM, so Codex can inspect it and every
@@ -33,6 +34,16 @@ export interface CardSceneState {
   /** The outcome of the latest scene command, by its request id (the tool that sent it reads it). */
   outcome: SceneOutcome | null;
 }
+/**
+ * v0.6: the route of a `route-documents` card (the Route Explorer). The one route both the card and the body's terrain
+ * overlay draw; each change (reversed, another mode, a waypoint) is a new revision. The card confirms what it drew.
+ */
+export interface CardRouteState {
+  document: GeoRoute;
+  revision: number;
+  rendered: { revision: number; ok: boolean; problem?: string; at: number } | null;
+}
+
 export interface SceneOutcome { request: string; ok: boolean; revision: number; code?: string; problem?: string; summary?: string; changed?: string[]; removed?: string[] }
 
 export interface CardSnapshot {
@@ -57,6 +68,8 @@ export interface CardSnapshot {
   interacting: boolean;
   /** v0.5: the scene of a generative scene card (null for other applications, or before its first scene). */
   scene: CardSceneState | null;
+  /** v0.6: the route of a Route Explorer card (null for other applications). */
+  route: CardRouteState | null;
 }
 
 /** What a surface reports about the card it shows. Everything is optional except whose card it is. */
@@ -75,6 +88,8 @@ export interface CardReport {
   scene?: { revision: number; ok: boolean; problem?: string };
   /** v0.5.1: the user's own change in the card (moved, turned, resized; undo, redo): the hub makes it a scene patch. */
   edit?: SceneEdit;
+  /** v0.6: the route revision the card has drawn (ok) or could not draw (with why). */
+  route?: { revision: number; ok: boolean; problem?: string };
 }
 
 export const CARD_REPORT_BYTES = 96 * 1024;
@@ -87,7 +102,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> => !!value &
  */
 export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifest: CardAppManifest | undefined): { ok: true; report: CardReport } | { ok: false; problem: string; stale?: boolean } {
   if (!isRecord(raw)) return { ok: false, problem: "not an object" };
-  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting", "scene", "edit"];
+  const allowed = ["window", "instance", "lifecycle", "layout", "state", "selection", "error", "acks", "resources", "interacting", "scene", "edit", "route"];
   if (Object.keys(raw).some(key => !allowed.includes(key))) return { ok: false, problem: "unknown fields" };
   if (typeof raw.window !== "string" || !/^[a-z0-9]{8,32}$/.test(raw.window)) return { ok: false, problem: "invalid window" };
   if (typeof raw.instance !== "string" || !CARD_INSTANCE.test(raw.instance)) return { ok: false, problem: "invalid instance" };
@@ -155,6 +170,13 @@ export function checkCardReport(raw: unknown, card: CardSnapshot | null, manifes
     if (edit.action === "transform" && !card.scene.document.objects.some(n => n.id === edit.id)) return { ok: false, problem: "edit: no such object" };
     report.edit = structuredClone(edit);
   }
+  if (raw.route !== undefined) {
+    const route = raw.route as Record<string, unknown>;
+    if (!manifest.capabilities.includes("route-documents")) return { ok: false, problem: "route needs the route-documents capability" };
+    if (!isRecord(route) || Object.keys(route).some(key => !["revision", "ok", "problem"].includes(key)) || !Number.isInteger(route.revision) || (route.revision as number) < 1
+      || (route.revision as number) > (card.route?.revision ?? 0) || typeof route.ok !== "boolean" || (route.problem !== undefined && cleanCardText(route.problem, 200) !== route.problem)) return { ok: false, problem: "invalid route acknowledgement" };
+    report.route = { revision: route.revision as number, ok: route.ok as boolean, ...(route.problem !== undefined ? { problem: route.problem as string } : {}) };
+  }
   return { ok: true, report };
 }
 
@@ -173,6 +195,7 @@ export function applyCardReport(card: CardSnapshot, report: CardReport, now: num
     ...(report.resources ? { resources: report.resources } : {}),
     ...(report.interacting !== undefined ? { interacting: report.interacting } : {}),
     ...(report.scene && card.scene ? { scene: { ...card.scene, rendered: { ...report.scene, at: now } } } : {}),
+    ...(report.route && card.route ? { route: { ...card.route, rendered: { ...report.route, at: now } } } : {}),
     acks, reportedAt: now,
   };
 }
@@ -188,6 +211,6 @@ export function queueCardCommand(card: CardSnapshot, command: string, value: Car
 export function openCard(init: { instance: string; app: string; title: string; layout: CardLayout; asset: CardAssetRef | null; config: Record<string, CardValue>; now: number }): CardSnapshot {
   return {
     instance: init.instance, app: init.app, title: init.title, layout: init.layout, lifecycle: "loading", state: {}, selection: null, error: null,
-    asset: init.asset, config: init.config, commands: [], acks: [], nextSeq: 1, resources: null, reportedAt: null, openedAt: init.now, interacting: false, scene: null,
+    asset: init.asset, config: init.config, commands: [], acks: [], nextSeq: 1, resources: null, reportedAt: null, openedAt: init.now, interacting: false, scene: null, route: null,
   };
 }

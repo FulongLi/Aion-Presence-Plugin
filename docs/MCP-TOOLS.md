@@ -13,6 +13,7 @@
 | `show_terrain` | A real region's terrain from elevation data (terrain, topography, relief, heightmap), any size from a mountain to a continent; `markers` pins places on it; `presentation: "hybrid"` adds a relief map card. |
 | `show_map` | A map of a continent, country, part of one, state or city, with its neighbours, and `markers` at real coordinates (colour, label, highlight). |
 | `mark_map` | Add, recolour, relabel, highlight or remove markers on the map or terrain on show, without forming it again. |
+| `plan_route` | v0.6: a real walking, cycling or hiking route between places (and waypoints), planned by a routing service, drawn on the particle terrain beside the Route Explorer card; follow-ups (`reverse`, `mode`, `via`, `clear`) change the route on show. [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md) |
 | `set_colors` | Aion's base particle colour and accent colour (names in any language, presets, `#RRGGBB`), or `reset`; remembered. |
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
 | `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
@@ -192,3 +193,24 @@ and every tool after it — `show_portrait`, `show_result`, `show_scene`, `show_
   `aion-presence` and uses most of it would hide Aion's later tools again; `npm run codex:tools` lists such servers.
 - Codex's measure is modelled from Codex's source (main, October 2026) and checked against the observed cut; a Codex
   release that changes its representation needs `npm run codex:verify -- --live` again.
+
+## v0.6: `plan_route` inside the same budget
+
+Routes needed a tool of their own: "Plan a cycling route from Glasgow to Edinburgh" must reach something named for it,
+and its follow-ups (reverse, change the mode, add a waypoint, remove it) are route operations the host performs, not card
+commands. Points and sections along the route (the highest point, a section in km) are the Route Explorer card's own
+commands, through `control_interactive_card`, so they cost no metadata.
+
+| | v0.5.2 | v0.6 |
+| --- | --- | --- |
+| Tools | 32 | **33** (`plan_route`: 1,258 B by Codex's measure) |
+| Codex's measure | 57,211 B | **57,536 B** — all 33 exposed, 10.1 % inside 64,000 B (target 57,600 B) |
+| tools/list | 56,915 B | 57,190 B |
+
+To make room without dropping anything, descriptions repeated on several tools were shortened with no change of meaning:
+the marker fields (`place`, `label`, `color`, `highlight`, on three tools), `hold_seconds` (16 tools), the portrait
+`style` and the image `intent`. `open_presence` gained `welcome` and `surface: "embedded"` within a shorter description.
+`route-explorer` is not offered by `show_interactive_card` (it shows only routes `plan_route` planned), which keeps that
+enum unchanged. The v0.5.1 cut is still reproduced by the model (`tests/v052.test.ts`: with v0.5.1's 1,267-byte
+instructions the 32 v0.5 tools would again be cut, now after 24 instead of 23 because of the shorter descriptions).
+

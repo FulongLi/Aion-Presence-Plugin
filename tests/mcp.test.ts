@@ -23,8 +23,8 @@ test("a host without MCP Apps sees exactly the Aion tools, each with an input sc
       // v0.4.4: no output schema (it repeated 7.9 KB on every tool and pushed Aion past Codex's tool-metadata budget);
       // the structured result is still returned and checked below with presenceOutput.
       assert.equal(tool.outputSchema, undefined, `${tool.name} keeps its metadata small`);
-      // Only the lookups (a public picture, portrait, terrain, map or place to mark) reach outside this machine, and they say so.
-      assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain", "show_map", "mark_map"].includes(tool.name), `${tool.name} openWorldHint`);
+      // Only the lookups (a public picture, portrait, terrain, map, place to mark or route) reach outside this machine, and they say so.
+      assert.equal(tool.annotations?.openWorldHint, ["show_image", "show_portrait", "show_terrain", "show_map", "mark_map", "plan_route"].includes(tool.name), `${tool.name} openWorldHint`);
       assert.equal(tool.annotations?.destructiveHint, false);
     }
     const open = tools.find(tool => tool.name === "open_presence")!;
@@ -53,12 +53,15 @@ test("an MCP Apps host also gets the app-only sync tools and the presence resour
 });
 
 test("host capability fallback: embedded only when the host declares MCP Apps; never faked", () => {
-  assert.equal(decideSurface(MCP_APPS_CAPABILITIES, "auto", {}).mode, "embedded");
-  assert.deepEqual(decideSurface({}, "auto", {}), { mode: "companion", embeddedSupported: false, reason: "host-without-mcp-apps" });
+  // v0.6: Aion's own window by default, on every host; embedded only when asked for and declared.
+  assert.deepEqual(decideSurface(MCP_APPS_CAPABILITIES, "auto", {}), { mode: "companion", embeddedSupported: true, reason: "companion-default" });
+  assert.deepEqual(decideSurface(MCP_APPS_CAPABILITIES, "embedded", {}), { mode: "embedded", embeddedSupported: true, reason: "embedded-requested" });
+  assert.deepEqual(decideSurface({}, "embedded", {}), { mode: "companion", embeddedSupported: false, reason: "embedded-unsupported" });
   assert.equal(decideSurface(undefined, "auto", {}).mode, "companion");
-  assert.equal(decideSurface({ extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html"] } } } as never, "auto", {}).mode, "companion", "the MCP App type must be declared");
+  assert.equal(decideSurface({ extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html"] } } } as never, "embedded", {}).mode, "companion", "the MCP App type must be declared");
   assert.equal(decideSurface(MCP_APPS_CAPABILITIES, "companion", {}).mode, "companion", "a companion window can always be asked for");
-  assert.equal(decideSurface(MCP_APPS_CAPABILITIES, "auto", { AION_PRESENCE_SURFACE: "companion" }).mode, "companion");
+  assert.equal(decideSurface(MCP_APPS_CAPABILITIES, "embedded", { AION_PRESENCE_SURFACE: "companion" }).mode, "companion");
+  assert.equal(decideSurface(MCP_APPS_CAPABILITIES, "auto", { AION_PRESENCE_SURFACE: "embedded" }).mode, "embedded", "the v0.5 behaviour on request");
   assert.equal(decideSurface({}, "auto", { AION_PRESENCE_SURFACE: "embedded" }).mode, "companion", "an override cannot invent host support");
 });
 
@@ -77,10 +80,10 @@ test("open_presence in a host without MCP Apps opens the companion window, once,
   } finally { await aion.close(); }
 });
 
-test("open_presence in an MCP Apps host stays embedded and records the fullscreen request", async () => {
+test("open_presence in an MCP Apps host stays embedded (when asked) and records the fullscreen request", async () => {
   const aion = await connectAion({ capabilities: MCP_APPS_CAPABILITIES });
   try {
-    const result = structured(await aion.call("open_presence", { display: "fullscreen" }));
+    const result = structured(await aion.call("open_presence", { display: "fullscreen", surface: "embedded" }));
     assert.equal(result.surface.mode, "embedded");
     assert.equal(result.window_opened, false);
     assert.equal(result.fullscreen, "requested");

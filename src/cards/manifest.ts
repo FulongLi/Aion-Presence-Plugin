@@ -14,9 +14,11 @@ export type CardLayout = typeof CARD_LAYOUTS[number];
 /**
  * What an application may do. Each capability unlocks exactly the bridge messages listed in CAPABILITY_MESSAGES; an
  * application without it is never sent them and may not send them. v0.5: `scene-documents` — the application is handed
- * validated Scene IR documents (LOAD_SCENE) and renders them.
+ * validated Scene IR documents (LOAD_SCENE) and renders them. v0.6: `route-documents` — validated GeoRoutes (LOAD_ROUTE),
+ * and the card may tell Aion where along the route the user is pointing (CURSOR); `map-tiles` — the card may ask for
+ * map tiles of what it is showing (TILE_REQUEST) and is handed their bytes (LOAD_TILE). It never fetches anything itself.
  */
-export const CARD_CAPABILITIES = ["webgl", "model-assets", "selection", "camera", "simulation-time", "visibility", "interaction-events", "resource-status", "scene-documents"] as const;
+export const CARD_CAPABILITIES = ["webgl", "model-assets", "selection", "camera", "simulation-time", "visibility", "interaction-events", "resource-status", "scene-documents", "route-documents", "map-tiles"] as const;
 export type CardCapability = typeof CARD_CAPABILITIES[number];
 
 /** What an application may receive from the user: pointer input (always) and keyboard focus inside its frame. */
@@ -50,6 +52,9 @@ export const CARD_LIMITS = {
   properties: 24,
   minWidth: 200,
   minHeight: 160,
+  /** v0.6: map tiles one TILE_REQUEST may ask for, and the largest tile handed over. */
+  tilesPerRequest: 16,
+  tileBytes: 768 * 1024,
 } as const;
 
 export interface CardCommandSpec { value: ValueSpec; description: string }

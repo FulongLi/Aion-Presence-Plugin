@@ -34,6 +34,14 @@ export const HOSTS = {
   nominatim: "nominatim.openstreetmap.org",
   photon: "photon.komoot.io",
   elevation: "s3.amazonaws.com",
+  /**
+   * v0.6 routes: FOSSGIS e.V.'s public Valhalla server (fair use: one request a second, no heavy use; only coordinates
+   * are sent), OpenRouteService (only with the user's own key), and OpenStreetMap's standard map tiles for the Route
+   * Explorer card (fetched only for what the user is viewing, cached as the tile policy asks).
+   */
+  valhalla: "valhalla1.openstreetmap.de",
+  openrouteservice: "api.openrouteservice.org",
+  osmTiles: "tile.openstreetmap.org",
   /** Optional, keyed, off by default (see sources/brave.ts). */
   braveSearch: "api.search.brave.com",
   braveImages: "imgs.search.brave.com",
@@ -42,7 +50,7 @@ export const HOSTS = {
 /** Every host the plugin may ever contact besides its own loopback hub. Tests hold the code to this list. */
 export const ALLOWED_HOSTS: readonly HostRule[] = [
   HOSTS.wikipedia, HOSTS.commons, HOSTS.wikidata, ...HOSTS.wikimediaImages, HOSTS.openverse, HOSTS.nominatim, HOSTS.photon, HOSTS.elevation,
-  HOSTS.braveSearch, HOSTS.braveImages,
+  HOSTS.braveSearch, HOSTS.braveImages, HOSTS.valhalla, HOSTS.openrouteservice, HOSTS.osmTiles,
 ];
 
 /** Identifies the plugin to public data providers, as their usage policies ask (name, version, project page). */
@@ -52,12 +60,32 @@ function hostAllowed(host: string, rules: readonly HostRule[]) {
   return rules.some(rule => typeof rule === "string" ? rule === host : rule.test(host));
 }
 
-/** Parses and checks a URL against a host allowlist: https, no credentials, no port. */
-export function checkedURL(value: string | URL, rules: readonly HostRule[]): URL {
+const LOOPBACK = ["localhost", "127.0.0.1", "[::1]"];
+
+/**
+ * A service address the user configured themselves (v0.6: a self-hosted routing server, e.g. Valhalla on
+ * http://localhost:8002): https anywhere, or plain http only on this machine. No credentials, query or fragment in it.
+ * Null when it is not one. Requests to it are still bounded, typed and redirect-free like every other.
+ */
+export function configuredEndpoint(value: string | undefined): URL | null {
+  if (!value || value.length > 300) return null;
+  let url: URL;
+  try { url = new URL(value); } catch { return null; }
+  if (url.username || url.password || url.search || url.hash) return null;
+  if (url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.includes(url.hostname))) return url;
+  return null;
+}
+
+/**
+ * Parses and checks a URL against a host allowlist: https, no credentials, no port. `trusted`: a configured endpoint
+ * (see configuredEndpoint) whose origin is accepted as well.
+ */
+export function checkedURL(value: string | URL, rules: readonly HostRule[], trusted?: URL): URL {
   const text = String(value);
   if (text.length > limits.urlLength) throw new ResolveError("url-rejected");
   let url: URL;
   try { url = new URL(text); } catch { throw new ResolveError("url-rejected"); }
+  if (trusted && url.origin === trusted.origin && !url.username && !url.password) return url;
   if (url.protocol !== "https:" || url.port || url.username || url.password) throw new ResolveError("url-rejected");
   // Both the call site's list and the global allowlist must accept the host.
   if (!hostAllowed(url.hostname, rules) || !hostAllowed(url.hostname, ALLOWED_HOSTS)) throw new ResolveError("url-rejected");
@@ -105,14 +133,20 @@ export interface FetchOptions {
   request?: Fetcher;
   timeoutMs?: number;
   headers?: Record<string, string>;
+  /** v0.6: a POST with a JSON body (routing requests); GET otherwise. */
+  body?: string;
+  /** v0.6: a configured endpoint the user chose (see configuredEndpoint). */
+  trusted?: URL;
+  /** v0.6: return 4xx responses of an accepted type instead of failing (a routing service explains its refusals). */
+  errorBodies?: boolean;
 }
 
-export interface Fetched { bytes: Uint8Array; mime: string; url: string; ms: number }
+export interface Fetched { bytes: Uint8Array; mime: string; url: string; ms: number; status: number; headers: Headers }
 
 /** One guarded request. Errors are ResolveErrors with short codes (timeout, http-404, type, too-large…). */
 export async function safeFetch(value: string | URL, options: FetchOptions): Promise<Fetched> {
   const started = Date.now();
-  const url = checkedURL(value, options.hosts);
+  const url = checkedURL(value, options.hosts, options.trusted);
   const timeout = timeoutSignal(options.timeoutMs ?? limits.requestMs);
   const signal = AbortSignal.any([options.signal, timeout.signal]);
   try {
@@ -120,14 +154,17 @@ export async function safeFetch(value: string | URL, options: FetchOptions): Pro
     try {
       response = await (options.request ?? fetch)(url, {
         signal, redirect: "error", credentials: "omit", referrerPolicy: "no-referrer",
-        headers: { "User-Agent": USER_AGENT, Accept: options.mimes.join(", "), ...options.headers },
+        headers: { "User-Agent": USER_AGENT, Accept: options.mimes.join(", "), ...(options.body !== undefined ? { "Content-Type": "application/json" } : {}), ...options.headers },
+        ...(options.body !== undefined ? { method: "POST", body: options.body } : {}),
       });
     } catch (error) {
       options.signal.throwIfAborted();
       if (timeout.signal.aborted) throw new ResolveError("timeout");
       throw error instanceof ResolveError ? error : new ResolveError("network");
     }
-    if (!response.ok) { await response.body?.cancel().catch(() => {}); throw new ResolveError(`http-${response.status}`); }
+    const explained = options.errorBodies && response.status >= 400 && response.status < 500;
+    if (!response.ok && response.status !== 304 && !explained) { await response.body?.cancel().catch(() => {}); throw new ResolveError(`http-${response.status}`); }
+    if (response.status === 304) { await response.body?.cancel().catch(() => {}); return { bytes: new Uint8Array(0), mime: "", url: url.href, ms: Date.now() - started, status: 304, headers: response.headers }; }
     const mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
     if (!options.mimes.includes(mime)) { await response.body?.cancel().catch(() => {}); throw new ResolveError("type"); }
     let bytes: Uint8Array;
@@ -136,8 +173,19 @@ export async function safeFetch(value: string | URL, options: FetchOptions): Pro
       if (timeout.signal.aborted) throw new ResolveError("timeout");
       throw error;
     }
-    return { bytes, mime, url: url.href, ms: Date.now() - started };
+    return { bytes, mime, url: url.href, ms: Date.now() - started, status: response.status, headers: response.headers };
   } finally { timeout.clear(); }
+}
+
+/**
+ * v0.6: a guarded JSON request that also returns a service's explained refusals (4xx with a JSON body), e.g. a routing
+ * service saying no path exists. Transport failures still throw (timeout, network, http-5xx, type, too-large).
+ */
+export async function requestJSON<T>(value: string | URL, options: Omit<FetchOptions, "mimes" | "maxBytes" | "errorBodies"> & { maxBytes?: number; mimes?: readonly string[] }): Promise<{ status: number; data: T; ms: number }> {
+  const fetched = await safeFetch(value, { ...options, mimes: options.mimes ?? ["application/json"], maxBytes: options.maxBytes ?? limits.jsonBytes, errorBodies: true });
+  try {
+    return { status: fetched.status, data: JSON.parse(new TextDecoder().decode(fetched.bytes)) as T, ms: fetched.ms };
+  } catch { throw new ResolveError(fetched.status >= 400 ? `http-${fetched.status}` : "bad-json"); }
 }
 
 /** A guarded JSON request; also returns how long it took. */

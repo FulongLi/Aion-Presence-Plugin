@@ -26,7 +26,7 @@ import { REPO_ROOT } from "./lib/pluginPackage";
  * Usage: `npm run scene:eval` (all), `-- --only gears,dab`, `-- --list`, `-- --out <dir>`. It uses your Codex account's
  * usage: about 20 turns for the full run. Results: <out>/results.json, <out>/*.png (default .e2e/scene-eval/<time>/).
  */
-interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map"; select?: "largest" }
+interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map" | "route" | "highlight" | "reversed" | "cleared" | "route-refusal" | "answer" | "welcome"; select?: "largest" }
 interface Scenario { id: string; title: string; steps: Step[] }
 
 export const SCENARIOS: Scenario[] = [
@@ -57,6 +57,25 @@ export const SCENARIOS: Scenario[] = [
       { prompt: "Show me China's topography.", expect: "terrain" },
       { prompt: "Show me the map of Scotland.", expect: "map" },
       { prompt: "Show me the terrain of Scotland and mark Glasgow.", expect: "terrain" },
+    ],
+  },
+  {
+    // v0.6: the final acceptance test — a first-time user's journey from "Open Aion." to a reversed route.
+    id: "journey", title: "I. First run to a planned journey", steps: [
+      { prompt: "Show me Scotland's terrain.", expect: "terrain" },
+      { prompt: "Plan a cycling route from Glasgow to Edinburgh.", expect: "route" },
+      { prompt: "Show me the highest point.", expect: "highlight" },
+      { prompt: "Reverse the route.", expect: "reversed" },
+    ],
+  },
+  {
+    id: "routes", title: "J. Routes, follow-ups and limits", steps: [
+      { prompt: "Show me a hiking route from Ambleside to Grasmere.", expect: "route" },
+      { prompt: "How much climbing is there?", expect: "answer" },
+      { prompt: "Plan a walking route from Edinburgh Castle to Arthur's Seat.", expect: "route" },
+      { prompt: "Remove the route.", expect: "cleared" },
+      { prompt: "Plan a walking route from London to New York.", expect: "route-refusal" },
+      { prompt: "Show me the introduction again.", expect: "welcome" },
     ],
   },
 ];
@@ -120,6 +139,7 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     ? ["exec", "resume", "--last", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", prompt]
     : ["exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-C", workdir, prompt];
   const started = performance.now(), before = revisionOf(), presentationBefore = snapshot().presentation?.id ?? null;
+  const routeBefore = snapshot().card?.route?.document.id ?? null;
   let renderedSeconds: number | null = null;
   const kinds = new Set<string>();
   const watch = setInterval(() => {
@@ -129,7 +149,10 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     const rendered = renderedOf(), presentation = now;
     const card = rendered && rendered.ok && rendered.revision > before;
     const body = presentation && presentation.id !== presentationBefore && presentation.kind === "scene";
-    if (card || body) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
+    // v0.6: a new route counts once the card has drawn it.
+    const route = snapshot().card?.route;
+    const drawn = route && route.document.id !== routeBefore && route.rendered?.ok && route.rendered.revision >= route.revision;
+    if (card || body || drawn) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
   }, 100);
   return new Promise((resolve, reject) => {
     const child = spawn(codex!, args, { env, cwd: workdir, stdio: ["ignore", "pipe", "pipe"] });
@@ -183,8 +206,12 @@ try {
     await page.goto(`${hub.surfaceUrl}&mic=0`);
     hub.apply({ type: "clear" });
     await page.waitForTimeout(1500);
+    const welcomeDue = snapshot().hub.welcome;
     const opened = await turn("Open Aion.", false);
-    console.log(`  "Open Aion." ${opened.seconds} s (${toolCalls(opened.events).map(c => c.tool).join(", ") || "no tools"})`);
+    await page.waitForTimeout(2500);
+    const welcomeShown = await page.locator("#welcome.visible").count() > 0;
+    if (welcomeShown) await page.screenshot({ path: join(out, `${scenario.id}-0-welcome.png`) });
+    console.log(`  "Open Aion." ${opened.seconds} s (${toolCalls(opened.events).map(c => c.tool).join(", ") || "no tools"})${welcomeDue ? `; first run: welcome ${welcomeShown ? "shown" : "NOT shown"}` : ""}`);
     const steps: StepResult[] = [];
     for (const [index, step] of scenario.steps.entries()) {
       let selected: string | undefined;
@@ -195,6 +222,7 @@ try {
         if (target) { hub.apply({ type: "card", command: "select", value: target.id }); selected = target.id; await page.waitForTimeout(1500); }
       }
       const revisionBefore = revisionOf();
+      const originBefore = snapshot().card?.route?.document.origin.name ?? null;
       const ran = await turn(step.prompt, true);
       await page.waitForTimeout(1500);
       const calls = toolCalls(ran.events).filter(c => c.tool !== "set_presence_state");
@@ -209,7 +237,16 @@ try {
       const revisionAfter = revisionOf();
       const presentation = snapshot().presentation;
       const geoTool = step.expect === "terrain" ? "show_terrain" : "show_map";
-      const outcome = step.expect === "terrain" || step.expect === "map"
+      const routeCalls = calls.filter(c => c.tool === "plan_route"), drawnRoute = card?.route?.rendered?.ok ? card.route.document : null;
+      const journey = drawnRoute ? `${drawnRoute.origin.name} → ${drawnRoute.destination.name}, ${drawnRoute.travelMode}, ${(drawnRoute.distanceMeters / 1000).toFixed(1)} km, ↑${drawnRoute.totalAscentMeters} m` : "";
+      const outcome = step.expect === "route" ? (routeCalls.some(c => c.ok) && drawnRoute ? `route drawn: ${journey}` : `NO ROUTE (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+        : step.expect === "highlight" ? (card?.state.highlight === "highest" ? `highest point highlighted: ${card.state.highlightM} m at km ${card.state.highlightKm}` : `NOT HIGHLIGHTED (tools: ${calls.map(c => c.tool).join(", ") || "none"})`)
+        : step.expect === "reversed" ? (drawnRoute && originBefore && drawnRoute.origin.name !== originBefore ? `reversed: ${journey}` : "NOT REVERSED")
+        : step.expect === "cleared" ? (presentation?.kind === "terrain" && !card ? "route removed, terrain kept" : `NOT CLEARED (${presentation?.kind ?? "nothing"} on show)`)
+        : step.expect === "route-refusal" ? (routeCalls.length && routeCalls.every(c => !c.ok) ? `refused by Aion: ${routeCalls[0].text.split(":")[0]}` : routeCalls.length === 0 ? "declined by Codex without calling Aion" : "A ROUTE WAS SHOWN")
+        : step.expect === "answer" ? (answerOf(ran.events) ? "answered" : "no answer")
+        : step.expect === "welcome" ? (snapshot().hub.welcome && calls.some(c => c.tool === "open_presence") ? "welcome shown again" : `NOT SHOWN (tools: ${calls.map(c => c.tool).join(", ") || "none"})`)
+        : step.expect === "terrain" || step.expect === "map"
         ? (calls.some(c => c.tool === geoTool && c.ok) && ran.kinds.has(step.expect)
           ? `${step.expect} formed by ${geoTool}${calls.some(c => ["show_interactive_card", "show_scene", "show_image"].includes(c.tool)) ? " (also called a scene/image tool)" : ""}`
           : `NOT SHOWN (${[...ran.kinds].join(", ") || "nothing"} shown; tools: ${calls.map(c => c.tool).join(", ") || "none"})`)

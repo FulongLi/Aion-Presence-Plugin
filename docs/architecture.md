@@ -137,6 +137,11 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   equal-area frame → AWS terrarium tiles (decoded exactly by a small PNG decoder) resampled into that frame → SCF's height
   field, carrying its frame → compact bytes. Results become
   local media; the surface never contacts a remote host.
+- **Routes** (`route/`, v0.6): routing providers (Valhalla by default — FOSSGIS's public server under its fair-use
+  policy, or the user's own — and OpenRouteService with the user's key; `providers.ts`), elevation along a path from the
+  terrain tiles (`elevation.ts`), the planner that turns places into one validated GeoRoute (`planner.ts`,
+  `src/visual/geo/route.ts`), and OpenStreetMap map tiles for the card, fetched only as viewed and cached by OSM's policy
+  (`tiles.ts`, served by the hub at `GET /tile/z/x/y` only around the open route). [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
 - **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
 - **Audio bridge** (`audio/bridge.ts`, v0.4.2): the hub's end of the macOS Aion Audio Bridge — a private Unix socket, the
   shared analyser at 60 Hz, features out as `event: audio` on the companion stream. Started only when the user asks.
@@ -147,7 +152,9 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   traditional; English letters and words; curated symbols), with the dictionary's facts for Codex.
 - **Music** (`music.ts`, v0.4.2): tool arguments → validated scores, note facts, lesson moves, answers.
 - **First run** (`firstRun.ts`): a marker in plugin data; the first session after installation opens the
-  companion window once (`autoOpen`: first-run | always | never).
+  companion window once (`autoOpen`: first-run | always | never). v0.6: Aion's own window is the default surface
+  everywhere (`surface.ts`; embedded only on request); the hub carries a launch guard so several conversations open one
+  window, and the first-run welcome's state (`welcome-complete`), which the window shows (`src/surface/welcome.ts`).
 
 ## Presence Surface (`src/surface`)
 
@@ -176,6 +183,11 @@ audio clock and the card lights each as it is heard.
 Writing (v0.4.3): `writing.ts` drives the renderer's writing uniforms from the playback in the snapshot, and the card's
 stroke-order diagram (`strokeCard.ts`) follows the same moment; an action sequence makes the figure perform while
 `scene.ts` draws its objects on an overlay at projected positions.
+
+v0.6: a route is drawn by the same overlay (`markers.ts`): a luminous line through `markerWorldPoint` at the terrain's
+relief, A and B, and the Route Explorer card's highlight, section and pointer (the card's `CURSOR` reaches the page
+directly). The view keeps a terrain formed when the next presentation forms the same height field (a route planned on
+it, reversed, or closed), so the land is never formed again for these.
 
 Places marked on a map or terrain are drawn by `markers.ts` on an overlay above the particles (glowing grains, a pulse,
 a crisp label; pins on terrain) at the screen position the renderer's `project()` gives their coordinates, every frame;

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CARD_APP_IDS } from "../cards/registry";
+import { OPENABLE_CARD_APP_IDS } from "../cards/registry";
 import { CARD_LAYOUTS } from "../cards/manifest";
 import { AION_BODIES } from "../core/body";
 import { AION_IDENTITY } from "../core/identity";
@@ -22,6 +22,7 @@ import { WRITING_SYSTEMS, STROKE_LIMITS } from "../animation/stroke/types";
 import { ACTIONS, FACINGS, OBJECT_SIZES, OBJECT_TYPES, SCENE_GESTURES, SEQUENCE_LIMITS, WALK_SPEEDS } from "../animation/scene/sequence";
 import { DEMO_NAMES, type DemoName } from "../animation/scene/demos";
 import { ANIMATION_ACTIONS, ANIMATION_SPEEDS } from "../animation/control";
+import { ROUTE_LIMITS, TRAVEL_MODES } from "../visual/geo/route";
 
 /**
  * Input and output schemas shared by the MCP tools and the hub's local HTTP API, so a command is validated
@@ -39,7 +40,7 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
   return clean;
 });
 const hold = z.number().min(0).max(LIMITS.hold.max)
-  .describe(`Seconds shown (${LIMITS.hold.min}–${LIMITS.hold.max}; 0: until cleared). Usually omit.`);
+  .describe(`Seconds (${LIMITS.hold.min}–${LIMITS.hold.max}; 0: until cleared). Usually omit.`);
 
 /** How the user should see it (the Presentation Router decides by default; see core/presentationRouter.ts). */
 const presentation = z.enum(PRESENTATION_PREFERENCES).describe("auto (default): Aion decides; body: particles; card: exact card; hybrid: both.");
@@ -53,9 +54,8 @@ const checked = (max: number, valid: (value: string) => boolean, what: string) =
 
 /** A portrait's composition (the card always shows the original photograph). Omitted: heritage, enforced by Aion. */
 const portraitStyle = z.enum(PORTRAIT_STYLES).describe(
-  "Omit it: every portrait is a heritage portrait by default — an antique 3:4 oval of particles with a soft edge and a fine silver outline, "
-  + "like a Victorian locket. classic: the head-and-shoulders particle portrait, only when the user asks for it (\"the classic portrait\", "
-  + "\"without the oval\", \"show the classic portrait instead\").");
+  "Omit it: every portrait is a heritage portrait by default (an antique oval of particles, like a locket). classic: the head-and-shoulders "
+  + "portrait, only when the user asks (\"the classic portrait\", \"without the oval\").");
 
 export const activityStateSchema = z.enum(ACTIVITY_STATES);
 export const bodySchema = z.enum(AION_BODIES);
@@ -97,9 +97,8 @@ export const showTextInput = z.object({
 export const showImageInput = z.object({
   query: checked(VISUAL_LIMITS.query, value => validQuery(value, VISUAL_LIMITS.query), `query: a short search phrase of at most ${VISUAL_LIMITS.query} characters, no URLs or markup`).optional()
     .describe(`What to look up and show, as a short specific search phrase, e.g. "Tesla Model Y", "Eiffel Tower at night", "${AION_IDENTITY.creatorCompany} logo". At most ${VISUAL_LIMITS.query} characters, no URLs. Use either query or source, not both.`),
-  intent: z.enum(IMAGE_INTENTS).optional().describe("What kind of picture this is; it chooses the sources (query) and the framing. Default general. "
-    + "With source too: portrait (or celebrity) when the user says the local picture is a portrait (\"show this photo as a portrait\") — it is then a heritage "
-    + "portrait like a looked-up one. Leave it out for any other local picture (a screenshot, a landscape, a car): it stays as it is."),
+  intent: z.enum(IMAGE_INTENTS).optional().describe("What kind of picture it is: chooses the sources and framing (default general). With source: "
+    + "portrait (or celebrity) only when the user says the local picture is a portrait (a heritage portrait then); omit it for any other local picture."),
   source: z.string().min(1).max(12_000_000).optional()
     .describe("Instead of query: an image on this machine — an absolute path to a PNG, JPEG, WebP, GIF or SVG file (or a file:// URL), or a data:image/…;base64 URL. Remote URLs are not accepted here; use query to look something up."),
   alt: line(LIMITS.alt, "alt").optional().describe("Short description of the image."),
@@ -126,10 +125,10 @@ export const showPortraitInput = z.object({
 const colorWords = z.string().min(1).max(40);
 export const markerInput = z.object({
   place: checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `place: a place name of at most ${VISUAL_LIMITS.region} characters`)
-    .describe("The place to mark, by name: a city, town, landmark or address, e.g. \"Los Angeles\", \"Glasgow\", \"Mount Everest\". Aion finds its real coordinates (never estimate them)."),
-  label: line(MARKER_LIMITS.label, "label").optional().describe("Optional label shown beside it (default: the place's name)."),
-  color: colorWords.optional().describe("Optional colour: a name (red, yellow, blue, green, purple, 红色…) or #RRGGBB. Default: Aion's accent colour."),
-  highlight: z.boolean().optional().describe("Make it the one to look at: larger, with a slow pulse (e.g. for \"where is …?\")."),
+    .describe("A city, town, landmark or address by name (\"Glasgow\", \"Mount Everest\"); Aion finds its real coordinates."),
+  label: line(MARKER_LIMITS.label, "label").optional().describe("Label (default: the place's name)."),
+  color: colorWords.optional().describe("A colour name (red, 红色…) or #RRGGBB; default: Aion's accent."),
+  highlight: z.boolean().optional().describe("The one to look at (\"where is …?\"): larger, pulsing."),
 }).strict();
 const markerList = z.array(markerInput).min(1).max(MARKER_LIMITS.markers);
 
@@ -149,6 +148,21 @@ export const markMapInput = z.object({
   }).strict()).min(1).max(MARKER_LIMITS.markers).optional().describe("Markers to recolour, relabel or highlight."),
   remove: z.array(z.string().min(1).max(VISUAL_LIMITS.region)).min(1).max(MARKER_LIMITS.markers).optional().describe("Markers to remove, by label or place."),
   clear: z.boolean().optional().describe("Remove every marker."),
+}).strict();
+
+/**
+ * v0.6: a route between places. Every field is optional because a follow-up changes the route on show ("Reverse it",
+ * "Change to cycling", "Add Linlithgow"): what is left out stays as it is. Places are names (or "lat, lon" from a card
+ * selection); only their coordinates ever reach the routing service.
+ */
+const routePlace = checked(VISUAL_LIMITS.region, value => validQuery(value, VISUAL_LIMITS.region), `a place name (or "lat, lon") of at most ${VISUAL_LIMITS.region} characters`);
+export const planRouteInput = z.object({
+  from: routePlace.optional().describe("Start: a place, landmark or address (\"Edinburgh Castle\"), or \"lat, lon\"."),
+  to: routePlace.optional().describe("Destination."),
+  via: z.array(routePlace).max(ROUTE_LIMITS.waypoints).optional().describe("Waypoints in order; replaces the route's ([] removes them)."),
+  mode: z.enum(TRAVEL_MODES).optional().describe("walking (default), cycling or hiking."),
+  reverse: z.boolean().optional().describe("Swap start and destination."),
+  clear: z.boolean().optional().describe("Remove the route; the terrain stays."),
 }).strict();
 
 export const setColorsInput = z.object({
@@ -271,11 +285,11 @@ export const setSceneViewInput = z.object({
 export const openPresenceInput = z.object({
   body: bodySchema.optional().describe("Optionally choose the persistent body as Aion opens."),
   display: z.enum(["immersive", "auto", "inline", "fullscreen"]).optional()
-    .describe("immersive (use it when the user says \"Open Aion\"): Aion becomes the foreground, Aion-only view — host fullscreen when embedded, a "
-      + "foreground window that enters fullscreen at the user's first click in the companion. auto: a calm window or inline view. "
-      + "inline / fullscreen: an explicit host display mode."),
-  surface: z.enum(["auto", "companion"]).optional()
-    .describe("auto (default): embedded in the host when it renders MCP Apps, otherwise the companion window. companion: always open the companion window."),
+    .describe("immersive (for \"Open Aion\"): Aion's own foreground window, fullscreen at the user's first click. auto: a calm window. "
+      + "inline / fullscreen: a host display mode (embedded only)."),
+  surface: z.enum(["auto", "companion", "embedded"]).optional()
+    .describe("Default: Aion's own window. embedded: inside this conversation, only when the user asks and the host renders MCP Apps."),
+  welcome: z.boolean().optional().describe("Show the getting-started introduction again (\"Show me the introduction again\")."),
 }).strict();
 
 export const syncInput = z.object({
@@ -442,7 +456,7 @@ export const controlAnimationInput = z.object({
 // ── v0.4.5: interactive cards ──────────────────────────────────────────────────────────────────────────────────────
 const cardSetting = z.union([z.string().max(40), z.number().finite(), z.boolean()]);
 export const showInteractiveCardInput = z.object({
-  app: z.enum(CARD_APP_IDS),
+  app: z.enum(OPENABLE_CARD_APP_IDS),
   scene: z.record(z.string(), z.unknown()).optional().describe("generative-scene: a Scene IR document."),
   model: z.string().min(1).max(1024).optional().describe("cad-viewer: \"transformer\" or an absolute .glb/.gltf path."),
   layout: z.enum(CARD_LAYOUTS).optional(),

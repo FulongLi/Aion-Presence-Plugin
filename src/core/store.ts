@@ -17,6 +17,7 @@ import type { CardValue } from "../cards/values";
 import { cardRegistry } from "./cards";
 import type { SceneDocument } from "../scene/ir";
 import { validateScene } from "../scene/validate";
+import { validateRoute } from "../visual/geo/route";
 import { applyPatch } from "../scene/patch";
 import { toParticleScene } from "../scene/particleAdapter";
 import { commit as commitScene, redo as redoScene, resetHistory, startHistory, undo as undoScene, type HistoryResult, type SceneHistoryState } from "../scene/history";
@@ -197,6 +198,12 @@ export class PresenceStore {
         const checked = validateScene(content.scene);
         if (checked.ok) card = { ...card, scene: this.sceneState(card, checked.document, now) };
       }
+      // v0.6: a route. The same card shown with a new route (reversed, another mode, a waypoint) is its next revision.
+      if (content.geoRoute !== undefined) {
+        delete (presentation as { geoRoute?: unknown }).geoRoute;
+        const checked = validateRoute(content.geoRoute);
+        if (checked.ok) card = { ...card, route: { document: checked.route, revision: (open?.instance === card.instance ? open.route?.revision ?? 0 : 0) + 1, rendered: open?.instance === card.instance ? open.route?.rendered ?? null : null } };
+      }
     }
     // A different card (or none) ends the old card's scene history.
     if (!card || (!card.scene && card.instance !== this.sceneHistory?.instance)) this.sceneHistory = null;
@@ -215,7 +222,7 @@ export class PresenceStore {
     if (!card || !manifest) return { ok: false, problem: "no interactive card is open" };
     const checked = checkCommand(manifest, command, value);
     if (!checked.ok) return checked;
-    if (command === "close") { this.clearPresentation(); return { ok: true, seq: 0, card: null }; }
+    if (command === "close") { this.clearPresentation({ keepTerrain: true }); return { ok: true, seq: 0, card: null }; }
     if (command === "expand" || command === "collapse" || command === "fullscreen") {
       const layout = command === "expand" ? "expanded" : command === "collapse" ? "compact" : "fullscreen";
       if (!manifest.display.layouts.includes(layout)) return { ok: false, problem: `${manifest.name} has no ${layout} layout` };
@@ -363,11 +370,21 @@ export class PresenceStore {
     }, seconds * 1000);
   }
 
-  /** Ends the presentation: Aion returns to its persistent body. False when nothing was shown. */
-  clearPresentation(): boolean {
+  /**
+   * Ends the presentation: Aion returns to its persistent body. False when nothing was shown. v0.6 `keepTerrain`: closing a
+   * route's card (the user's ×, or Codex's close) removes the route but keeps the terrain it was drawn on, for a while,
+   * with the places marked on it — the geography the user was exploring is not torn down with the route.
+   */
+  clearPresentation(options: { keepTerrain?: boolean } = {}): boolean {
     this.cancelPresentation?.();
     this.cancelPresentation = null;
-    if (!this.state.presentation) return false;
+    const presentation = this.state.presentation;
+    if (!presentation) return false;
+    if (options.keepTerrain && presentation.kind === "interactive" && presentation.terrain) {
+      const { media, style, label, region, elevation, credit, markers } = presentation.terrain;
+      this.present({ kind: "terrain", media, style, label, ...(region ? { region } : {}), ...(elevation ? { elevation } : {}), ...(credit ? { credit } : {}), ...(markers?.length ? { markers } : {}) }, HOLD_SECONDS.map);
+      return true;
+    }
     this.commit({ presentation: null, animation: null });
     return true;
   }
@@ -378,6 +395,11 @@ export class PresenceStore {
    */
   setMarkers(markers: GeoMarker[]): boolean {
     const presentation = this.state.presentation;
+    // v0.6: places marked on a route's terrain change in place too (the route and its card stay as they are).
+    if (presentation?.kind === "interactive" && presentation.terrain) {
+      this.commit({ presentation: { ...presentation, terrain: { ...presentation.terrain, markers } } });
+      return true;
+    }
     if (presentation?.kind !== "map" && presentation?.kind !== "terrain") return false;
     const hold = presentation.hold === 0 ? 0 : Math.max(HOLD_SECONDS.map, presentation.hold);
     const elapsed = (this.clock.now() - presentation.at) / 1000;

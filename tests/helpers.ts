@@ -7,6 +7,7 @@ import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { PresenceLink } from "../src/host/hub/link";
 import { createAionServer } from "../src/host/mcp/server";
 import { VisualResolver } from "../src/host/resolver";
+import type { RoutingProvider } from "../src/host/route/providers";
 
 export const PAGE = "<!doctype html><title>Aion Presence</title><main id=presence></main>";
 /** The plugin's bundled assets (the CAD viewer's demonstration model). */
@@ -24,6 +25,8 @@ export const offlineResolver = () => new VisualResolver({ env: {}, imageProvider
 
 export async function connectAion(options: {
   home?: string; capabilities?: Record<string, unknown>; env?: NodeJS.ProcessEnv; resolver?: VisualResolver; now?: () => Date; relaunchQuietMs?: number; assetsDir?: string;
+  /** v0.6: the routing service (a stand-in; tests never reach a real one). */
+  routing?: RoutingProvider;
 } = {}) {
   const home = options.home ?? tempHome();
   // Never the machine's real audio bridge in a test: capture is always "not installed" here.
@@ -31,7 +34,7 @@ export async function connectAion(options: {
   const opened: string[] = [];
   const server = createAionServer({
     link, page: () => PAGE, version: "0.0.0-test", env: { ...options.env }, resolver: options.resolver ?? offlineResolver(), now: options.now, relaunchQuietMs: options.relaunchQuietMs,
-    assetsDir: options.assetsDir ?? ASSETS_DIR,
+    assetsDir: options.assetsDir ?? ASSETS_DIR, ...(options.routing ? { routing: options.routing } : {}),
     openWindow: async url => { opened.push(url); return true; },
   });
   const [serverSide, clientSide] = InMemoryTransport.createLinkedPair();

@@ -101,15 +101,55 @@ hooks Aion still works; the Skill then sets the main states itself.
 
 ## Surfaces and immersive mode
 
-- **Embedded** when the host declares MCP Apps support (`io.modelcontextprotocol/ui` with
-  `text/html;profile=mcp-app`). Immersive asks the host for its fullscreen display mode; the host decides, and its
-  own composer or voice controls may stay visible — that is the host's UI, not something Aion fights.
-- **Companion** otherwise: a chrome-less Chromium app window (else the default browser) that opens in the
-  foreground and sizes itself to the screen. Browsers allow true fullscreen only from a user gesture, so it offers
+- **Companion** (the default on every host since v0.6): a chrome-less Chromium app window (else the default browser)
+  that opens in the foreground and sizes itself to the screen. Browsers allow true fullscreen only from a user gesture, so it offers
   one quiet **Enter Presence**; after that click Aion stays fullscreen for the whole session (visuals never leave
   it). Esc always exits and is respected; **F** returns.
+- **Embedded** only when the user asks for it (`surface: "embedded"`) and the host declares MCP Apps support
+  (`io.modelcontextprotocol/ui` with `text/html;profile=mcp-app`). Immersive asks the host for its fullscreen display
+  mode; the host decides, and its own composer or voice controls may stay visible — that is the host's UI, not
+  something Aion fights.
 
 Codex currently runs plugin skills, MCP servers and hooks, but its MCP Apps rendering (`enable_mcp_apps`) is under
 development and off by default, so with a default Codex Aion uses the companion window. Aion never pretends a
 capability exists; `open_presence` reports the mode and the immersive path it used. What every host and browser
 actually allows — assistant audio, fullscreen, foreground, always-on-top — is in this page.
+
+## v0.6: Aion's own window and the first-run welcome
+
+**Own window by default.** "Open Aion" opens (or reuses) Aion's companion window on every host. Embedding is a request
+(`surface: "embedded"`, or `AION_PRESENCE_SURFACE=embedded` for the v0.5 behaviour); a host without MCP Apps gets the
+window instead, and the result says so. A host that renders MCP Apps still shows the `open_presence` view in the
+conversation (the tool declares it); that view shows "Aion is open in its own window." rather than a second Aion.
+
+**One window.** Before launching a window, the Aion process tells the shared hub (`launching`, for 20 s, until a
+window connects); another conversation's "Open Aion" meanwhile waits for that window instead of opening another
+(`open_presence` says "already opening"). An open window is reused; one hidden behind others or minimized is replaced
+by a new foreground window and closes itself (as since v0.4).
+
+**Lifecycle**, as tested (`tests/v06.test.ts`, `tests/immersive.test.ts`, `npm run smoke`):
+
+| Situation | Behaviour |
+| --- | --- |
+| First installation, first session | the window opens by itself once (first run, since v0.3) with the welcome |
+| "Open Aion" after that | the window opens without the welcome; Codex greets once |
+| Repeated "Open Aion" | no second window; "already open" (or brought forward if hidden) |
+| Window closed, then "Open Aion" | a new window |
+| Codex restarted while Aion is closed | the hub starts again; the token is kept, so an old window reconnects |
+| Hub briefly unreachable | the window rests ("Resting · I'll be back…") and reconnects by itself every 2 s |
+| Microphone permission denied | Aion keeps working without listening, says so once |
+| Several conversations at once | one hub, one window (the launch guard) |
+| No browser can be launched | `window_opened: false` and the address to open |
+| Embedded asked for on an MCP Apps host | embedded, as before |
+
+Fullscreen still needs the user's click (Enter Presence); closing the window and Esc are always the user's.
+
+**The welcome.** The first time Aion's window opens, a short panel below the living body: "Welcome to Aion Presence —
+Your ideas, brought into view.", one paragraph (Aion is Codex's visual companion), three example requests that work in
+this build (terrain, a route, a generated solar system), **Get started** and **Skip**. The window cannot send a request
+to Codex (no host offers that), so a click copies the example (or selects it to copy). It steps aside by itself as soon
+as Codex shows something, and is remembered as seen after a few seconds on screen (`welcome-complete` in the plugin data
+directory; nothing else is stored). Returning users never see it again unless they ask ("Show me the introduction
+again" → `open_presence` with `welcome: true`). English or Chinese, by the window's language. No narration: Codex says
+one or two sentences of greeting (`greeting.line`) and does not list the examples.
+

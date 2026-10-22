@@ -1,5 +1,6 @@
 import type { CardAppManifest, CardLayout, CardResources } from "../manifest";
-import type { CardAssetInfo, CardSelection, CardTheme, FromCardPayloads, ResourceStatus, SceneEdit } from "../protocol";
+import type { CardAssetInfo, CardSelection, CardTheme, FromCardPayloads, MapTile, ResourceStatus, SceneEdit } from "../protocol";
+import type { GeoRoute } from "../../visual/geo/route";
 import type { CardValue } from "../values";
 import type { SceneDocument } from "../../scene/ir";
 
@@ -31,6 +32,10 @@ export interface CardEmitter {
   interaction(kind: FromCardPayloads["INTERACTION"]["kind"]): void;
   /** v0.5.1 (scene-documents): proposes the user's own change to the scene (applied only when the hub confirms it). */
   edit(edit: SceneEdit): void;
+  /** v0.6 (route-documents): where along the route the user points, in metres (null: nowhere). Throttled by the runtime. */
+  cursor(distance: number | null): void;
+  /** v0.6 (map-tiles): the map tiles the card shows and has not received (each arrives as loadTile). */
+  tiles(tiles: MapTile[]): void;
 }
 
 export interface CardContext extends CardInit {
@@ -47,6 +52,10 @@ export interface CardApp {
   loadAsset?(asset: CardAssetInfo, data: ArrayBuffer): Promise<void>;
   /** v0.5 (scene-documents): builds a validated scene revision; answers only once it is built (or why not). */
   loadScene?(revision: number, document: SceneDocument, history?: { undo: number; redo: number }): Promise<CommandResult> | CommandResult;
+  /** v0.6 (route-documents): draws a validated route revision; answers once it is drawn (or why not). */
+  loadRoute?(revision: number, route: GeoRoute): Promise<CommandResult> | CommandResult;
+  /** v0.6 (map-tiles): one map tile's bytes, as asked for. */
+  loadTile?(tile: MapTile, mime: string, data: ArrayBuffer): Promise<void> | void;
   command(name: string, value: CardValue | undefined): Promise<CommandResult> | CommandResult;
   setState?(state: Record<string, CardValue>): void;
   /** Emits any state change still waiting (the runtime calls it before answering a request, so state precedes the answer). */

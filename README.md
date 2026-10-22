@@ -7,7 +7,7 @@ or as interactive 3D scenes generated from what you describe.
 
 Aion is not another AI model. It makes **no model API calls and needs no API key**; everything Aion says, Codex says.
 
-*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.5.2** (in review) ·
+*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.6.0** (in review) ·
 [Changelog](CHANGELOG.md)
 
 ```text
@@ -22,6 +22,8 @@ to you:   one presence, speaking in the first person — "Here's Nikola Tesla."
   listening, thinking, reading, editing, testing, answering.
 - **Shows things** — portraits and pictures from open sources, maps with marked places, real terrain, symbols,
   constellations, 3D objects, and concise views of Codex's work (results, code, file changes).
+- **Plans journeys** — real walking, cycling and hiking routes on the particle terrain, with an exact map and an
+  elevation profile beside it: "Plan a cycling route from Glasgow to Edinburgh."
 - **Teaches** — about 9,500 Chinese characters written stroke by stroke (offline), English handwriting, music notation
   with playback, short figure animations and stories.
 - **Interactive 3D cards** — an Earth–Moon system, a glTF/GLB CAD viewer, and **generated scenes**: describe a solar
@@ -56,8 +58,8 @@ codex plugin marketplace add FulongLi/Aion-Presence-Plugin
 codex plugin add aion-presence@spirit-connect
 ```
 
-Then **restart Codex once** and **trust the hooks** when asked. Aion opens by itself on the first session; afterwards
-say **"Open Aion"**. Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
+Then **restart Codex once** and **trust the hooks** when asked. Aion opens by itself on the first session, in its own
+window, with a short welcome; afterwards say **"Open Aion"**. Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
 and for the full body a browser with WebGPU (others get a canvas fallback). Fallback from a clone:
 `node scripts/install.mjs`.
 
@@ -67,6 +69,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 "Open Aion."
 "What did Nikola Tesla look like?"
 "Show me where Los Angeles is in the USA."
+"Show me Scotland's terrain."  →  "Plan a cycling route from Glasgow to Edinburgh."  →  "Show me the highest point."
 "Teach me how to write 永."
 "Create a 3D solar system with the Sun and eight planets."  →  "Make Earth three times larger."  →  "Undo that."
 ```
@@ -79,6 +82,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 | [INSTALL](INSTALL.md) | Installation for people and for Codex |
 | [Generative Visual Engine](docs/GENERATIVE-VISUAL-ENGINE.md) | Generated scenes: [Scene IR](docs/SCENE-IR.md), [animation](docs/SCENE-ANIMATION.md), [interaction](docs/SCENE-INTERACTION.md), [Router 2.0](docs/PRESENTATION-ROUTER-V2.md), [real-Codex tests](docs/SCENE-GENERATION-TESTS.md) |
 | [Interactive cards](docs/CARDS.md) | Card 2.0, [bridge](docs/CARD-BRIDGE.md), [security](docs/CARD-SECURITY.md), [Earth–Moon](docs/EARTH-MOON.md), [CAD viewer](docs/CAD-VIEWER.md) |
+| [Route Explorer](docs/ROUTE-EXPLORER.md) | Routes on the terrain and in their card: providers, elevation, tiles, limits |
 | [Architecture](docs/architecture.md) | How Codex, the hub, the surface and the renderer fit together |
 | [MCP tools](docs/MCP-TOOLS.md) · [Host](docs/HOST.md) | Tool reference and discovery · what each host and browser allows, lifecycle hooks |
 | [Privacy and security](docs/PRIVACY.md) | What stays local, what is fetched, and from where |
@@ -110,7 +114,8 @@ Chinese characters: [Hanzi Writer](https://github.com/chanind/hanzi-writer) and
 Arphic Public License; dictionary LGPL-3.0-or-later); simplified ↔ traditional tables from
 [OpenCC](https://github.com/BYVoid/OpenCC) (Apache-2.0). 3D: [three.js](https://threejs.org). Notation:
 [VexFlow](https://www.vexflow.com) with the Bravura font (SIL OFL). Maps: [Natural Earth](https://www.naturalearthdata.com)
-(public domain) and © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors via Nominatim and Photon.
+(public domain) and © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors via Nominatim, Photon and
+OpenStreetMap's tiles. Routes: [Valhalla](https://github.com/valhalla/valhalla) on FOSSGIS e.V.'s public server.
 Elevation: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/).
 
 ## Support the project

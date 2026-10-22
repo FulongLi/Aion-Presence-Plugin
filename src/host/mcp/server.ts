@@ -35,7 +35,7 @@ import {
   showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
-  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput,
+  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
@@ -65,6 +65,10 @@ import { applyPatch, type PatchIssue } from "../../scene/patch";
 import { routeScene, type RouteMode, type SceneRoute } from "../../scene/router";
 import { summarizeScene } from "../../scene/summary";
 import type { SceneDocument } from "../../scene/ir";
+import { formatDistance, formatDuration, routeBox, type GeoRoute, type RoutePlace, type TravelMode } from "../../visual/geo/route";
+import { planRoute } from "../route/planner";
+import { routingProvider, type RoutingProvider } from "../route/providers";
+import { project as projectGeo } from "../../visual/geo/projection";
 
 export const PRESENCE_RESOURCE_URI = "ui://aion-presence/presence.html";
 
@@ -85,6 +89,8 @@ export interface AionServerOptions {
   now?: () => Date;
   /** A companion window launched this recently is never replaced (it may still be loading). Default 15 s. */
   relaunchQuietMs?: number;
+  /** v0.6: the routing service (injectable for tests); default from the environment (routingProvider). */
+  routing?: RoutingProvider;
   /** Called once the host has connected and declared its capabilities (first-run opening). */
   onReady?: (host: { embedded: boolean; client?: string }) => void;
   env?: NodeJS.ProcessEnv;
@@ -154,7 +160,9 @@ export const presenceOutput = z.object({
   }).optional().describe("The action sequence on show: what it does and its length. Do not narrate every movement."),
   card: z.record(z.string(), z.unknown()).optional().describe("The interactive card: application, lifecycle, layout, state, selection, model, commands."),
   route: z.record(z.string(), z.unknown()).optional().describe("v0.5: how a generated scene is shown (body, card or hybrid), why, what it needs and what is approximated."),
+  journey: z.record(z.string(), z.unknown()).optional().describe("v0.6 plan_route: the route on show — places, mode, distance, time, climbing, highest point, source, warnings."),
   url: z.string().optional().describe("The local companion window address (open_presence only)."),
+  welcome: z.enum(["shown", "done"]).optional().describe("v0.6 open_presence: the getting-started welcome is on show in Aion's window, or was already seen."),
   window_opened: z.boolean().optional(),
   fullscreen: z.enum(["requested", "not-requested"]).optional(),
   immersive: z.object({
@@ -223,6 +231,9 @@ export const TOOL_DESCRIPTIONS = {
     + "\"Add New York in yellow\", \"Add it to the map\"), change one (\"Change the Los Angeles marker to blue\"), remove one (\"Remove the "
     + "New York marker\") or clear them. Places are found by name near the region on show (Glasgow on Scotland is Glasgow, Scotland). If the "
     + "map has already gone, it comes back with the change. A place outside the view widens it.",
+  plan_route: "Plan a real walking, cycling or hiking route between places on OpenStreetMap paths, drawn on Aion's particle terrain beside a "
+    + "Route Explorer card (map, elevation profile, distance, time, climbing). Omitted fields keep the route on show (\"Reverse it\" → reverse; "
+    + "\"Change to cycling\" → mode). Points, sections: control_interactive_card.",
   set_colors: "Change Aion's colours, remembered across sessions: base is the colour of every particle (the sphere, the eyes, the figure, "
     + "every particle visual and 3D object); accent is the colour of markers and highlights. Names in any language (\"blue\", \"warm gold\", "
     + `"紫色"), presets (${COLOR_PRESETS.join(", ")}) or #RRGGBB. "Restore your original colour" → reset base (Aion Silver). Photographs and `
@@ -295,7 +306,7 @@ function routeWords(presentation: Presentation): string {
   switch (presentation.route) {
     case "body": return `the body becomes it (${seconds(presentation.bodyHold)}; ${presentation.reason})`;
     case "card": return `a card beside the body (${seconds(presentation.cardHold)}; ${presentation.reason})`;
-    case "hybrid": return `the body forms it (${seconds(presentation.bodyHold)}) and a card shows ${presentation.kind === "writing" ? "the numbered stroke order" : presentation.kind === "music" ? "the notation" : "the original"} (${seconds(presentation.cardHold)}; ${presentation.reason})`;
+    default: return `the body forms it (${seconds(presentation.bodyHold)}) and a card shows ${presentation.kind === "writing" ? "the numbered stroke order" : presentation.kind === "music" ? "the notation" : presentation.kind === "interactive" && presentation.terrain ? "the exact route" : "the original"} (${seconds(presentation.cardHold)}; ${presentation.reason})`;
   }
 }
 
@@ -365,7 +376,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const capabilities = (ctx?: ServerContext): ClientCapabilities | undefined =>
     (ctx?.mcpReq.envelope as Record<string, unknown> | undefined)?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined
     ?? server.server.getClientCapabilities();
-  const modeFor = (ctx?: ServerContext): SurfaceMode => decideSurface(capabilities(ctx), "auto", env).mode;
+  /** v0.6: the surface open_presence chose in this session (Aion's own window unless embedding was asked for). */
+  let chosenSurface: SurfaceMode | null = null;
+  const modeFor = (ctx?: ServerContext): SurfaceMode => chosenSurface ?? decideSurface(capabilities(ctx), "auto", env).mode;
 
   const summarize = (snapshot: HubSnapshot, mode: SurfaceMode, message: string, ok = true): PresenceOutput => ({
     ok, message,
@@ -444,50 +457,67 @@ export function createAionServer(options: AionServerOptions): McpServer {
     description: [
       `Open ${AION_IDENTITY.name}, your embodied interface: while it is open the user sees and hears you through Aion. Use when the user asks to open,`,
       "show or wake Aion (\"Open Aion\", \"打开 Aion\") — then pass display \"immersive\" — or once before presenting something visually when Aion is",
-      "not open. Aion is not another AI model: you keep doing all reasoning and work. In hosts that render MCP Apps Aion appears inside the host",
-      "(fullscreen where the host offers it); otherwise a local companion window opens in the foreground. Calling it again is harmless (no",
-      "second window); do not call it every turn.",
+      "not open. Aion is not another AI model: you keep doing all reasoning and work. Aion opens in its own window (embedded in the host only when",
+      "asked). Calling it again is harmless (no second window); do not call it every turn.",
     ].join(" "),
     inputSchema: openPresenceInput,
     annotations: { title: "Open Aion", readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     _meta: { ui: { resourceUri: PRESENCE_RESOURCE_URI } },
   }, async (args, ctx) => {
     const decision = decideSurface(capabilities(ctx), args.surface ?? "auto", env);
+    chosenSurface = decision.mode;
     const display: DisplayPreference = args.display ?? "auto";
     const immersive = display === "immersive" || display === "fullscreen";
     // A newly opened Presence (nothing is showing Aion yet) greets once: a small wave, and Codex's introduction.
     const before = await link.run(backend => backend.state());
-    const fresh = decision.mode === "embedded" ? Date.now() - embeddedSyncAt > EMBEDDED_LIVE_MS : before.hub.viewers === 0;
-    let snapshot = await link.run(backend => backend.apply({ type: "open", display, greet: fresh }));
+    const fresh = decision.mode === "embedded" ? Date.now() - embeddedSyncAt > EMBEDDED_LIVE_MS : before.hub.viewers === 0 && !before.hub.launching;
+    let snapshot = await link.run(backend => backend.apply({ type: "open", display, greet: fresh, surface: decision.mode }));
     // Aion may already be showing because it opened by itself on the first run: Codex still introduces it, once.
     const introduce = fresh || before.hub.introduction;
     if (before.hub.introduction) snapshot = await link.run(backend => backend.apply({ type: "introduced" }));
     if (args.body) snapshot = await link.run(backend => backend.apply({ type: "body", body: args.body! }));
+    // v0.6: "Show me the introduction again": the getting-started welcome returns (in the window).
+    if (args.welcome) snapshot = await link.run(backend => backend.apply({ type: "welcome", show: true }));
     // AION_PRESENCE_DEBUG=1 opens the companion with its diagnostics (for `npm run diagnose`; development only).
     const url = link.current?.surfaceUrl && `${link.current.surfaceUrl}${env.AION_PRESENCE_DEBUG === "1" ? "&debug=1" : ""}`;
-    let opened = false;
+    let opened = false, waiting = false;
+    const launch = async () => {
+      // Every Aion process sees that a window is on its way (several conversations asking at once open one window).
+      await link.run(backend => backend.apply({ type: "launching" }));
+      const launched = await openWindow(url!, { immersive });
+      if (!launched) await link.run(backend => backend.apply({ type: "launching", failed: true }));
+      return launched;
+    };
     if (decision.mode === "embedded") embeddedSeen = true;
-    else if (snapshot.hub.viewers === 0 && url) opened = await openWindow(url, { immersive });
+    else if (snapshot.hub.viewers === 0 && snapshot.hub.launching && before.hub.launching) waiting = true;
+    else if (snapshot.hub.viewers === 0 && url) opened = await launch();
     else if (immersive && url && !snapshot.hub.surface.visible && !snapshot.hub.surface.fullscreen && Date.now() - launchedAt > RELAUNCH_QUIET_MS) {
       // Open but hidden behind other windows (or minimized): a page cannot raise itself, but a newly launched app
       // window comes to the front. It replaces the open one, which retires as soon as the new one connects. (Focus
       // alone is not used: a pending permission prompt takes it from a window that is in front.)
       snapshot = await link.run(backend => backend.apply({ type: "supersede" }));
-      opened = await openWindow(url, { immersive });
+      opened = await launch();
     }
     if (opened) launchedAt = Date.now();
+    const unsupported = decision.reason === "embedded-unsupported" ? " This host does not render MCP Apps, so Aion opened in its own window instead of the conversation." : "";
     const output = summarize(snapshot, decision.mode, decision.mode === "embedded"
       ? `Aion is open ${immersive ? "and asked the host for fullscreen (the host decides; its own composer may stay visible)" : "in this conversation"}, as the ${bodyLabel(snapshot.body)}.`
-      : opened ? `Aion opened in its own ${immersive ? "foreground window; one click on Enter Presence makes it fullscreen" : "window"}, as the ${bodyLabel(snapshot.body)}.`
-        : snapshot.hub.viewers > 0 ? `Aion is already open${snapshot.hub.surface.fullscreen ? " in fullscreen (its own space)" : snapshot.hub.surface.visible ? " on screen" : ""}, as the ${bodyLabel(snapshot.body)}.`
-          : `Aion is ready as the ${bodyLabel(snapshot.body)}; open ${url ?? "the companion window"} to see it.`);
-    if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened;
+      : waiting ? `Aion's window is already opening (another request launched it moments ago), as the ${bodyLabel(snapshot.body)}.`
+        : opened ? `Aion opened in its own ${immersive ? "foreground window; one click on Enter Presence makes it fullscreen" : "window"}, as the ${bodyLabel(snapshot.body)}.`
+          : snapshot.hub.viewers > 0 ? `Aion is already open${snapshot.hub.surface.fullscreen ? " in fullscreen (its own space)" : snapshot.hub.surface.visible ? " on screen" : ""}, as the ${bodyLabel(snapshot.body)}.`
+            : `Aion is ready as the ${bodyLabel(snapshot.body)}; open ${url ?? "the companion window"} to see it.`);
+    output.message += unsupported;
+    if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened || waiting;
     const greeting = introduce ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
-    if (introduce) output.message += " A greeting is due: introduce Aion once, briefly (see greeting.line).";
+    // v0.6: the window shows the getting-started welcome (the first launch, or asked again): the spoken greeting stays short.
+    const welcome = decision.mode === "companion" && snapshot.hub.welcome;
+    if (introduce) output.message += welcome ? " A greeting is due: one or two sentences (see greeting.line); the window shows examples, so do not list them." : " A greeting is due: introduce Aion once, briefly (see greeting.line).";
+    else if (args.welcome) output.message += welcome ? " The getting-started introduction is on show in Aion's window: say so in a sentence." : "";
     const path = !immersive ? "none" : decision.mode === "embedded" ? "host-fullscreen" : "companion-fullscreen";
     return result({
       ...output, greeting, url, window_opened: opened, fullscreen: immersive ? "requested" : "not-requested",
       immersive: { requested: immersive, path, needs_gesture: path === "companion-fullscreen" },
+      ...(decision.mode === "companion" ? { welcome: welcome ? "shown" as const : "done" as const } : {}),
     });
   });
 
@@ -706,6 +736,15 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const currentGeo = async () => {
     const snapshot = await link.run(backend => backend.state());
     const presentation = snapshot.presentation;
+    // v0.6: a route's terrain counts as the terrain on show (markers go on it, the route stays).
+    if (presentation?.kind === "interactive" && presentation.terrain) {
+      const terrain = presentation.terrain;
+      const item = await link.run(backend => backend.media(terrain.media.id));
+      if (!item) return null;
+      try {
+        return { presentation: { kind: "terrain" as const }, routed: true, frame: decodeHeightField(new Uint8Array(item.data)).geo, region: terrain.region ?? terrain.label, markers: terrain.markers ?? [], style: terrain.style };
+      } catch { return null; }
+    }
     if (presentation?.kind !== "map" && presentation?.kind !== "terrain") return null;
     const item = await link.run(backend => backend.media(presentation.media.id));
     if (!item) return null;
@@ -713,7 +752,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const bytes = new Uint8Array(item.data);
       const frame = presentation.kind === "map" ? decodeMap(bytes).frame : decodeHeightField(bytes).geo;
       const region = presentation.kind === "map" ? presentation.region : presentation.region ?? presentation.label;
-      return { presentation, frame, region, markers: presentation.markers ?? [], style: presentation.kind === "terrain" ? presentation.style : "terrain" as TerrainStyle };
+      return { presentation, routed: false, frame, region, markers: presentation.markers ?? [], style: presentation.kind === "terrain" ? presentation.style : "terrain" as TerrainStyle };
     } catch { return null; }
   };
 
@@ -751,7 +790,15 @@ export function createAionServer(options: AionServerOptions): McpServer {
       }
       const note = missing.length ? ` No marker called ${missing.map(name => `"${name}"`).join(", ")} was on the map.` : "";
       // Everything fits the view on show: only the markers change. Otherwise the map comes (back) with them in view.
-      if (current?.frame && markers.every(marker => inside(current.frame!, [marker.lon, marker.lat]))) {
+      // v0.6: on a route's terrain the markers always change in place (a place beyond it is simply not in view).
+      const outside = current?.frame ? markers.filter(marker => !inside(current.frame!, [marker.lon, marker.lat])) : [];
+      if (current?.routed && current.frame) {
+        lastGeo = { kind: "terrain", region: base.region, style: base.style, markers };
+        return run(ctx, backend => backend.apply({ type: "markers", markers }),
+          () => `Markers: ${markers.length ? markerShown(markers) : "none"}.${note}${outside.length ? ` ${outside.map(m => m.label).join(", ")} is beyond the terrain on show.` : ""} The route stays. Answer in your own voice; do not narrate this tool call.`,
+          { markers: markerOutput(markers), ...(markers.length ? { shown: markerWords(markers) } : {}) });
+      }
+      if (current?.frame && !outside.length) {
         lastGeo = { kind, region: base.region, style: base.style, markers };
         return run(ctx, backend => backend.apply({ type: "markers", markers }),
           () => `Markers: ${markers.length ? markerShown(markers) : "none"}.${note} Answer in your own voice; do not narrate this tool call.`,
@@ -761,6 +808,142 @@ export function createAionServer(options: AionServerOptions): McpServer {
       if (note && !shown.isError) (shown.content[0] as { text: string }).text += note;
       return shown;
     } catch (error) { return failure(resolveFailure(errorCode(error), base.region, errorDetail(error))); }
+  });
+
+  // ── v0.6: routes (plan_route → the Route Planner → one GeoRoute → the particle terrain and the Route Explorer card) ──
+
+  const routing = options.routing ? { provider: options.routing } : routingProvider(env);
+  /** The route this server last planned: "Reverse it" still works after its card was closed. */
+  let lastRoute: { route: GeoRoute; region?: string } | null = null;
+  const MODE_WORDS: Record<TravelMode, string> = { walking: "on foot", cycling: "by bicycle", hiking: "hiking" };
+  const routeFailure = (code: string, detail: string | undefined, request: { from: string; to: string; mode: TravelMode }) => {
+    const pair = `${request.from} and ${request.to}`, by = MODE_WORDS[request.mode], keep = " Nothing was drawn; what Aion shows is unchanged.";
+    switch (code) {
+      case "route-not-found": return failure(`route-not-found: ${routing.provider.label} found no route ${by} between ${pair} on OpenStreetMap's paths.${keep} Say so; another mode or nearby places may work.`);
+      case "route-point-unroutable": return failure(`route-point-unroutable: ${detail ?? "a place"} is too far from any path usable ${by}, or outside the routing data.${keep} Say so plainly.`);
+      case "route-too-long": return failure(`route-too-long: ${routing.provider.label} plans routes ${by} of at most ${Math.round(routing.provider.maxMeters[request.mode] / 1000)} km${detail ? ` (the places are ${detail} apart in a straight line)` : ""}.${keep} Offer a shorter leg or another mode.`);
+      case "route-same-place": return failure(`route-same-place: the start and the destination are the same place.${keep}`);
+      case "route-rate-limited": return failure(`route-rate-limited: the routing service asked Aion to slow down.${keep} Try again in a minute.`);
+      case "route-invalid": return failure(`route-invalid: the routing service's answer was not a usable route${detail ? ` (${detail})` : ""}.${keep} Never describe a route anyway.`);
+      case "place-not-found": return failure(`place-not-found: no place called "${detail}" was found. Ask which one is meant (add the town or country).`);
+      case "place-unavailable": return failure(`place-unavailable: the place finder could not be reached to find "${detail}".${keep}`);
+      default: return failure(`route-unavailable: the routing service could not be reached${detail ? ` (${terrainCause(detail) ?? detail})` : ""}.${keep} Describe the way in words only if you know it, and say it is not a planned route.`);
+    }
+  };
+  /** The geography on show that a route can be drawn on: a terrain, a route's terrain, or (for finding places) a map. */
+  const routeGeography = (snapshot: HubSnapshot) => {
+    const p = snapshot.presentation;
+    if (p?.kind === "terrain") return { terrain: { media: p.media, style: p.style, label: p.label, ...(p.region ? { region: p.region } : {}), ...(p.elevation ? { elevation: p.elevation } : {}), ...(p.credit ? { credit: p.credit } : {}), ...(p.markers?.length ? { markers: p.markers } : {}) }, region: p.region ?? p.label };
+    if (p?.kind === "interactive" && p.terrain) return { terrain: p.terrain, region: p.terrain.region };
+    if (p?.kind === "map") return { terrain: undefined, region: p.region };
+    return { terrain: undefined, region: undefined };
+  };
+  /** Whether a route sits well inside a terrain's frame: all of it in view, and big enough there to be seen. */
+  const routeFits = (frame: Frame, route: GeoRoute) => {
+    if (!route.coordinates.every(c => inside(frame, c, 0.02))) return false;
+    const xy = route.coordinates.map(([lon, lat]) => projectGeo(lon, lat, frame.projection)).filter((p): p is [number, number] => !!p);
+    const xs = xy.map(p => p[0]), ys = xy.map(p => p[1]);
+    const share = Math.max((Math.max(...xs) - Math.min(...xs)) / (frame.x1 - frame.x0), (Math.max(...ys) - Math.min(...ys)) / (frame.y1 - frame.y0));
+    return share >= 0.06;
+  };
+  /** A box around the route with room around it (degrees), so its surroundings form as terrain. */
+  const routeArea = (route: GeoRoute): [number, number, number, number] => {
+    const [west, south, east, north] = routeBox(route.coordinates);
+    const k = Math.cos((south + north) / 2 * Math.PI / 180);
+    let w = (east - west) * k, h = north - south;
+    const side = Math.max(w, h, 0.03) * 1.5;
+    w = Math.max(w * 1.5, side * 0.7); h = Math.max(h * 1.5, side * 0.7);
+    const cx = (west + east) / 2, cy = (south + north) / 2;
+    return [cx - w / k / 2, Math.max(-85, cy - h / 2), cx + w / k / 2, Math.min(85, cy + h / 2)];
+  };
+  const journey = (route: GeoRoute, revision: number) => ({
+    from: route.origin.name, to: route.destination.name, ...(route.waypoints.length ? { via: route.waypoints.map(w => w.name) } : {}), mode: route.travelMode,
+    distance_km: Math.round(route.distanceMeters / 100) / 10, duration: formatDuration(route.estimatedDurationSeconds), duration_min: Math.round(route.estimatedDurationSeconds / 60),
+    ...(route.totalAscentMeters !== null ? { ascent_m: route.totalAscentMeters, descent_m: route.totalDescentMeters, lowest_m: route.minimumElevationMeters, highest_m: route.maximumElevationMeters } : { elevation: "unavailable" }),
+    ...(route.highest ? { highest: { m: route.highest.elevationMeters, km: Math.round(route.highest.distanceMeters / 100) / 10, lat: route.highest.lat, lon: route.highest.lon } } : {}),
+    places: [route.origin, ...route.waypoints, route.destination].map(p => ({ name: p.name, lat: p.lat, lon: p.lon })),
+    source: `${route.source.routing}; elevation ${route.source.elevation}`, revision,
+    ...(route.warnings.length ? { warnings: route.warnings } : {}),
+  });
+  const routeWordsFor = (route: GeoRoute) => `${route.origin.name} → ${route.destination.name}${route.waypoints.length ? ` via ${route.waypoints.map(w => w.name).join(", ")}` : ""} ${MODE_WORDS[route.travelMode]}: `
+    + `${formatDistance(route.distanceMeters)}, about ${formatDuration(route.estimatedDurationSeconds)}`
+    + (route.totalAscentMeters !== null ? `, ↑${route.totalAscentMeters} m ↓${route.totalDescentMeters} m, highest ${route.maximumElevationMeters} m${route.highest ? ` at km ${(route.highest.distanceMeters / 1000).toFixed(1)}` : ""}` : ", no elevation");
+
+  server.registerTool("plan_route", {
+    title: "Plan a route",
+    description: TOOL_DESCRIPTIONS.plan_route,
+    inputSchema: planRouteInput,
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  }, async (args, ctx) => {
+    const before = await link.run(backend => backend.state());
+    const openCard = before.card && cardRegistry.get(before.card.app)?.capabilities.includes("route-documents") ? before.card : null;
+    if (args.clear) {
+      if (!openCard) return failure("no-route: no route is on show.");
+      const after = await link.run(backend => backend.apply({ type: "clear", keep: "terrain" }));
+      return result(summarize(after, modeFor(ctx), `Removed the route${after.presentation?.kind === "terrain" ? "; the terrain stays" : ""}. Say it briefly if at all.`));
+    }
+    const base = openCard?.route?.document ?? lastRoute?.route ?? null;
+    // What the user left out stays as it is on the route on show; a new route needs both ends.
+    let from: string | RoutePlace | undefined = args.from ?? base?.origin, to: string | RoutePlace | undefined = args.to ?? base?.destination;
+    let via: (string | RoutePlace)[] = args.via ?? base?.waypoints ?? [];
+    if (args.from !== undefined && args.to !== undefined && args.via === undefined) via = [];
+    if (args.reverse) { [from, to] = [to, from]; via = [...via].reverse(); }
+    const mode: TravelMode = args.mode ?? base?.travelMode ?? "walking";
+    if (!from || !to) return failure(`route-needs-places: ${!from && !to ? "give from and to" : !from ? "give from (the start)" : "give to (the destination)"}. If the user did not say, ask them only that.`);
+    const named = (place: string | RoutePlace) => typeof place === "string" ? place : place.name;
+    const words = { from: named(from), to: named(to), mode };
+    const geography = routeGeography(before);
+    const regionName = geography.region ?? lastRoute?.region;
+    let near: { region?: GeoRegion; frame?: Frame } | undefined;
+    if (regionName) { try { const region = await resolver.region(regionName); near = { region, frame: regionFrame(region) }; } catch { near = undefined; } }
+    let planned: Awaited<ReturnType<typeof planRoute>>;
+    try {
+      planned = await planRoute({ from, to, via, mode }, { provider: routing.provider, signal: AbortSignal.timeout(45_000), locate: name => resolver.place(name, { ...near, gazetteerFirst: true }) });
+    } catch (error) { return routeFailure(errorCode(error), errorDetail(error), words); }
+    const route = planned.route;
+    // The terrain to draw it on: the one on show when the route sits well inside it, else the route's own surroundings.
+    let terrain = geography.terrain, terrainNote = "";
+    if (terrain) {
+      const item = await link.run(backend => backend.media(terrain!.media.id));
+      let frame: Frame | undefined;
+      try { frame = item ? decodeHeightField(new Uint8Array(item.data)).geo : undefined; } catch { frame = undefined; }
+      if (!frame || !routeFits(frame, route)) terrain = undefined;
+    }
+    if (!terrain) {
+      try {
+        const label = `${route.origin.name} – ${route.destination.name}`.slice(0, 80);
+        const style = geography.terrain?.style ?? "terrain";
+        const found = await resolver.terrainArea(label, routeArea(route), style);
+        const ref = await hand(found.bytes, found.mime);
+        const { elevation } = found.field;
+        terrain = { media: ref, style, label, ...(elevation ? { elevation: { min: elevation.min, max: elevation.max } } : {}), credit: "AWS Terrain Tiles" };
+      } catch (error) {
+        terrainNote = ` The terrain around it could not be formed (${terrainCause(errorDetail(error)) ?? errorCode(error)}), so the route is shown in the card only.`;
+      }
+    }
+    const instance = openCard ? openCard.instance : newInstanceId();
+    const content: PresentationContent = {
+      kind: "interactive", app: "route-explorer", instance, title: `${route.origin.name} → ${route.destination.name}`.slice(0, LIMITS.title),
+      layout: openCard?.layout ?? "compact", config: {}, geoRoute: route, ...(terrain ? { terrain } : {}),
+    };
+    await link.run(backend => backend.apply({ type: "present", content, hold: 0 }));
+    lastRoute = { route, ...(terrain?.region ?? regionName ? { region: terrain?.region ?? regionName } : {}) };
+    const shown = await link.run(backend => backend.state());
+    const revision = shown.card?.instance === instance ? shown.card.route?.revision ?? 0 : 0;
+    const snapshot = watched(shown, ctx)
+      ? await waitForCard(card => card.instance !== instance || card.lifecycle === "error" || (card.route?.rendered?.revision ?? 0) >= revision, 9_000)
+      : shown;
+    const card = snapshot.card, rendered = card?.instance === instance ? card.route?.rendered : null;
+    const status = !card || card.instance !== instance ? " It was replaced before it was drawn."
+      : card.lifecycle === "error" ? ` The card stopped with an error: ${card.error?.message ?? "unknown"}.`
+        : rendered && rendered.revision >= revision ? (rendered.ok ? "" : ` The card could not draw it: ${rendered.problem ?? "failed"}.`)
+          : watched(snapshot, ctx) ? " The card has not confirmed it yet." : " Aion is not open, so nothing displays it yet (open_presence shows it).";
+    const changed = base && (args.reverse || args.mode || args.via) ? `${args.reverse ? "Reversed" : "Changed"} the route` : "Planned";
+    const warned = route.warnings.length ? ` Mention if relevant: ${route.warnings.join(" ")}` : "";
+    const output = summarize(snapshot, modeFor(ctx), `${changed}: ${routeWordsFor(route)} (${route.source.routing}; elevation ${route.source.elevation}). `
+      + `${terrain ? "It is drawn on the particle terrain, with the exact map and elevation profile in the Route Explorer card." : "It is in the Route Explorer card."}${status}${terrainNote}${warned} `
+      + "Answer in your own voice with the key figures; do not narrate this tool call or recite every number.");
+    return result({ ...output, journey: journey(route, revision), ...(card && cardRegistry.get(card.app) ? { card: cardSummary(card, cardRegistry.get(card.app)!) } : {}) });
   });
 
   server.registerTool("set_colors", {
@@ -1150,6 +1333,15 @@ export function createAionServer(options: AionServerOptions): McpServer {
         scene: summarizeScene(card.scene.document, card.scene.revision, { log: card.scene.log, undo: card.scene.undo, redo: card.scene.redo }),
         rendered: card.scene.rendered ? (card.scene.rendered.ok ? `revision ${card.scene.rendered.revision} is built` : `revision ${card.scene.rendered.revision} could not be built: ${card.scene.rendered.problem ?? "failed"}`) : "not built yet",
       } : {}),
+      // v0.6: the route the card draws, in brief (the whole document stays in the hub).
+      ...(card.route ? {
+        route: {
+          revision: card.route.revision, from: card.route.document.origin.name, to: card.route.document.destination.name, mode: card.route.document.travelMode,
+          ...(card.route.document.waypoints.length ? { via: card.route.document.waypoints.map(w => w.name) } : {}),
+          distance_km: Math.round(card.route.document.distanceMeters / 100) / 10,
+          drawn: card.route.rendered ? (card.route.rendered.ok ? `revision ${card.route.rendered.revision} is drawn` : `revision ${card.route.rendered.revision} could not be drawn: ${card.route.rendered.problem ?? "failed"}`) : "not drawn yet",
+        },
+      } : {}),
       commands: [...UNIVERSAL_COMMANDS, ...Object.entries(manifest.commands).map(([name, spec]) => `${name}${describeSpec(spec.value) ? ` (${describeSpec(spec.value)})` : ""}`),
         ...(manifest.capabilities.includes("scene-documents") ? ["patch (patch, revision)", "undo", "redo", "revert"] : [])],
     };
@@ -1382,7 +1574,8 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const checked = checkCommand(manifest, args.action, args.value as CardValue | undefined);
     if (!checked.ok) return failure(`invalid-command: ${checked.problem}.`);
     const after = await link.run(backend => backend.apply({ type: "card", command: args.action, ...(checked.value !== undefined && typeof checked.value !== "object" ? { value: checked.value as string | number | boolean } : {}) }));
-    if (args.action === "close") return result(summarize(after, modeFor(ctx), `Closed the ${manifest.name} card; Aion is back in its own space. Do not narrate it.`));
+    if (args.action === "close") return result(summarize(after, modeFor(ctx), after.presentation?.kind === "terrain" && manifest.capabilities.includes("route-documents")
+      ? "Removed the route; the terrain it was on stays for a while. Do not narrate it." : `Closed the ${manifest.name} card; Aion is back in its own space. Do not narrate it.`));
     if (["expand", "collapse", "fullscreen"].includes(args.action)) {
       const note = args.action === "fullscreen" ? " It fills Aion's space; true browser fullscreen needs the user's click on the card's fullscreen button." : "";
       return cardResult(ctx, after, `The card is now ${after.card?.layout ?? "unchanged"}.${note} Do not narrate it.`);

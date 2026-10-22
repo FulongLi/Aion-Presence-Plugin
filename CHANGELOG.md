@@ -4,7 +4,39 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
-## [0.5.2] — Unreleased (in review)
+## [0.6.0] — Unreleased (in review)
+
+Route Explorer, Aion's own window and a first-run welcome. Branch `feat/v0.6-route-explorer-onboarding`. Details:
+[docs/ROUTE-EXPLORER.md](docs/ROUTE-EXPLORER.md), [docs/HOST.md](docs/HOST.md#v06-aions-own-window-and-the-first-run-welcome).
+
+### Added
+- **Routes** (`plan_route`): real walking, cycling and hiking routes between places and waypoints, planned by a routing
+  service over OpenStreetMap — by default FOSSGIS e.V.'s public Valhalla (one request a second, identified, coordinates
+  only), or the user's own Valhalla, or OpenRouteService with the user's key. Follow-ups change the route on show
+  (reverse, mode, waypoints, clear); failures say why and nothing is drawn. Codex never supplies route coordinates.
+- **One geographic state**: a validated `GeoRoute` (`src/visual/geo/route.ts`) kept on the card with revisions, drawn by
+  both views; elevation sampled along the real path from the AWS Terrain Tiles (smoothed, with hysteresis; rounded).
+- **The route on the particle terrain**: a luminous line resting on the relief, A and B, the card's highlight, section
+  and pointer at the same places. The terrain on show is reused when the route fits it; otherwise the route's own
+  surroundings form. Changing or removing a route never re-forms the terrain.
+- **Route Explorer card** (Card 2.0, `route-explorer` 1.0.0): OpenStreetMap map (tiles fetched by the hub only as viewed,
+  cached by OSM's policy, never by the card), the route, an elevation profile linked to the map and the body, the
+  figures; commands `show`, `section`, `point-at`, `clear-highlight`. Bridge: `LOAD_ROUTE`, `CURSOR`, `TILE_REQUEST`,
+  `LOAD_TILE` under two new capabilities.
+- **First-run welcome**: a short introduction with three example requests (copy to use), Get started / Skip, shown once
+  per installation (`welcome-complete` in the plugin data) and again on request (`open_presence` `welcome`).
+- `npm run route:verify` (the acceptance scenarios against the real service); smoke sections `welcome` and `v06`;
+  `scene:eval` scenarios `journey` and `routes`; `tests/v06.test.ts`.
+
+### Changed
+- **Aion opens in its own window by default**, also in hosts that render MCP Apps; embedded only with `surface:
+  "embedded"` (or `AION_PRESENCE_SURFACE=embedded`). An embedded view says so while Aion is in its own window.
+- Several conversations asking to open Aion at once open one window (a hub-wide launch guard).
+- Closing a route's card keeps its terrain; `mark_map` works on a route's terrain.
+- Tool metadata: 33 tools, 57,536 B by Codex's measure (target 57,600 B): shared marker, hold and portrait parameter
+  descriptions were shortened to make room for `plan_route`, with no change of meaning.
+
+## [0.5.2] — 2026-10-19
 
 Regression fix: terrain (and eight other tools) missing from Codex conversations. Branch `fix/v0.5.1-terrain-regression`.
 Details: [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md#v052-the-terrain-regression).
