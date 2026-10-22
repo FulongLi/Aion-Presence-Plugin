@@ -176,6 +176,8 @@ def load_doc(ident, meta, revision=None):
         except Exception:  # noqa: BLE001
             pass
     fc = App.openDocument(path)
+    # FreeCAD names an opened document after its file (here a snapshot): it keeps its own name.
+    fc.Label = meta.get("name") or fc.Label
     fc.UndoMode = 1
     fc.recompute()
     doc = Doc(ident, fc, meta)

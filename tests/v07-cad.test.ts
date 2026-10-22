@@ -237,6 +237,7 @@ test("v0.7 real FreeCAD: scenarios A–G (create, modify, holes, the selected ho
     assert.ok(resumed.ok && resumed.document!.revision === again.revision + 1 && resumed.document!.solids[0].size_mm![1] === 90, "the next worker continues the same document");
     const back = await later.call("undo");
     assert.ok(back.ok && back.document!.solids[0].size_mm![1] === 80, "and undoes across workers (a saved FreeCAD state)");
+    assert.equal(back.ok && back.document!.name, "Enclosure", "a restored revision keeps the document's name");
     later.stop();
     // Never overwrite another file silently.
     const other = out(await aion.call("cad_model", { action: "save", args: { path: join(folder, "Enclosure.FCStd").replace("Enclosure.FCStd", "Other.FCStd") } }));
