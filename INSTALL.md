@@ -73,7 +73,9 @@ A v0.1 development install (`aion-presence@aion-presence-dev`) is replaced autom
 
 ## First run and auto-open
 
-The first Codex session after installation opens Aion's window once. To change that, create
+The first Codex session after installation opens Aion's window once, with a short welcome and three example requests
+(v0.6; shown once, then only when you ask "Show me the introduction again"). "Open Aion" always opens Aion in its own
+window (an open one is reused). To change the first-run opening, create
 `settings.json` in the plugin's data directory with `{ "autoOpen": "first-run" | "always" | "never" }`, or set
 `AION_PRESENCE_AUTO_OPEN`.
 
