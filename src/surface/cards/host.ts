@@ -1,7 +1,7 @@
 import CARD_RUNTIME from "aion:card-runtime";
 import type { CardAppManifest, CardLayout } from "../../cards/manifest";
 import { Lifecycle, type CardLifecycle } from "../../cards/lifecycle";
-import { CARD_PROTOCOL_VERSION, type CardSelection, type FromCardMessage, type ResourceStatus, type SceneEdit } from "../../cards/protocol";
+import { CARD_PROTOCOL_VERSION, type CardSelection, type FromCardMessage, type MapTile, type ResourceStatus, type SceneEdit } from "../../cards/protocol";
 import type { CardAck, CardReport, CardSnapshot } from "../../cards/state";
 import type { CardValue } from "../../cards/values";
 import type { Presentation } from "../../core/presentation";
@@ -31,6 +31,10 @@ export interface CardHostOptions {
   fullscreen(): { active: boolean; toggle(): Promise<void> } | null;
   attention(selection: CardSelection | null): void;
   interacting(on: boolean): void;
+  /** v0.6: a map tile's bytes from Aion's hub (absent: the host has none to give, e.g. embedded). */
+  tile?(tile: MapTile): Promise<Blob>;
+  /** v0.6: where along the route the user points in the card (metres, or null): the body shows the same place. */
+  cursor?(distance: number | null): void;
 }
 
 const ICONS = { pause: "❚❚", play: "▶", reset: "↺", expand: "⤢", collapse: "⤡", fullscreen: "⛶", close: "×" } as const;
@@ -52,7 +56,7 @@ export class InteractiveCardHost {
   private reportTimer?: ReturnType<typeof setTimeout>;
   private resizeTimer?: ReturnType<typeof setTimeout>;
   private readonly observer: ResizeObserver;
-  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle; scene?: CardReport["scene"]; edits: SceneEdit[] } = { state: {}, acks: [], edits: [] };
+  private readonly pending: { state: Record<string, CardValue>; selection?: CardSelection | null; error?: { code: string; message: string } | null; acks: CardAck[]; resources?: ResourceStatus; interacting?: boolean; layout?: CardLayout; lifecycle?: CardLifecycle; scene?: CardReport["scene"]; route?: CardReport["route"]; edits: SceneEdit[] } = { state: {}, acks: [], edits: [] };
   /** v0.5: the newest scene revision from the hub, the one this frame has built, and whether one is being sent now. */
   private latestScene: { revision: number; document: NonNullable<CardSnapshot["scene"]>["document"]; history: { undo: number; redo: number } } | null = null;
   /** v0.5.1: the user's edits sent to the hub and not yet answered (by request id). */
@@ -60,6 +64,14 @@ export class InteractiveCardHost {
   private sceneSent = 0;
   private sceneReady = false;
   private sceneBusy = false;
+  /** v0.6: the newest route revision from the hub and the one this frame has drawn; tiles asked for and being fetched. */
+  private latestRoute: { revision: number; route: NonNullable<CardSnapshot["route"]>["document"] } | null = null;
+  private routeSent = 0;
+  private routeReady = false;
+  private routeBusy = false;
+  private readonly tileQueue: MapTile[] = [];
+  private readonly tileKeys = new Set<string>();
+  private tilesActive = 0;
   /** What the frame reported when it was disposed (the cleanup check). */
   leftovers: { geometries: number; textures: number; urls: number; loops: number } | null = null;
   readonly elements: { bar: HTMLElement; name: HTMLElement; status: HTMLElement; body: HTMLElement; loading: HTMLElement; progress: HTMLElement; loadingText: HTMLElement; error: HTMLElement; errorText: HTMLElement; retry: HTMLButtonElement; buttons: Record<"pause" | "reset" | "size" | "fullscreen" | "close", HTMLButtonElement> };
@@ -172,7 +184,8 @@ export class InteractiveCardHost {
   }
 
   private async start() {
-    this.sceneSent = 0; this.sceneReady = false;
+    this.sceneSent = 0; this.sceneReady = false; this.routeSent = 0; this.routeReady = false;
+    this.tileQueue.length = 0; this.tileKeys.clear();
     const frame = document.createElement("iframe");
     // Scripts only: no same-origin (opaque origin), no forms, popups, top navigation, downloads or pointer lock.
     frame.setAttribute("sandbox", "allow-scripts");
@@ -205,6 +218,8 @@ export class InteractiveCardHost {
     if (this.presentation.asset) await this.loadAsset();
     // v0.5: a scene card builds the hub's current scene before it is shown as active.
     if (this.options.manifest.capabilities.includes("scene-documents")) { this.sceneReady = true; await this.pumpScene(); }
+    // v0.6: a route card draws the hub's current route before it is shown as active.
+    if (this.options.manifest.capabilities.includes("route-documents")) { this.routeReady = true; await this.pumpRoute(); }
     if (this.disposed || this.frame !== frame || this.lifecycle.state === "error") return;
     this.postResize();
     const startPaused = this.presentation.config.paused === true || this.options.card.state.running === false || this.options.card.state.playing === false;
@@ -248,6 +263,9 @@ export class InteractiveCardHost {
         break;
       case "DISPOSED": this.leftovers = message.payload; break;
       case "RESULT": break;
+      // v0.6: the pointer along the route (the body follows at once, here), and the tiles the card's map shows.
+      case "CURSOR": this.options.cursor?.(message.payload.distance); break;
+      case "TILE_REQUEST": this.queueTiles(message.payload.tiles); break;
     }
   }
 
@@ -332,6 +350,7 @@ export class InteractiveCardHost {
     if (card.instance !== this.instance || this.disposed) return;
     if (card.layout !== this.layout) this.setLayout(card.layout, false);
     if (card.scene && card.scene.revision > (this.latestScene?.revision ?? 0)) { this.latestScene = { revision: card.scene.revision, document: card.scene.document, history: { undo: card.scene.undo, redo: card.scene.redo } }; void this.pumpScene(); }
+    if (card.route && card.route.revision > (this.latestRoute?.revision ?? 0)) { this.latestRoute = { revision: card.route.revision, route: card.route.document }; void this.pumpRoute(); }
     // v0.5.1: the hub's answer to one of the user's edits: a refusal is said here (an accepted one arrives as a revision).
     const outcome = card.scene?.outcome;
     if (outcome && this.edits.delete(outcome.request) && !outcome.ok) this.flash(`Not applied: ${outcome.problem ?? "refused"}`.slice(0, 120));
@@ -361,6 +380,61 @@ export class InteractiveCardHost {
       this.scheduleReport(true);
     } finally { this.sceneBusy = false; }
     void this.pumpScene();
+  }
+
+  /** v0.6: sends the newest route revision the frame has not drawn (a burst of revisions sends only the latest). */
+  private async pumpRoute() {
+    const bridge = this.bridge;
+    if (this.routeBusy || !this.routeReady || !bridge || this.disposed) return;
+    const target = this.latestRoute;
+    if (!target || target.revision <= this.routeSent) return;
+    this.routeBusy = true;
+    try {
+      const result = await bridge.request("LOAD_ROUTE", { revision: target.revision, route: target.route });
+      if (this.disposed || this.bridge !== bridge) return;
+      this.routeSent = target.revision;
+      this.pending.route = { revision: target.revision, ok: result.ok, ...(result.ok ? {} : { problem: (result.problem ?? "failed").slice(0, 200) }) };
+      if (!result.ok) this.flash("The route could not be drawn");
+      this.scheduleReport(true);
+    } finally { this.routeBusy = false; }
+    void this.pumpRoute();
+  }
+
+  /**
+   * v0.6: map tiles for the card, two at a time from Aion's hub (the tile policy asks for few parallel downloads); each
+   * arrives in the frame as bytes. The frame never has a URL; a tile that cannot be fetched is simply not sent.
+   */
+  private queueTiles(tiles: MapTile[]) {
+    if (!this.options.tile) return;
+    for (const tile of tiles) {
+      const key = `${tile.z}/${tile.x}/${tile.y}`;
+      if (this.tileKeys.has(key)) continue;
+      this.tileKeys.add(key);
+      this.tileQueue.push(tile);
+    }
+    // The newest requests are what the user is looking at now.
+    while (this.tileQueue.length > 48) { const dropped = this.tileQueue.shift()!; this.tileKeys.delete(`${dropped.z}/${dropped.x}/${dropped.y}`); }
+    this.pumpTiles();
+  }
+
+  private pumpTiles() {
+    while (this.tilesActive < 2 && this.tileQueue.length && !this.disposed) {
+      const tile = this.tileQueue.pop()!;
+      this.tilesActive++;
+      void (async () => {
+        try {
+          const blob = await this.options.tile!(tile);
+          const mime = blob.type === "image/jpeg" ? "image/jpeg" : "image/png";
+          const data = await blob.arrayBuffer();
+          if (!this.disposed && this.bridge) await this.bridge.request("LOAD_TILE", { tile, mime, data }, { transfer: [data] });
+        } catch { /* not available: the card keeps its coarser tile or its plain background */ }
+        finally {
+          this.tilesActive--;
+          this.tileKeys.delete(`${tile.z}/${tile.x}/${tile.y}`);
+          this.pumpTiles();
+        }
+      })();
+    }
   }
 
   private async execute(seq: number, command: string, value: CardValue | undefined) {
@@ -441,11 +515,11 @@ export class InteractiveCardHost {
       ...(Object.keys(p.state).length ? { state: p.state } : {}), ...(p.selection !== undefined ? { selection: p.selection } : {}),
       ...(p.error !== undefined ? { error: p.error } : {}), ...(p.acks.length ? { acks: p.acks.slice(-16) } : {}),
       ...(p.resources ? { resources: p.resources } : {}), ...(p.interacting !== undefined ? { interacting: p.interacting } : {}),
-      ...(p.scene ? { scene: p.scene } : {}), ...(p.edits.length ? { edit: p.edits[0] } : {}),
+      ...(p.scene ? { scene: p.scene } : {}), ...(p.edits.length ? { edit: p.edits[0] } : {}), ...(p.route ? { route: p.route } : {}),
     };
     this.pending.state = {}; this.pending.acks = []; p.edits.shift();
     if (p.edits.length) this.scheduleReport(true);
-    delete p.selection; delete p.error; delete p.resources; delete p.interacting; delete p.layout; delete p.lifecycle; delete p.scene;
+    delete p.selection; delete p.error; delete p.resources; delete p.interacting; delete p.layout; delete p.lifecycle; delete p.scene; delete p.route;
     if (Object.keys(report).length > 1 && !this.disposed) this.options.report(report);
   }
 
@@ -465,6 +539,8 @@ export class InteractiveCardHost {
       this.disposed = true;
       clearTimeout(this.reportTimer); clearTimeout(this.interactingTimer); clearTimeout(this.resizeTimer); clearTimeout(this.flashTimer);
       if (this.pending.interacting) this.options.interacting(false);
+      this.tileQueue.length = 0;
+      this.options.cursor?.(null);
       this.observer.disconnect();
       document.removeEventListener("visibilitychange", this.visibility);
       this.options.root.removeEventListener("keydown", this.keydown);

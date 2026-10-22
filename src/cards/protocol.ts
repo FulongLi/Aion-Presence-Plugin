@@ -2,6 +2,7 @@ import { CARD_LAYOUTS, CARD_LIMITS, checkCommand, checkConfig, checkState, type 
 import { cleanCardText, isObjectId, type CardValue } from "./values";
 import { isSceneId, type SceneDocument } from "../scene/ir";
 import { validateScene } from "../scene/validate";
+import { validateRoute, type GeoRoute } from "../visual/geo/route";
 
 /**
  * The Aion Card Bridge (v0.4.5): the only way an interactive card and the Aion page talk. It runs over a dedicated
@@ -10,8 +11,8 @@ import { validateScene } from "../scene/validate";
  * application's manifest: unknown types, undeclared capabilities, oversized or malformed messages are dropped. There is
  * no message that runs code.
  *
- *   Aion → card   INITIALIZE LOAD_ASSET LOAD_SCENE SET_STATE SET_CAMERA EXECUTE_COMMAND PAUSE RESUME RESIZE RESET DISPOSE
- *   card → Aion   READY LOADING STATE_CHANGED SELECTION_CHANGED INTERACTION ERROR RESOURCE_STATUS DISPOSED RESULT EDIT
+ *   Aion → card   INITIALIZE LOAD_ASSET LOAD_SCENE LOAD_ROUTE LOAD_TILE SET_STATE SET_CAMERA EXECUTE_COMMAND PAUSE RESUME RESIZE RESET DISPOSE
+ *   card → Aion   READY LOADING STATE_CHANGED SELECTION_CHANGED INTERACTION ERROR RESOURCE_STATUS DISPOSED RESULT EDIT CURSOR TILE_REQUEST
  *
  * Requests carry an `id`; the card answers with RESULT and `re` set to that id (request/response correlation).
  * v0.5: LOAD_SCENE hands a `scene-documents` application a Scene IR document and its revision; the card validates it
@@ -20,11 +21,14 @@ import { validateScene } from "../scene/validate";
  * tool, or undo/redo. The card proposes it; it is never applied in the card. The hub turns it into a validated scene
  * patch against the revision it was made from (a stale one is refused), records it in the history, and the card shows it
  * only when that new revision arrives (LOAD_SCENE) — so every direct edit is undoable and Codex sees it.
+ * v0.6: LOAD_ROUTE hands a `route-documents` card a validated GeoRoute and its revision; CURSOR tells Aion where along it
+ * the user points (metres, or null), so the body can show the same place. A `map-tiles` card asks for the map tiles it
+ * shows (TILE_REQUEST: z/x/y only) and receives their bytes (LOAD_TILE); the page fetches them from Aion's own hub.
  */
 export const CARD_PROTOCOL_VERSION = 1;
 
-export const TO_CARD = ["INITIALIZE", "LOAD_ASSET", "LOAD_SCENE", "SET_STATE", "SET_CAMERA", "EXECUTE_COMMAND", "PAUSE", "RESUME", "RESIZE", "RESET", "DISPOSE"] as const;
-export const FROM_CARD = ["READY", "LOADING", "STATE_CHANGED", "SELECTION_CHANGED", "INTERACTION", "ERROR", "RESOURCE_STATUS", "DISPOSED", "RESULT", "EDIT"] as const;
+export const TO_CARD = ["INITIALIZE", "LOAD_ASSET", "LOAD_SCENE", "LOAD_ROUTE", "LOAD_TILE", "SET_STATE", "SET_CAMERA", "EXECUTE_COMMAND", "PAUSE", "RESUME", "RESIZE", "RESET", "DISPOSE"] as const;
+export const FROM_CARD = ["READY", "LOADING", "STATE_CHANGED", "SELECTION_CHANGED", "INTERACTION", "ERROR", "RESOURCE_STATUS", "DISPOSED", "RESULT", "EDIT", "CURSOR", "TILE_REQUEST"] as const;
 export type ToCardType = typeof TO_CARD[number];
 export type FromCardType = typeof FROM_CARD[number];
 
@@ -35,9 +39,18 @@ export const REQUEST_ID = /^r[a-z0-9]{1,24}$/;
 /** Messages an application may send only with a capability (the rest are core). */
 export const CAPABILITY_MESSAGES: Partial<Record<FromCardType, CardCapability>> = {
   SELECTION_CHANGED: "selection", INTERACTION: "interaction-events", RESOURCE_STATUS: "resource-status", EDIT: "scene-documents",
+  CURSOR: "route-documents", TILE_REQUEST: "map-tiles",
 };
 /** Messages Aion sends only to an application with a capability. */
-export const CAPABILITY_REQUESTS: Partial<Record<ToCardType, CardCapability>> = { LOAD_ASSET: "model-assets", SET_CAMERA: "camera", LOAD_SCENE: "scene-documents" };
+export const CAPABILITY_REQUESTS: Partial<Record<ToCardType, CardCapability>> = {
+  LOAD_ASSET: "model-assets", SET_CAMERA: "camera", LOAD_SCENE: "scene-documents", LOAD_ROUTE: "route-documents", LOAD_TILE: "map-tiles",
+};
+
+/** v0.6: a Web Mercator map tile (OpenStreetMap's scheme): zoom, column, row. */
+export interface MapTile { z: number; x: number; y: number }
+export const TILE_ZOOM = { min: 0, max: 19 } as const;
+export const validTile = (t: unknown): t is MapTile => isRecord(t) && onlyKeys(t, ["z", "x", "y"]) && Number.isInteger(t.z) && Number.isInteger(t.x) && Number.isInteger(t.y)
+  && (t.z as number) >= TILE_ZOOM.min && (t.z as number) <= TILE_ZOOM.max && (t.x as number) >= 0 && (t.y as number) >= 0 && (t.x as number) < 2 ** (t.z as number) && (t.y as number) < 2 ** (t.z as number);
 
 export const INTERACTION_KINDS = ["pointer-down", "pointer-up", "wheel", "key", "escape", "focus", "blur"] as const;
 export const PAUSE_REASONS = ["user", "codex", "hidden"] as const;
@@ -50,6 +63,10 @@ export interface ToCardPayloads {
   LOAD_ASSET: { asset: CardAssetInfo; data: ArrayBuffer };
   /** v0.5.1: `history` — how many changes can be undone and redone at this revision (the card's undo and redo buttons). */
   LOAD_SCENE: { revision: number; document: SceneDocument; history?: { undo: number; redo: number } };
+  /** v0.6: a route and its revision (a reversed or changed route is a new revision). */
+  LOAD_ROUTE: { revision: number; route: GeoRoute };
+  /** v0.6: one map tile's bytes (PNG or JPEG), never a URL. */
+  LOAD_TILE: { tile: MapTile; mime: "image/png" | "image/jpeg"; data: ArrayBuffer };
   SET_STATE: { state: Record<string, CardValue> };
   SET_CAMERA: { view?: string; focus?: string };
   EXECUTE_COMMAND: { command: string; value?: CardValue };
@@ -110,6 +127,10 @@ export interface FromCardPayloads {
   DISPOSED: { geometries: number; textures: number; urls: number; loops: number };
   RESULT: { ok: boolean; problem?: string };
   EDIT: SceneEdit;
+  /** v0.6: where along the route the user is pointing (metres from the start), or null when nowhere. */
+  CURSOR: { distance: number | null };
+  /** v0.6: the map tiles the card is showing and does not have yet. */
+  TILE_REQUEST: { tiles: MapTile[] };
 }
 
 export type Envelope<T extends string, P> = { v: typeof CARD_PROTOCOL_VERSION; instance: string; type: T; id?: string; re?: string; payload: P };
@@ -220,6 +241,12 @@ export function parseFromCard(raw: unknown, instance: string, manifest: CardAppM
       if (problem) return bad(problem);
       break;
     }
+    case "CURSOR":
+      if (!onlyKeys(p, ["distance"]) || !(p.distance === null || finite(p.distance, 0, 2_000_000))) return bad("distance must be metres along the route, or null");
+      break;
+    case "TILE_REQUEST":
+      if (!onlyKeys(p, ["tiles"]) || !Array.isArray(p.tiles) || !p.tiles.length || p.tiles.length > CARD_LIMITS.tilesPerRequest || !p.tiles.every(validTile)) return bad(`tiles: 1–${CARD_LIMITS.tilesPerRequest} {z, x, y}`);
+      break;
     case "RESULT":
       if (typeof message.re !== "string") return bad("must answer a request");
       if (!onlyKeys(p, ["ok", "problem"]) || typeof p.ok !== "boolean" || (p.problem !== undefined && cleanCardText(p.problem, 200) !== p.problem)) return bad("needs ok (and a short problem)");
@@ -267,6 +294,16 @@ export function parseToCard(raw: unknown, instance: string, manifest: CardAppMan
       if (!scene.ok) return bad(`${scene.code}: ${scene.problem}`);
       return { ok: true, message: { ...message, payload: { revision: p.revision, document: scene.document, ...(history ? { history: { undo: history.undo as number, redo: history.redo as number } } : {}) } } as ToCardMessage };
     }
+    case "LOAD_ROUTE": {
+      if (!onlyKeys(p, ["revision", "route"]) || !Number.isInteger(p.revision) || !finite(p.revision, 1, 1e9)) return bad("needs a revision and a route");
+      const route = validateRoute(p.route);
+      if (!route.ok) return bad(route.problem);
+      return { ok: true, message: { ...message, payload: { revision: p.revision, route: route.route } } as ToCardMessage };
+    }
+    case "LOAD_TILE":
+      if (!onlyKeys(p, ["tile", "mime", "data"]) || !validTile(p.tile) || (p.mime !== "image/png" && p.mime !== "image/jpeg")) return bad("needs a tile and its type");
+      if (!(p.data instanceof ArrayBuffer) || p.data.byteLength < 8 || p.data.byteLength > CARD_LIMITS.tileBytes) return bad("tile bytes are missing or too large");
+      break;
     case "SET_STATE":
       if (!checkState(manifest, p.state).ok) return bad("invalid state");
       break;

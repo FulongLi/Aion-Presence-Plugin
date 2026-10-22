@@ -49,8 +49,21 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
       error: (code, message, fatal) => send("ERROR", { code, message: message.slice(0, 200), fatal }),
       interaction: kind => send("INTERACTION", { kind }),
       edit: edit => { if (manifest.capabilities.includes("scene-documents")) send("EDIT", edit); },
+      // v0.6: the pointer along the route, at most about 20 a second (the latest wins), and tile requests in batches.
+      cursor: distance => {
+        if (!manifest.capabilities.includes("route-documents")) return;
+        cursorNext = distance === null ? null : Math.round(distance);
+        if (cursorTimer) return;
+        const flush = () => { cursorTimer = 0; if (cursorNext !== cursorSent) { cursorSent = cursorNext; send("CURSOR", { distance: cursorNext }); cursorTimer = self.setTimeout(flush, 50); } };
+        flush();
+      },
+      tiles: tiles => {
+        if (!manifest.capabilities.includes("map-tiles")) return;
+        for (let i = 0; i < tiles.length; i += 16) send("TILE_REQUEST", { tiles: tiles.slice(i, i + 16).map(({ z, x, y }) => ({ z, x, y })) });
+      },
     },
   });
+  let cursorNext: number | null = null, cursorSent: number | null | undefined = undefined, cursorTimer = 0;
   const reply = (re: string | undefined, ok: boolean, problem?: string) => {
     // What the request changed is reported before its answer, so whoever waits for the answer sees the new state.
     app?.flush?.();
@@ -97,6 +110,15 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
           const result = await app.loadScene(message.payload.revision, message.payload.document, message.payload.history);
           return reply(message.id, result.ok, result.ok ? undefined : result.problem);
         }
+        case "LOAD_ROUTE": {
+          if (!app?.loadRoute) return reply(message.id, false, "this application takes no routes");
+          const result = await app.loadRoute(message.payload.revision, message.payload.route);
+          return reply(message.id, result.ok, result.ok ? undefined : result.problem);
+        }
+        case "LOAD_TILE":
+          if (!app?.loadTile) return reply(message.id, false, "this application takes no tiles");
+          await app.loadTile(message.payload.tile, message.payload.mime, message.payload.data);
+          return reply(message.id, true);
         case "SET_STATE": app?.setState?.(message.payload.state); return reply(message.id, true);
         case "SET_CAMERA": {
           const result = app?.setCamera?.(message.payload.view, message.payload.focus) ?? { ok: false, problem: "no camera" };
@@ -122,6 +144,7 @@ function run(port: MessagePort, instance: string, manifest: CardAppManifest) {
           disposed = true;
           clearInterval(statusTimer);
           clearTimeout(stateTimer);
+          clearTimeout(cursorTimer);
           const left = app?.dispose() ?? { geometries: 0, textures: 0, urls: 0, loops: 0 };
           app = null;
           ui.replaceChildren(); stage.replaceChildren();
