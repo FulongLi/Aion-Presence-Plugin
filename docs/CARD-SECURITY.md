@@ -46,6 +46,15 @@ document does not contain the token. Aion's own page CSP is unchanged (a `srcdoc
   hub validates the proposal (shape, object, base revision), applies it as an ordinary validated patch, and records it
   in the history the user and Codex share. A refused proposal changes nothing.
 
+## v0.6: routes and map tiles
+
+The Route Explorer receives a route only as a validated document (`LOAD_ROUTE`, checked again in the frame) and map
+tiles only as bytes (`LOAD_TILE`, PNG or JPEG, at most 768 KB, decoded with `createImageBitmap` — no URL, no network:
+the frame's CSP is unchanged). It may ask for tiles by grid coordinates only (`TILE_REQUEST`, at most 16 at a time,
+`{z, x, y}`; anything else is refused), and the page fetches them from Aion's own hub, which serves only tiles around
+the open route (`403` elsewhere, `404` with no route) and needs the token. Its pointer along the route (`CURSOR`) is a
+number or null. It cannot plan or change a route: routes change only through `plan_route`.
+
 ## Rendering what a card says
 
 Names, metadata and properties from a model or a card are data. Every surface renders them with `textContent`

@@ -1,0 +1,358 @@
+{
+  "at": "2026-10-22T01:34:07.900Z",
+  "provider": "Valhalla (FOSSGIS)",
+  "evidence": [
+    {
+      "scenario": {
+        "id": "A-cycling",
+        "from": "Glasgow",
+        "to": "Edinburgh",
+        "mode": "cycling",
+        "near": "Scotland",
+        "expect": "route"
+      },
+      "ok": true,
+      "ms": 4561,
+      "summary": {
+        "id": "rywf2fz3cqlkf",
+        "origin": {
+          "name": "Glasgow",
+          "lat": 55.8764,
+          "lon": -4.2527
+        },
+        "destination": {
+          "name": "Edinburgh",
+          "lat": 55.9483,
+          "lon": -3.2191
+        },
+        "waypoints": [],
+        "travelMode": "cycling",
+        "source": {
+          "routing": "Valhalla (FOSSGIS)",
+          "elevation": "AWS Terrain Tiles (terrarium) z13",
+          "attribution": "Routing: Valhalla on FOSSGIS e.V.'s server · © OpenStreetMap contributors (ODbL)"
+        },
+        "coordinates": "1326 points",
+        "toleranceMeters": 1,
+        "distanceMeters": 74535,
+        "estimatedDurationSeconds": 15328,
+        "elevationSamples": "497 samples",
+        "sampleSpacingMeters": 150,
+        "totalAscentMeters": 340,
+        "totalDescentMeters": 330,
+        "minimumElevationMeters": 37,
+        "maximumElevationMeters": 200,
+        "highest": {
+          "distanceMeters": 31407,
+          "lon": -3.81912,
+          "lat": 55.88395,
+          "elevationMeters": 200
+        },
+        "lowest": {
+          "distanceMeters": 61011,
+          "lon": -3.418,
+          "lat": 55.94003,
+          "elevationMeters": 37
+        },
+        "warnings": [],
+        "first": [
+          -4.25219,
+          55.87627
+        ],
+        "last": [
+          -3.21961,
+          55.94848
+        ]
+      }
+    },
+    {
+      "scenario": {
+        "id": "B-hiking",
+        "from": "Ambleside",
+        "to": "Grasmere",
+        "mode": "hiking",
+        "near": "England",
+        "expect": "route"
+      },
+      "ok": true,
+      "ms": 704,
+      "summary": {
+        "id": "rvyzxdnwyadze",
+        "origin": {
+          "name": "Ambleside",
+          "lat": 54.431954,
+          "lon": -2.963053
+        },
+        "destination": {
+          "name": "Grasmere",
+          "lat": 54.459388,
+          "lon": -3.024366
+        },
+        "waypoints": [],
+        "travelMode": "hiking",
+        "source": {
+          "routing": "Valhalla (FOSSGIS)",
+          "elevation": "AWS Terrain Tiles (terrarium) z13",
+          "attribution": "Routing: Valhalla on FOSSGIS e.V.'s server · © OpenStreetMap contributors (ODbL)"
+        },
+        "coordinates": "386 points",
+        "toleranceMeters": 0,
+        "distanceMeters": 6562,
+        "estimatedDurationSeconds": 4945,
+        "elevationSamples": "438 samples",
+        "sampleSpacingMeters": 15,
+        "totalAscentMeters": 25,
+        "totalDescentMeters": 10,
+        "minimumElevationMeters": 51,
+        "maximumElevationMeters": 73,
+        "highest": {
+          "distanceMeters": 4550,
+          "lon": -3.0115,
+          "lat": 54.44649,
+          "elevationMeters": 73
+        },
+        "lowest": {
+          "distanceMeters": 1862,
+          "lon": -2.97756,
+          "lat": 54.4442,
+          "elevationMeters": 51
+        },
+        "warnings": [
+          "Paths come from OpenStreetMap: Aion cannot say whether a path is open, safe, legally accessible or suitable today."
+        ],
+        "first": [
+          -2.96301,
+          54.43175
+        ],
+        "last": [
+          -3.02433,
+          54.4593
+        ]
+      }
+    },
+    {
+      "scenario": {
+        "id": "C-walking",
+        "from": "Edinburgh Castle",
+        "to": "Arthur's Seat",
+        "mode": "walking",
+        "near": "Scotland",
+        "expect": "route"
+      },
+      "ok": true,
+      "ms": 1013,
+      "summary": {
+        "id": "r4et30g3hzznz",
+        "origin": {
+          "name": "Edinburgh Castle",
+          "lat": 55.948688,
+          "lon": -3.200418
+        },
+        "destination": {
+          "name": "Arthur's Seat",
+          "lat": 55.944069,
+          "lon": -3.161603
+        },
+        "waypoints": [],
+        "travelMode": "walking",
+        "source": {
+          "routing": "Valhalla (FOSSGIS)",
+          "elevation": "AWS Terrain Tiles (terrarium) z13",
+          "attribution": "Routing: Valhalla on FOSSGIS e.V.'s server · © OpenStreetMap contributors (ODbL)"
+        },
+        "coordinates": "412 points",
+        "toleranceMeters": 0,
+        "distanceMeters": 4899,
+        "estimatedDurationSeconds": 4244,
+        "elevationSamples": "490 samples",
+        "sampleSpacingMeters": 10,
+        "totalAscentMeters": 185,
+        "totalDescentMeters": 50,
+        "minimumElevationMeters": 72,
+        "maximumElevationMeters": 225,
+        "highest": {
+          "distanceMeters": 4819,
+          "lon": -3.16064,
+          "lat": 55.94354,
+          "elevationMeters": 225
+        },
+        "lowest": {
+          "distanceMeters": 2254,
+          "lon": -3.17724,
+          "lat": 55.9435,
+          "elevationMeters": 72
+        },
+        "warnings": [],
+        "first": [
+          -3.20036,
+          55.94874
+        ],
+        "last": [
+          -3.16125,
+          55.94407
+        ]
+      }
+    },
+    {
+      "scenario": {
+        "id": "D-reversed",
+        "from": "Edinburgh",
+        "to": "Glasgow",
+        "mode": "cycling",
+        "near": "Scotland",
+        "expect": "route"
+      },
+      "ok": true,
+      "ms": 1070,
+      "summary": {
+        "id": "r5p0krayewkdn",
+        "origin": {
+          "name": "Edinburgh",
+          "lat": 55.9483,
+          "lon": -3.2191
+        },
+        "destination": {
+          "name": "Glasgow",
+          "lat": 55.8764,
+          "lon": -4.2527
+        },
+        "waypoints": [],
+        "travelMode": "cycling",
+        "source": {
+          "routing": "Valhalla (FOSSGIS)",
+          "elevation": "AWS Terrain Tiles (terrarium) z13",
+          "attribution": "Routing: Valhalla on FOSSGIS e.V.'s server · © OpenStreetMap contributors (ODbL)"
+        },
+        "coordinates": "1301 points",
+        "toleranceMeters": 1,
+        "distanceMeters": 74562,
+        "estimatedDurationSeconds": 15234,
+        "elevationSamples": "497 samples",
+        "sampleSpacingMeters": 150,
+        "totalAscentMeters": 325,
+        "totalDescentMeters": 335,
+        "minimumElevationMeters": 37,
+        "maximumElevationMeters": 201,
+        "highest": {
+          "distanceMeters": 44647,
+          "lon": -3.84033,
+          "lat": 55.8838,
+          "elevationMeters": 201
+        },
+        "lowest": {
+          "distanceMeters": 13229,
+          "lon": -3.41658,
+          "lat": 55.94034,
+          "elevationMeters": 37
+        },
+        "warnings": [],
+        "first": [
+          -3.21961,
+          55.94848
+        ],
+        "last": [
+          -4.25219,
+          55.87627
+        ]
+      }
+    },
+    {
+      "scenario": {
+        "id": "D-waypoint",
+        "from": "Glasgow",
+        "to": "Edinburgh",
+        "via": [
+          "Linlithgow"
+        ],
+        "mode": "cycling",
+        "near": "Scotland",
+        "expect": "route"
+      },
+      "ok": true,
+      "ms": 2203,
+      "summary": {
+        "id": "rnfs4ox2ozv6y",
+        "origin": {
+          "name": "Glasgow",
+          "lat": 55.8764,
+          "lon": -4.2527
+        },
+        "destination": {
+          "name": "Edinburgh",
+          "lat": 55.9483,
+          "lon": -3.2191
+        },
+        "waypoints": [
+          {
+            "name": "Linlithgow",
+            "lat": 55.977167,
+            "lon": -3.600623
+          }
+        ],
+        "travelMode": "cycling",
+        "source": {
+          "routing": "Valhalla (FOSSGIS)",
+          "elevation": "AWS Terrain Tiles (terrarium) z12",
+          "attribution": "Routing: Valhalla on FOSSGIS e.V.'s server · © OpenStreetMap contributors (ODbL)"
+        },
+        "coordinates": "1211 points",
+        "toleranceMeters": 1,
+        "distanceMeters": 80661,
+        "estimatedDurationSeconds": 16452,
+        "elevationSamples": "489 samples",
+        "sampleSpacingMeters": 165,
+        "totalAscentMeters": 285,
+        "totalDescentMeters": 275,
+        "minimumElevationMeters": 35,
+        "maximumElevationMeters": 102,
+        "highest": {
+          "distanceMeters": 39174,
+          "lon": -3.79203,
+          "lat": 55.9875,
+          "elevationMeters": 102
+        },
+        "lowest": {
+          "distanceMeters": 31901,
+          "lon": -3.8854,
+          "lat": 56.00124,
+          "elevationMeters": 35
+        },
+        "warnings": [],
+        "first": [
+          -4.25219,
+          55.87627
+        ],
+        "last": [
+          -3.21961,
+          55.94848
+        ]
+      }
+    },
+    {
+      "scenario": {
+        "id": "E-ocean",
+        "from": "London",
+        "to": "New York",
+        "mode": "walking",
+        "expect": "failure"
+      },
+      "ok": false,
+      "code": "route-too-long",
+      "detail": "5567 km",
+      "ms": 2
+    },
+    {
+      "scenario": {
+        "id": "E-no-path",
+        "from": "-80.0, 0.0",
+        "to": "-80.1, 0.2",
+        "mode": "walking",
+        "expect": "failure"
+      },
+      "ok": false,
+      "code": "route-point-unroutable",
+      "detail": null,
+      "ms": 35
+    }
+  ]
+}

@@ -27,6 +27,8 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 - **Portraits and pictures** of almost anything, from open sources (heritage oval portraits by default).
 - **Maps** of any country, continent or region with markers at real coordinates; **terrain** from elevation data.
   [MAPS.md](MAPS.md), [GEO-COVERAGE.md](GEO-COVERAGE.md)
+- **Routes** (v0.6): real walking, cycling and hiking routes drawn on the particle terrain, with the Route Explorer card —
+  the exact map, an elevation profile linked to the body, distance, time and climbing. [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
 - **Aion's own forms**: Tao symbols, trigrams, constellations, zodiac and planetary signs, clocks, numbers, words,
   symbols, emoji, and genuine **3D objects** from validated primitives. [SCENES.md](SCENES.md)
 - **Codex's work**, concisely: results, code excerpts, file changes, diagrams and local images in quiet cards. Logs
@@ -37,6 +39,8 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 "What did Nikola Tesla look like?"         → a heritage portrait beside the original photograph
 "Show me where Los Angeles is in the USA." → the United States, a marker at Los Angeles; "Mark New York in yellow."
 "What is the terrain of Scotland like?"    → Scotland's real relief
+"Plan a cycling route from Glasgow to Edinburgh." → the route on that relief, the map and profile beside it;
+                                              "Show me the highest point." "Reverse the route."
 "Show me an Egyptian pyramid in 3D."       → a 3D pyramid that turns; drag it, zoom, reset
 ```
 

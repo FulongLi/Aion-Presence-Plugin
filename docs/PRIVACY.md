@@ -12,6 +12,13 @@ subscription, no speech-to-text or text-to-speech of its own. Everything Aion sa
   checked by their bytes before the surface sees them; the surface itself never contacts a remote host. Repository and
   conversation content is never sent anywhere. An optional keyed image search (`AION_PRESENCE_BRAVE_SEARCH_KEY`) is off
   unless you set it.
+- **Routes (v0.6)**: a routing service receives only the coordinates of the places (by default FOSSGIS e.V.'s public
+  Valhalla server, at most one request a second; or your own Valhalla, or OpenRouteService with your own key, sent only
+  to it); place names go to the geocoders as for markers. The Route Explorer's map tiles come from OpenStreetMap's tile
+  servers through Aion's hub, only for the area being viewed, and are cached in the plugin data directory as OSM's
+  policy asks (`AION_PRESENCE_TILES=off` turns them off). Like any map, the routing and tile servers see your IP address
+  and which area is looked at. Aion never reads your location. [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
+- **First-run welcome (v0.6)**: one marker file (`welcome-complete`, a date) in the plugin data directory; nothing else.
 - **Rendering**: presented content is rendered as text (never as HTML), images only through `<img>` or as particles.
   Cards and the Presentation Router run locally; card contents are never sent anywhere.
 - **Interactive cards**: only registered applications run, each in a sandboxed frame with an opaque origin and no

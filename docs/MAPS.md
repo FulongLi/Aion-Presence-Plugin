@@ -7,6 +7,7 @@ Aion shows geography in two modes, and can combine them:
 | **Map** | `show_map` | The outline of a continent, country, part of one, state or city: its coast and borders bright, its land a veil of particles, its neighbours faintly around it. For *where* things are. |
 | **Terrain** | `show_terrain` | The real relief from elevation data: mountains rise, valleys sink. For *what the land is like*. |
 | **Markers** | `show_map` / `show_terrain` `markers`, `mark_map` | Places at their real coordinates, each a small cluster of glowing grains in its colour, with a crisp label, on either mode. |
+| **Routes** (v0.6) | `plan_route` | A real walking, cycling or hiking route resting on the terrain, A and B, beside the Route Explorer card. See [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md). |
 
 ```text
 "Show me the United States."                 show_map  { region: "United States" }
