@@ -102,6 +102,46 @@ the turn runs).
 With v0.5.1 installed these requests could not reach `show_terrain` at all (it was hidden from the conversation:
 [MCP-TOOLS.md](MCP-TOOLS.md#v052-the-terrain-regression)). One run each; no person watched these runs.
 
+## Results — 2026-10-22: routes and the first run (scenarios I and J, v0.6)
+
+`npm run scene:eval -- --only journey,routes`, Codex 0.163.0-alpha.10.2, gpt-6.1-sol, effort low; a fresh plugin data
+directory (so the first-run welcome was due); real routing (FOSSGIS Valhalla), elevation and OpenStreetMap tiles. Each
+scenario is one session after "Open Aion.". Outcomes are read from the hub (a route counts only once the card confirmed
+it drew that revision). Full record: [media/v0.6.0/codex-routes.json](media/v0.6.0/codex-routes.json).
+
+**I. The final acceptance test** — "Open Aion." → `open_presence`; the window showed the welcome (first run).
+
+| Request | Codex called | Outcome | Visible | Turn |
+| --- | --- | --- | --- | --- |
+| "Show me Scotland's terrain." | `show_terrain {region: "Scotland"}` | terrain formed | — | 10.4 s |
+| "Plan a cycling route from Glasgow to Edinburgh." | `plan_route {from: "Glasgow", to: "Edinburgh", mode: "cycling"}` | drawn on Scotland's terrain: 74.5 km, ↑340 m | 11 s | 14.1 s |
+| "Show me the highest point." | `control_interactive_card {action: "show", value: "highest"}` | highlighted on the map, profile and terrain: 200 m at km 31.4 | — | 11.4 s |
+| "Reverse the route." | `plan_route {reverse: true}` | Edinburgh → Glasgow, 74.6 km, ↑325 m | 7.2 s | 11.5 s |
+
+Codex's answers (verbatim, abridged): "Here's your cycling route from Glasgow to Edinburgh: 74.5 km, about 4 hours 15
+minutes riding, with 340 m of climbing." · "I've highlighted it: approximately 200 m above sea level, 31.4 km from
+Glasgow along your route."
+
+**J. Routes, follow-ups and limits**
+
+| Request | Codex called | Outcome | Turn |
+| --- | --- | --- | --- |
+| "Show me a hiking route from Ambleside to Grasmere." | `plan_route {…, mode: "hiking"}` | drawn on its own terrain: 6.6 km, ↑25 m | 17.2 s |
+| "How much climbing is there?" | (none: from the result) | "an estimated 25 metres of total ascent" | 8.3 s |
+| "Plan a walking route from Edinburgh Castle to Arthur's Seat." | `plan_route {…, mode: "walking"}` | 4.9 km, ↑185 m | 13.5 s |
+| "Remove the route." | `plan_route {clear: true}` | route removed, terrain kept | 14.6 s |
+| "Plan a walking route from London to New York." | `plan_route {…}` → `route-too-long` | refused; nothing drawn; "the walking planner has a 100 km limit … about 5,567 km apart" | 12.5 s |
+| "Show me the introduction again." | `open_presence {welcome: true, display: "immersive"}` | welcome shown again | 11.2 s |
+
+For the hike Codex added "Check local path conditions and access before setting out." (it never called the path safe).
+
+| The welcome on the first run (Codex's "Open Aion.") | After "Show me the highest point." (Codex) |
+| --- | --- |
+| ![The first-run welcome](media/v0.6.0/codex-welcome.jpg) | ![The highest point on the terrain and in the card](media/v0.6.0/codex-highest.jpg) |
+
+One run each; no person watched these runs. The welcome screenshot was taken in the immersive window before its click
+(Enter Presence beneath it); v0.6 since raises the body a little more in that case.
+
 ## Level 4: manual procedure (for a person)
 
 1. Install this branch: `codex plugin marketplace add <path to this checkout>` then

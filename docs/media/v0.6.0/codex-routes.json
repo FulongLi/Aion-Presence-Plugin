@@ -1,0 +1,192 @@
+{
+ "codex": "codex-cli 0.163.0-alpha.10.2",
+ "model": "gpt-6.1-sol",
+ "effort": "low",
+ "at": "2026-10-22T02:34:43.868Z",
+ "results": [
+  {
+   "id": "journey",
+   "title": "I. First run to a planned journey",
+   "steps": [
+    {
+     "prompt": "Show me Scotland's terrain.",
+     "expect": "terrain",
+     "outcome": "terrain formed by show_terrain",
+     "seconds": 10.4,
+     "renderedSeconds": null,
+     "answer": "Here’s Scotland’s terrain: rugged Highlands in the north and west, the lower Central Belt, and rolling Southern Uplands.",
+     "calls": [
+      {
+       "tool": "show_terrain",
+       "ok": true,
+       "arguments": {
+        "region": "Scotland"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Plan a cycling route from Glasgow to Edinburgh.",
+     "expect": "route",
+     "outcome": "route drawn: Glasgow → Edinburgh, cycling, 74.5 km, ↑340 m",
+     "seconds": 14.1,
+     "renderedSeconds": 11,
+     "answer": "Here’s your cycling route from Glasgow to Edinburgh: **74.5 km**, about **4 hours 15 minutes** riding, with **340 m of climbing**.\n\nYou can explore the map and elevation profile beside me. Allow extra time for breaks.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": true,
+       "arguments": {
+        "from": "Glasgow",
+        "to": "Edinburgh",
+        "mode": "cycling"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Show me the highest point.",
+     "expect": "highlight",
+     "outcome": "highest point highlighted: 200 m at km 31.4",
+     "seconds": 11.4,
+     "renderedSeconds": null,
+     "answer": "I’ve highlighted it: approximately **200 m above sea level**, **31.4 km from Glasgow** along your route.",
+     "calls": [
+      {
+       "tool": "control_interactive_card",
+       "ok": true,
+       "arguments": {
+        "action": "show",
+        "value": "highest"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Reverse the route.",
+     "expect": "reversed",
+     "outcome": "reversed: Edinburgh → Glasgow, cycling, 74.6 km, ↑325 m",
+     "seconds": 11.5,
+     "renderedSeconds": 7.2,
+     "answer": "Your cycling route now runs **Edinburgh → Glasgow**: **74.6 km**, about **4 hours 14 minutes**, with **325 m of climbing**.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": true,
+       "arguments": {
+        "reverse": true
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "routes",
+   "title": "J. Routes, follow-ups and limits",
+   "steps": [
+    {
+     "prompt": "Show me a hiking route from Ambleside to Grasmere.",
+     "expect": "route",
+     "outcome": "route drawn: Ambleside → Grasmere, hiking, 6.6 km, ↑25 m",
+     "seconds": 17.2,
+     "renderedSeconds": 10.6,
+     "answer": "Here’s the hiking route from Ambleside to Grasmere: **6.6 km**, with an estimated walking time of **1 hour 22 minutes**. The map and elevation profile are beside me.\n\nCheck local path conditions and access before setting out.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": true,
+       "arguments": {
+        "from": "Ambleside",
+        "to": "Grasmere",
+        "mode": "hiking"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "How much climbing is there?",
+     "expect": "answer",
+     "outcome": "answered",
+     "seconds": 8.3,
+     "renderedSeconds": null,
+     "answer": "The route has an estimated **25 metres of total ascent**.",
+     "calls": []
+    },
+    {
+     "prompt": "Plan a walking route from Edinburgh Castle to Arthur's Seat.",
+     "expect": "route",
+     "outcome": "route drawn: Edinburgh Castle → Arthur's Seat, walking, 4.9 km, ↑185 m",
+     "seconds": 13.5,
+     "renderedSeconds": 7.8,
+     "answer": "Here’s the walking route from Edinburgh Castle to Arthur’s Seat: **4.9 km**, about **1 hour 11 minutes**, with **185 metres of climbing**.\n\nThe map and elevation profile are beside me.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": true,
+       "arguments": {
+        "from": "Edinburgh Castle",
+        "to": "Arthur's Seat",
+        "mode": "walking"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Remove the route.",
+     "expect": "cleared",
+     "outcome": "route removed, terrain kept",
+     "seconds": 14.6,
+     "renderedSeconds": null,
+     "answer": "Route removed.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": true,
+       "arguments": {
+        "clear": true
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Plan a walking route from London to New York.",
+     "expect": "route-refusal",
+     "outcome": "refused by Aion: route-too-long",
+     "seconds": 12.5,
+     "renderedSeconds": null,
+     "answer": "I couldn’t draw that route: the walking planner has a **100 km limit**, and London and New York are about **5,567 km apart**, across the Atlantic.\n\nI can plan a shorter walking leg in either city.",
+     "calls": [
+      {
+       "tool": "plan_route",
+       "ok": false,
+       "arguments": {
+        "from": "London",
+        "to": "New York",
+        "mode": "walking"
+       }
+      }
+     ]
+    },
+    {
+     "prompt": "Show me the introduction again.",
+     "expect": "welcome",
+     "outcome": "welcome shown again",
+     "seconds": 11.2,
+     "renderedSeconds": null,
+     "answer": "The getting-started introduction is on screen again.",
+     "calls": [
+      {
+       "tool": "open_presence",
+       "ok": true,
+       "arguments": {
+        "welcome": true,
+        "display": "immersive"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
