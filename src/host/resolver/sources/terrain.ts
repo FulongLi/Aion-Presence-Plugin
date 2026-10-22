@@ -9,8 +9,8 @@ import { decodePng } from "../png";
 
 export interface TerrainProvider {
   readonly name: string;
-  /** `include`: points (markers) that must be in view. */
-  resolve(region: string, style: TerrainStyle, signal: AbortSignal, options?: { include?: [number, number][] }): Promise<TerrainSource>;
+  /** `include`: points (markers) that must be in view. `area` (v0.6): a region already known (a route's surroundings): no lookup. */
+  resolve(region: string, style: TerrainStyle, signal: AbortSignal, options?: { include?: [number, number][]; area?: GeoRegion }): Promise<TerrainSource>;
 }
 
 /**
@@ -33,7 +33,8 @@ export type Box = { west: number; south: number; east: number; north: number };
 export interface Place { label: string; box: Box; rings?: [number, number][][]; provider: string }
 
 export const terrainLimits = { maxTiles: 16, maxPixels: 640, maxZoom: 12, minSpan: 0.25, pointSpan: 0.8, tileBytes: 1024 * 1024, mercatorLat: 85.0511 };
-const TILE_URL = (z: number, x: number, y: number) => `https://${HOSTS.elevation}/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
+/** An AWS Terrain Tiles (terrarium) tile; v0.6 route profiles read the same tiles. */
+export const TILE_URL = (z: number, x: number, y: number) => `https://${HOSTS.elevation}/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`;
 
 type NominatimHit = { display_name?: string; name?: string; boundingbox?: string[]; geojson?: { type: string; coordinates: unknown } };
 type PhotonFeature = { properties?: { name?: string; country?: string; extent?: number[] }; geometry?: { coordinates?: number[] } };
@@ -132,7 +133,7 @@ export function elevationTilesProvider(decode: TileDecoder = decodePng, request?
   return {
     name: "aws-terrain-tiles",
     async resolve(name, _style, signal, options = {}) {
-      const region = asRegion(await locate(name, signal, request));
+      const region = options.area ?? asRegion(await locate(name, signal, request));
       const frame = regionFrame(region, options.include ?? []);
       const window = frameWindow(frame);
       const plan = planTiles(window);

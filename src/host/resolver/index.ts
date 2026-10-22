@@ -116,14 +116,14 @@ export class VisualResolver {
    * The terrain of a real region from real elevation data, as a height field. `include`: points (markers) that must
    * be in view.
    */
-  terrain(region: string, style: TerrainStyle = "terrain", signal?: AbortSignal, include: [number, number][] = []): Promise<ResolvedTerrain> {
-    const key = include.length ? `${style}:${include.map(([lon, lat]) => `${lon.toFixed(3)},${lat.toFixed(3)}`).join(";")}` : style;
+  terrain(region: string, style: TerrainStyle = "terrain", signal?: AbortSignal, include: [number, number][] = [], area?: GeoRegion): Promise<ResolvedTerrain> {
+    const key = `${area ? `area:${area.focus.flat(2).map(([lon, lat]) => `${lon.toFixed(3)},${lat.toFixed(3)}`).join(";")}:` : ""}${include.length ? `${style}:${include.map(([lon, lat]) => `${lon.toFixed(3)},${lat.toFixed(3)}`).join(";")}` : style}`;
     return this.run("terrain", region, key, signal, async (bounded, trace) => {
       let cause: string | undefined;
       for (const provider of this.terrains) {
         const started = Date.now();
         try {
-          const source = await provider.resolve(region, style, bounded, { include });
+          const source = await provider.resolve(region, style, bounded, { include, ...(area ? { area } : {}) });
           let field: ReturnType<typeof buildHeightField>, bytes: Uint8Array;
           try { field = buildHeightField(source, style); bytes = encodeHeightField(field); } catch { throw new ResolveError("heightfield-failed"); }
           trace.chain.push({ provider: provider.name, outcome: "selected", ms: Date.now() - started });
@@ -140,6 +140,16 @@ export class VisualResolver {
       // v0.5.2: which stage failed travels with the stable code (see terrainCause in the MCP server).
       throw new ResolveError("terrain-unavailable", cause);
     });
+  }
+
+  /**
+   * v0.6: the terrain of a route's surroundings — a box around it (west, south, east, north), named `label` — when no
+   * terrain on show contains the route well. No place lookup: the box is the region.
+   */
+  terrainArea(label: string, box: [number, number, number, number], style: TerrainStyle = "terrain", signal?: AbortSignal): Promise<ResolvedTerrain> {
+    const [west, south, east, north] = box;
+    const ring: [number, number][] = [[west, south], [east, south], [east, north], [west, north], [west, south]];
+    return this.terrain(label, style, signal, [], { label, kind: "place", focus: [[ring]], ids: [], provider: "route" });
   }
 
   /** A region by name (continent, country, part of one, or anything OpenStreetMap knows), with its outline. */

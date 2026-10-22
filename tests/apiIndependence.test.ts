@@ -71,6 +71,8 @@ test("network: the loopback hub, plus public data through one guarded module wit
   assert.deepEqual(ALLOWED_HOSTS.map(String), [
     String(/^[a-z][a-z-]{1,11}\.wikipedia\.org$/), "commons.wikimedia.org", "www.wikidata.org", "upload.wikimedia.org", "thumb.wikimedia.org", "api.openverse.org",
     "nominatim.openstreetmap.org", "photon.komoot.io", "s3.amazonaws.com", "api.search.brave.com", "imgs.search.brave.com",
+    // v0.6 routes: FOSSGIS's public Valhalla, OpenRouteService (only with the user's key), OpenStreetMap's map tiles.
+    "valhalla1.openstreetmap.de", "api.openrouteservice.org", "tile.openstreetmap.org",
   ]);
   // The surface (embedded or companion) never reaches a remote host: it only talks to its own hub or host.
   for (const file of source.filter(path => rel(path).startsWith("src/surface/"))) assert.doesNotMatch(read(file), /https?:\/\/(?!127\.0\.0\.1|www\.w3\.org\/2000\/svg")/, rel(file)); // (the SVG namespace is a name, not a request)
