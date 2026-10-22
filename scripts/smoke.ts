@@ -873,9 +873,10 @@ async function embedded() {
       page.on("pageerror", error => errors.push(error.message));
       try {
         await page.exposeFunction("hostCallTool", (params: { name: string; arguments?: Record<string, unknown> }) => aion.client.callTool(params));
-        const opened = await aion.call("open_presence", { display: "immersive", body: "figure" }) as { structuredContent: { surface: { mode: string }; window_opened: boolean; immersive: { path: string } } };
+        // v0.6: Aion's own window is the default; this host is asked to embed it, as a user would ask.
+        const opened = await aion.call("open_presence", { display: "immersive", body: "figure", surface: "embedded" }) as { structuredContent: { surface: { mode: string }; window_opened: boolean; immersive: { path: string } } };
         check(opened.structuredContent.surface.mode === "embedded" && !opened.structuredContent.window_opened && opened.structuredContent.immersive.path === "host-fullscreen",
-          "open_presence chooses embedded mode, asks the host for fullscreen and opens no window");
+          "open_presence (embedding asked for) chooses embedded mode, asks the host for fullscreen and opens no window");
         await page.goto(refuse ? `${base}?refuse=1` : base);
         await pause(3_500);
         const log = await page.evaluate("window.hostLog") as string[];
@@ -1637,7 +1638,10 @@ async function welcome() {
     own.apply({ type: "open", display: "auto" });
     await pause(600);
     await page.locator(".welcome-copy").first().click();
-    check(/Copied|Selected/.test(await page.locator(".welcome-status").textContent() ?? ""), "an example click copies it (or selects it to copy)");
+    // The clipboard answers asynchronously: wait (briefly) for what the welcome says.
+    let said = "";
+    for (let i = 0; i < 20 && !/Copied|Selected/.test(said); i++) { await pause(100); said = await page.locator(".welcome-status").textContent() ?? ""; }
+    check(/Copied|Selected/.test(said), `an example click copies it (or selects it to copy): "${said}"`);
     await page.locator(".welcome-start").click();
     await pause(900);
     check(!(await page.locator("#welcome").isVisible()), "Get started closes it");
