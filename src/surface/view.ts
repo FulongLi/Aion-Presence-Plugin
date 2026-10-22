@@ -264,7 +264,11 @@ export class PresenceView {
       return this.ease(target, dt);
     }
     // v0.6: the welcome stands below the body; the body rises a little above it, still itself and alive.
-    if (this.welcome?.shown && !open) return this.ease(narrow ? { x: 0, y: 0.3, scale: 0.6 } : { x: 0, y: 0.2, scale: 0.74 }, dt);
+    // With Enter Presence offered beneath it (an immersive window before its click), a little higher and smaller still.
+    if (this.welcome?.shown && !open) {
+      const entry = this.immersive.phase === "offered";
+      return this.ease(narrow ? { x: 0, y: entry ? 0.36 : 0.3, scale: entry ? 0.5 : 0.6 } : entry ? { x: 0, y: 0.3, scale: 0.6 } : { x: 0, y: 0.2, scale: 0.74 }, dt);
+    }
     // A written word runs wider than other visuals (v0.4.4): it steps further aside and a little smaller.
     const word = (this.writing.sequence?.items.length ?? 0) > 1;
     const target: Framing = !open ? { x: 0, y: 0, scale: 1 }

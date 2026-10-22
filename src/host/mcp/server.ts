@@ -898,7 +898,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (regionName) { try { const region = await resolver.region(regionName); near = { region, frame: regionFrame(region) }; } catch { near = undefined; } }
     let planned: Awaited<ReturnType<typeof planRoute>>;
     try {
-      planned = await planRoute({ from, to, via, mode }, { provider: routing.provider, signal: AbortSignal.timeout(45_000), locate: name => resolver.place(name, near) });
+      planned = await planRoute({ from, to, via, mode }, { provider: routing.provider, signal: AbortSignal.timeout(45_000), locate: name => resolver.place(name, { ...near, gazetteerFirst: true }) });
     } catch (error) { return routeFailure(errorCode(error), errorDetail(error), words); }
     const route = planned.route;
     // The terrain to draw it on: the one on show when the route sits well inside it, else the route's own surroundings.

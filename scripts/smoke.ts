@@ -1630,6 +1630,12 @@ async function welcome() {
     const body = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
     await page.screenshot({ path: join(OUT, "v06-welcome.png") });
     check(body > 30, "the particle body stays visible and alive above it");
+    // In an immersive window before its click, Enter Presence stands beneath the welcome: both fit, the body above them.
+    own.apply({ type: "open", display: "immersive" });
+    await pause(2_200);
+    await page.screenshot({ path: join(OUT, "v06-welcome-immersive.png") });
+    own.apply({ type: "open", display: "auto" });
+    await pause(600);
     await page.locator(".welcome-copy").first().click();
     check(/Copied|Selected/.test(await page.locator(".welcome-status").textContent() ?? ""), "an example click copies it (or selects it to copy)");
     await page.locator(".welcome-start").click();
@@ -1689,6 +1695,27 @@ async function v06(renderer: "auto" | "canvas") {
     check(await settle(() => card()?.state.tiles === "ok", 15_000), `the card's map has its OpenStreetMap tiles (${String(card()?.state.tiles)})`);
     await pause(800);
     await shot("scotland-route");
+    // Performance: the body with the route overlay and the card beside it, then while the profile's pointer sweeps
+    // (CURSOR messages, the overlay redrawing the pointer each frame).
+    const perf: Record<string, number> = { planSeconds: Math.round((performance.now() - started) / 100) / 10 };
+    const fps = async (during?: () => Promise<void>) => {
+      const f0 = await page.evaluate("window.aionPresence.runtime.quality().frames") as number, t0 = performance.now();
+      if (during) await during(); else await pause(2_000);
+      return Math.round(((await page.evaluate("window.aionPresence.runtime.quality().frames") as number) - f0) / ((performance.now() - t0) / 1000));
+    };
+    perf.bodyFps = await fps();
+    const sweepFrame = await frameOf();
+    perf.bodyFpsSweeping = await fps(async () => {
+      const box = sweepFrame ? await sweepFrame.locator(".rx-profile canvas").boundingBox() : null;
+      for (let i = 0; i < 40 && sweepFrame && box; i++) { await sweepFrame.locator(".rx-profile canvas").hover({ position: { x: box.width * (0.1 + 0.8 * i / 40), y: box.height / 2 } }); await pause(50); }
+    });
+    perf.cardFps = card()?.resources?.fps ?? -1;
+    perf.overlayPoints = (await drawn()).points;
+    perf.tiles = Number(card()?.resources?.textures ?? -1);
+    writeFileSync(join(OUT, `v06-${renderer}-performance.json`), JSON.stringify({ renderer, ...perf }, null, 2));
+    console.log(`  · ${JSON.stringify(perf)}`);
+    check(perf.bodyFps > 20 && perf.bodyFpsSweeping > 20, `the body stays smooth beside the route and its card (${perf.bodyFps} fps; ${perf.bodyFpsSweeping} fps while the pointer sweeps the profile)`);
+    await page.mouse.move(5, 5);
     // "Show me the highest point."
     const highest = await call("control_interactive_card", { action: "show", value: "highest" });
     check(!highest.isError && card()?.state.highlight === "highest" && typeof card()?.state.highlightM === "number", `the highest point is highlighted (${card()?.state.highlightM} m at km ${card()?.state.highlightKm})`);

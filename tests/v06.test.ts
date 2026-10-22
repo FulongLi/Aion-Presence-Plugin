@@ -583,6 +583,10 @@ test("v0.6 plan_route: a route far from the terrain on show gets its own surroun
   try {
     await aion.call("show_terrain", { region: "France" });
     const france = (await aion.link.run(backend => backend.state())).presentation as Extract<HubSnapshot["presentation"], { kind: "terrain" }>;
+    // With France on show, "Glasgow" is still the city Aion knows (never a search bounded to France).
+    const scots = out(await aion.call("plan_route", { from: "Glasgow", to: "Edinburgh", mode: "cycling" }));
+    assert.equal(scots.isError, undefined, scots.content[0].text);
+    assert.ok(Math.abs(Number((scots.structuredContent.journey?.places as { lat: number }[])[0].lat) - 55.86) < 0.1, "Glasgow, Scotland");
     const hike = out(await aion.call("plan_route", { from: "54.4326, -2.9631", to: "54.4590, -3.0244", mode: "hiking" }));
     assert.equal(hike.isError, undefined, hike.content[0].text);
     const shown = (await aion.link.run(backend => backend.state())).presentation as Extract<HubSnapshot["presentation"], { kind: "interactive" }>;

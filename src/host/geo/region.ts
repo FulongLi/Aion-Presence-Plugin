@@ -167,10 +167,14 @@ export interface FoundPlace { label: string; lon: number; lat: number; provider:
  * A place to mark, by name, preferring one inside the region on show ("Glasgow" on Scotland is Glasgow, Scotland):
  * the offline gazetteer within the region's countries, then Nominatim bounded to the view, then anywhere, then Photon.
  */
-export async function locatePlace(name: string, near: { region?: GeoRegion; frame?: Frame } | undefined, signal: AbortSignal, request?: Fetcher): Promise<FoundPlace> {
+export async function locatePlace(name: string, near: { region?: GeoRegion; frame?: Frame; gazetteerFirst?: boolean } | undefined, signal: AbortSignal, request?: Fetcher): Promise<FoundPlace> {
   const countries = new Set(near?.region?.ids.map(id => id.split(".")[0]) ?? []);
   const local = findPlace(name, countries.size ? place => countries.has(place.country) || (near?.frame ? inside(near.frame, [place.lon, place.lat], 0) : false) : undefined);
   if (local) return { label: local.name, lon: local.lon, lat: local.lat, provider: "natural-earth" };
+  // v0.6: a route's places need not be in the region on show: a city Aion knows anywhere comes before a search bounded
+  // to the view (which could find a street named after it there).
+  const known = near?.gazetteerFirst ? findPlace(name) : null;
+  if (known) return { label: known.name, lon: known.lon, lat: known.lat, provider: "natural-earth" };
   const window = near?.frame ? frameWindow(near.frame) : null;
   const attempts: URLSearchParams[] = [];
   const base = { q: name, format: "jsonv2", limit: "1" };

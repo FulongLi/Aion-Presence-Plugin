@@ -163,8 +163,8 @@ export class VisualResolver {
   }
 
   /** A place to mark, near the region on show (the gazetteer first, then the geocoders). */
-  place(name: string, near?: { region?: GeoRegion; frame?: Frame }, signal?: AbortSignal): Promise<FoundPlace> {
-    const scope = near?.region ? near.region.ids.join(",") || near.region.label : "";
+  place(name: string, near?: { region?: GeoRegion; frame?: Frame; gazetteerFirst?: boolean }, signal?: AbortSignal): Promise<FoundPlace> {
+    const scope = `${near?.region ? near.region.ids.join(",") || near.region.label : ""}${near?.gazetteerFirst ? "+known" : ""}`;
     return this.run("place", name, scope, signal, async (bounded, trace) => {
       const started = Date.now();
       const found = await locatePlace(name, near, bounded, this.options.request);
