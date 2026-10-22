@@ -26,6 +26,7 @@ import { checkCardReport } from "../src/cards/state";
 import { PresenceStore } from "../src/core/store";
 import { routePresentation } from "../src/core/presentationRouter";
 import { WELCOME_EXAMPLES, welcomeText } from "../src/core/guidance";
+import { welcomeScript } from "../src/core/welcomeNarration";
 import { PresenceHub } from "../src/host/hub/hub";
 import { hubCommandSchema, type HubSnapshot } from "../src/host/hub/protocol";
 import { decideSurface } from "../src/host/surface";
@@ -675,11 +676,12 @@ test("v0.6 welcome: on a fresh installation only, remembered once seen, shown ag
   try {
     const opened = out(await aion.call("open_presence", { display: "immersive" }));
     assert.equal(opened.structuredContent.welcome, "shown");
-    assert.match(opened.content[0].text, /the window shows examples, so do not list them/);
+    // v0.7: the window speaks the welcome itself, so Codex does not introduce Aion a second time.
+    assert.match(opened.content[0].text, /window speaks its own short welcome.*do not introduce Aion or list examples/);
     await aion.link.run(backend => backend.apply({ type: "welcome", done: true }));
     const again = out(await aion.call("open_presence", { welcome: true }));
     assert.equal(again.structuredContent.welcome, "shown");
-    assert.match(again.content[0].text, /getting-started introduction is on show/);
+    assert.match(again.content[0].text, /window speaks its welcome again/);
   } finally { await aion.close(); }
 });
 
@@ -691,9 +693,11 @@ test("v0.6 welcome: three short examples in English and Chinese, each a real too
     assert.ok(example.prompt.en.length < 60 && example.prompt.zh.length < 30);
   }
   for (const language of ["en", "zh"] as const) {
-    const text = welcomeText(language);
-    assert.ok(text.intro.length < 240, "read in well under half a minute");
-    assert.match(text.intro, /Codex/, "Aion is Codex's visual presence");
-    assert.doesNotMatch(text.intro, /another AI|second AI|独立的 AI/);
+    // v0.7: the introduction is spoken (welcomeScript); the on-screen words are a title and the controls.
+    const intro = welcomeScript(language).join(" ");
+    assert.ok(welcomeText(language).title.length < 30);
+    assert.ok(intro.length < 240, "said in well under half a minute");
+    assert.match(intro, /Codex/, "Aion is Codex's visual presence");
+    assert.doesNotMatch(intro, /another AI|second AI|独立的 AI/);
   }
 });

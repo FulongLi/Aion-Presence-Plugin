@@ -22,15 +22,36 @@ const rel = (path: string) => relative(REPO_ROOT, path);
 const FORBIDDEN = [
   /api\.openai\.com/i, /OPENAI_API_KEY/, /\/v1\/(?:realtime|responses|live|audio|chat)\b/, /chat\/completions/, /client_secrets/,
   /RTCPeerConnection/, /\bgpt-(?:live|realtime|4o|5)/i, /from ["']openai["']/,
-  // No speech-to-text, text-to-speech or recording of any kind.
+  // No speech-to-text or recording of any kind; no text-to-speech beyond the one welcome module below.
   /MediaRecorder/, /SpeechRecognition/, /speechSynthesis/, /SpeechSynthesisUtterance/,
 ];
+/**
+ * v0.7: the one exception to "Aion never speaks by itself" — the first-run welcome, a fixed script spoken by the
+ * system's own on-device voice (the browser's Speech Synthesis API). No model, key or network voice; nothing heard.
+ */
+const SPEAKS = new Set(["src/surface/welcomeSpeech.ts"]);
+const SPEECH = [/speechSynthesis/, /SpeechSynthesisUtterance/];
 
-test("no plugin source talks to a model API, asks for a key, records, transcribes or speaks", () => {
+test("no plugin source talks to a model API, asks for a key, records, transcribes or speaks (except the fixed welcome)", () => {
   for (const file of source) {
     const text = read(file);
-    for (const pattern of FORBIDDEN) assert.equal(pattern.test(text), false, `${rel(file)} matches ${pattern}`);
+    for (const pattern of FORBIDDEN) {
+      if (SPEAKS.has(rel(file)) && SPEECH.some(speech => speech.source === pattern.source)) continue;
+      assert.equal(pattern.test(text), false, `${rel(file)} matches ${pattern}`);
+    }
   }
+});
+
+test("v0.7: the welcome's voice speaks only the fixed welcome script, with an on-device voice", () => {
+  const speech = read(join(REPO_ROOT, "src/surface/welcomeSpeech.ts"));
+  for (const pattern of [/\bfetch\b/, /XMLHttpRequest/, /WebSocket/, /getUserMedia/, /MediaRecorder/]) assert.doesNotMatch(speech, pattern);
+  assert.match(speech, /chooseVoice\(/, "the voice is chosen by chooseVoice (on-device voices only)");
+  // The only text it is given is the welcome script.
+  const callers = source.filter(file => /\.speak\(this\.welcomeScript|new BrowserWelcomeSpeech/.test(read(file))).map(rel);
+  assert.deepEqual(callers, ["src/surface/view.ts"]);
+  const view = read(join(REPO_ROOT, "src/surface/view.ts"));
+  assert.match(view, /this\.welcomeScript = welcomeScript\(language\)/);
+  assert.equal([...view.matchAll(/\.speak\(/g)].length, 1, "one call, with the script");
 });
 
 test("the microphone is opened in exactly one file, which analyses it locally and sends, stores and plays nothing", () => {
