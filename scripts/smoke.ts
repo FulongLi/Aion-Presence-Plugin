@@ -1619,6 +1619,7 @@ async function welcome() {
   try {
     await page.goto(`${own.surfaceUrl}&debug=1&mic=0`);
     await until(page, state => state.frames > 30, 10_000);
+    await page.addStyleTag({ content: "#debug { display: none !important; }" });
     check(own.snapshot().hub.welcome, "a fresh installation: the hub says the welcome is due");
     await page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
     const examples = await page.locator(".welcome-prompt").allTextContents();
@@ -1661,6 +1662,8 @@ async function v06(renderer: "auto" | "canvas") {
   const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`, { width: 1440, height: 900 });
   const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
   const aion = await connectAion({ home, resolver: new VisualResolver({ env: {} }) });
+  // Evidence screenshots without the diagnostics panel (it is only there to read the view's state).
+  await page.addStyleTag({ content: "#debug { display: none !important; }" });
   const shot = (moment: string) => page.screenshot({ path: join(OUT, `v06-${renderer}-${moment}.png`) });
   type Result = { isError?: boolean; content: { text: string }[]; structuredContent?: { journey?: Record<string, unknown>; card?: { state: Record<string, unknown> }; presentation?: { kind: string; route: string } | null } };
   const call = (tool: string, args: Record<string, unknown> = {}) => aion.call(tool, args) as Promise<Result>;

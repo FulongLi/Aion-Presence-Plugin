@@ -27,7 +27,7 @@ export class TileCache {
   private active = 0;
   private readonly queue: (() => void)[] = [];
   private tokens: number = TILE_POLICY.burst;
-  private last = Date.now();
+  private last: number | null = null;
   private writes = 0;
   readonly enabled: boolean;
 
@@ -95,7 +95,7 @@ export class TileCache {
 
   private take() {
     const now = this.now();
-    this.tokens = Math.min(TILE_POLICY.burst, this.tokens + (now - this.last) / 1000 * TILE_POLICY.perSecond);
+    this.tokens = Math.min(TILE_POLICY.burst, this.tokens + Math.max(0, now - (this.last ?? now)) / 1000 * TILE_POLICY.perSecond);
     this.last = now;
     if (this.tokens < 1) return false;
     this.tokens--;
