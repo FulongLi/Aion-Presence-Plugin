@@ -48,11 +48,11 @@ duplicated). Add `body: "figure"` if they ask for the human form, or `body: "eye
 `display: "auto"` only when they want a small window, and `surface: "embedded"` only when they ask to see Aion inside
 this conversation (it works only where the host renders MCP Apps; the result says what happened).
 
-The first time Aion opens, its window shows a short getting-started welcome with three example requests
-(`welcome: "shown"` in the result): keep your own greeting to one or two sentences and do not list examples — they are
-on screen. "Show me the introduction again" → `open_presence` with `welcome: true`.
+The first time Aion opens, its window **speaks** a short welcome itself (`welcome: "shown"` in the result): do not
+introduce Aion, do not list examples, and keep your reply to a few words ("Here I am." / "我在这里。") so your voice and
+Aion's do not overlap. "Show me the introduction again" → `open_presence` with `welcome: true`.
 
-If the result has `greeting.due: true`, Aion has just opened and waved. Reply with **one short introduction** in
+Otherwise, if the result has `greeting.due: true`, Aion has just opened and waved. Reply with **one short introduction** in
 the user's language, from `greeting.line` (English) or `greeting.line_zh` (Chinese); start in English when the
 language is unknown. Word it naturally in the first person but keep the facts: Aion, an interactive AI presence
 created by Spirit Connect; the user can talk naturally or ask to see people, places, forms or ideas. No feature

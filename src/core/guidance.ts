@@ -51,18 +51,19 @@ export const WELCOME_EXAMPLES: readonly WelcomeExample[] = [
   { title: { en: "Visualize an idea", zh: "呈现想法" }, prompt: { en: "Create an interactive solar system.", zh: "创建一个可交互的太阳系。" }, tool: "show_interactive_card", args: { app: "generative-scene" } },
 ];
 
-/** The welcome's words: short (read in well under half a minute), Aion as Codex's visual presence, never a second AI. */
+/**
+ * The welcome's on-screen words (v0.7: the introduction itself is spoken — `welcomeScript` in welcomeNarration.ts — so
+ * only a title, the controls and the examples' help remain). Aion is Codex's visual presence, never a second AI.
+ */
 export function welcomeText(language: WelcomeLanguage, identity: AionIdentity = AION_IDENTITY) {
   return language === "zh" ? {
-    title: `欢迎使用 ${identity.name} Presence`, tagline: "让你的想法，呈现在眼前。",
-    intro: `你好，我是 ${identity.name}——你的视觉伙伴，由 Codex 驱动。你可以让我探索地点、呈现想法、构建可交互的三维场景，或者规划一段旅程。告诉我你想看什么就好。`,
+    title: `欢迎使用 ${identity.name}`,
     hint: "在 Codex 中说出或输入其中任何一句；点击即可复制。", copy: "复制", copied: "已复制，粘贴到 Codex 即可。", select: "已选中，按 ⌘C 或 Ctrl+C 复制。",
-    start: "开始", skip: "跳过",
+    listen: "收听欢迎语", replay: "重播", skip: "跳过", close: "关闭", help: "可以试试这些", offered: `点击即可听 ${identity.name} 的简短问候。`,
   } : {
-    title: `Welcome to ${identity.name} Presence`, tagline: "Your ideas, brought into view.",
-    intro: `Hello, I'm ${identity.name} — your visual companion, powered by Codex. Ask me to explore places, visualize ideas, build interactive 3D scenes or plan journeys. Just tell me what you'd like to see.`,
+    title: `Welcome to ${identity.name}`,
     hint: "Say or type any of these in Codex — click one to copy it.", copy: "Copy", copied: "Copied: paste it into Codex.", select: "Selected: press ⌘C or Ctrl+C to copy.",
-    start: "Get started", skip: "Skip",
+    listen: "Listen to the welcome", replay: "Replay", skip: "Skip", close: "Close", help: "Things to try", offered: `Click to hear ${identity.name}'s short welcome.`,
   };
 }
 

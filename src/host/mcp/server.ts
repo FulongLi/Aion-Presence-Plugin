@@ -509,10 +509,11 @@ export function createAionServer(options: AionServerOptions): McpServer {
     output.message += unsupported;
     if (decision.mode === "companion") output.surface.open = snapshot.hub.viewers > 0 || opened || waiting;
     const greeting = introduce ? { due: true, line: greetingLine(), line_zh: greetingLineChinese() } : { due: false };
-    // v0.6: the window shows the getting-started welcome (the first launch, or asked again): the spoken greeting stays short.
+    // v0.6: the window shows the getting-started welcome (the first launch, or asked again); v0.7: the window speaks it
+    // itself, so Codex does not introduce Aion a second time (and its own voice does not overlap Aion's).
     const welcome = decision.mode === "companion" && snapshot.hub.welcome;
-    if (introduce) output.message += welcome ? " A greeting is due: one or two sentences (see greeting.line); the window shows examples, so do not list them." : " A greeting is due: introduce Aion once, briefly (see greeting.line).";
-    else if (args.welcome) output.message += welcome ? " The getting-started introduction is on show in Aion's window: say so in a sentence." : "";
+    if (introduce) output.message += welcome ? " A greeting is due, but Aion's window speaks its own short welcome once you have answered: do not introduce Aion or list examples; reply in a few words at most." : " A greeting is due: introduce Aion once, briefly (see greeting.line).";
+    else if (args.welcome) output.message += welcome ? " Aion's window speaks its welcome again: say so in a few words." : "";
     const path = !immersive ? "none" : decision.mode === "embedded" ? "host-fullscreen" : "companion-fullscreen";
     return result({
       ...output, greeting, url, window_opened: opened, fullscreen: immersive ? "requested" : "not-requested",

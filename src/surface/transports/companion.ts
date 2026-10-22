@@ -1,3 +1,4 @@
+import type { NarrationOutcome } from "../../core/welcomeNarration";
 import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 import type { ConnectionState, PresenceTransport } from "./types";
 import type { CardReport } from "../../cards/state";
@@ -91,10 +92,10 @@ export class CompanionTransport implements PresenceTransport {
     return response.blob();
   }
 
-  /** v0.6: the welcome was seen (or is wanted again). */
-  async welcome(done: boolean) {
+  /** v0.6: the welcome was seen (or is wanted again); v0.7: with how it ended (spoken, skipped…). */
+  async welcome(done: boolean, outcome?: NarrationOutcome) {
     await fetch(new URL("api/command", this.base), {
-      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify(done ? { type: "welcome", done: true } : { type: "welcome", show: true }), keepalive: true,
+      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify(done ? { type: "welcome", done: true, ...(outcome ? { outcome } : {}) } : { type: "welcome", show: true }), keepalive: true,
     }).catch(() => {});
   }
 

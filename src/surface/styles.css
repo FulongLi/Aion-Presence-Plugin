@@ -221,35 +221,50 @@ body { overflow: hidden; background: #090e16; }
   .presence.with-workspace .workspace { transform: none; }
   .presence.with-workspace .status { left: 50%; max-width: 80vw; bottom: auto; top: 12px; }
 }
-/* v0.6: the first-run welcome — a quiet panel below the body, in Aion's own type and silver; the body stays above it. */
-.welcome { position: absolute; left: 50%; bottom: max(7vh, 40px); width: min(560px, calc(100vw - 32px)); max-height: 62vh; overflow: auto;
-  transform: translate(-50%, 12px); padding: 22px 26px 18px; border-radius: 20px; text-align: center;
-  background: linear-gradient(180deg, #0d1520cc, #0a1018e0); border: 1px solid #ffffff0f; box-shadow: 0 30px 80px -30px #000c;
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #c9d5e0; opacity: 0;
-  transition: opacity 1s ease, transform 1.1s cubic-bezier(.2,.7,.2,1); }
+/* v0.6: the first-run welcome; v0.7: voice-first — no panel over the stage, only a title, the sentence being spoken, a
+   speaking indicator and small controls beneath the body. The examples open on request (?) as a compact sheet. */
+.welcome { position: absolute; left: 50%; bottom: max(6vh, 32px); width: min(620px, calc(100vw - 32px)); text-align: center;
+  transform: translate(-50%, 10px); color: #c9d5e0; opacity: 0; transition: opacity 1s ease, transform 1.1s cubic-bezier(.2,.7,.2,1); }
 .welcome.visible { opacity: 1; transform: translate(-50%, 0); }
 .welcome[hidden] { display: none; }
-.entry:not([hidden]) ~ .welcome { bottom: calc(max(9vh, 64px) + 78px); padding-top: 18px; padding-bottom: 14px; }
-.welcome-title { margin: 0; font-size: 12px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: #8597a9; }
-.welcome-tagline { margin: 8px 0 0; font-size: 22px; line-height: 1.3; font-weight: 300; color: #eef4f9; letter-spacing: .01em; }
-.welcome-intro { margin: 10px auto 0; max-width: 46ch; font-size: 13.5px; line-height: 1.6; color: #b7c5d2; }
-.welcome-examples { margin: 16px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.welcome-copy { display: flex; flex-direction: column; gap: 5px; width: 100%; height: 100%; padding: 11px 12px; border-radius: 14px; border: 1px solid #ffffff14;
+.entry:not([hidden]) ~ .welcome { bottom: calc(max(9vh, 64px) + 70px); }
+.welcome-title { margin: 0; font-size: 11.5px; font-weight: 500; letter-spacing: .16em; text-transform: uppercase; color: #7f91a3; }
+.welcome-caption { min-height: 1.5em; margin: 10px auto 0; max-width: 52ch; font-size: 15px; line-height: 1.5; font-weight: 300; color: #e3ebf2;
+  letter-spacing: .01em; text-shadow: 0 1px 12px #000a; transition: opacity .4s; }
+.welcome-caption:empty { opacity: 0; }
+.welcome-transcript { margin: 10px auto 0; max-width: 48ch; font-size: 13px; line-height: 1.6; color: #b7c5d2; }
+.welcome-transcript[hidden] { display: none; }
+.welcome-actions { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 12px; }
+.welcome-actions button { padding: 6px 15px; border-radius: 999px; border: 1px solid #ffffff1c; background: #0b121acc; color: #c9d5e0;
+  font: inherit; font-size: 12px; letter-spacing: .06em; cursor: pointer; transition: background .3s, border-color .3s, color .3s; }
+.welcome-actions button:hover { background: #ffffff14; border-color: #ffffff38; color: #eef4f9; }
+.welcome-actions button:focus-visible { outline: 1px solid #9dadbf; outline-offset: 3px; }
+.welcome-actions button[hidden] { display: none; }
+.welcome-listen { border-color: color-mix(in srgb, var(--accent, #e2725b) 55%, #ffffff22) !important; color: #f2f6fa !important; }
+.welcome-skip { border-color: transparent !important; background: transparent !important; color: #8597a9 !important; }
+.welcome-skip:hover { color: #c9d5e0 !important; }
+.welcome-help-toggle { width: 30px; height: 30px; padding: 0 !important; display: inline-grid; place-items: center; }
+.welcome-voice { display: inline-flex; align-items: center; gap: 3px; height: 16px; margin-right: 4px; opacity: 0; transition: opacity .5s; }
+.welcome-voice i { width: 3px; height: 6px; border-radius: 2px; background: var(--accent, #e2725b); }
+.welcome-voice.on { opacity: .9; }
+.welcome-voice.on i { animation: welcome-voice 1.1s ease-in-out infinite; }
+.welcome-voice.on i:nth-child(2) { animation-delay: .18s; }
+.welcome-voice.on i:nth-child(3) { animation-delay: .36s; }
+@keyframes welcome-voice { 0%, 100% { height: 5px; } 50% { height: 14px; } }
+@media (prefers-reduced-motion: reduce) { .welcome-voice.on i { animation: none; height: 10px; } }
+.welcome-help { margin: 12px auto 0; padding: 14px 14px 10px; border-radius: 16px; background: linear-gradient(180deg, #0d1520e6, #0a1018f0);
+  border: 1px solid #ffffff12; box-shadow: 0 24px 60px -30px #000c; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+.welcome-help[hidden] { display: none; }
+.welcome-examples { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.welcome-copy { display: flex; flex-direction: column; gap: 5px; width: 100%; height: 100%; padding: 10px 11px; border-radius: 12px; border: 1px solid #ffffff14;
   background: #ffffff06; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: background .3s, border-color .3s; }
 .welcome-copy:hover { background: #ffffff10; border-color: color-mix(in srgb, var(--accent, #e2725b) 45%, #ffffff22); }
 .welcome-copy:focus-visible { outline: 1px solid #9dadbf; outline-offset: 2px; }
 .welcome-kind { font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent, #e2725b); }
-.welcome-prompt { font-size: 13px; line-height: 1.45; color: #e8eff6; }
-.welcome-hint { margin: 12px 0 0; font-size: 11.5px; color: #7f91a3; }
-.welcome-status { min-height: 1.4em; margin: 4px 0 0; font-size: 11.5px; color: #a9d1b8; }
-.welcome-actions { display: flex; justify-content: center; gap: 10px; margin-top: 6px; }
-.welcome-start, .welcome-skip { padding: 8px 22px; border-radius: 999px; font: inherit; font-size: 12.5px; letter-spacing: .08em; cursor: pointer; transition: background .3s, border-color .3s; }
-.welcome-start { border: 1px solid #ffffff2a; background: #ffffff10; color: #e8eff6; }
-.welcome-start:hover { background: #ffffff1c; border-color: #ffffff44; }
-.welcome-skip { border: 1px solid transparent; background: transparent; color: #8597a9; }
-.welcome-skip:hover { color: #c9d5e0; }
-.welcome-start:focus-visible, .welcome-skip:focus-visible { outline: 1px solid #9dadbf; outline-offset: 3px; }
-@media (max-width: 640px) { .welcome-examples { grid-template-columns: 1fr; } .welcome { padding: 18px 16px 14px; } .welcome-tagline { font-size: 19px; } }
+.welcome-prompt { font-size: 12.5px; line-height: 1.45; color: #e8eff6; }
+.welcome-hint { margin: 10px 0 0; font-size: 11.5px; color: #7f91a3; }
+.welcome-status { min-height: 1.4em; margin: 2px 0 0; font-size: 11.5px; color: #a9d1b8; }
+@media (max-width: 640px) { .welcome-examples { grid-template-columns: 1fr; } .welcome-caption { font-size: 14px; } }
 /* v0.6: an embedded view while Aion is in its own window: a short note instead of a second Aion. */
 .elsewhere { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); margin: 0; font-size: 13px; letter-spacing: .04em; color: #8b9cad; text-align: center; }
 .presence.elsewhere-open .stage, .presence.elsewhere-open .markers, .presence.elsewhere-open .scene { opacity: .12; }
