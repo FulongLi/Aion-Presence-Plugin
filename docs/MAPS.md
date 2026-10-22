@@ -86,8 +86,20 @@ and the date line is no seam. The height field carries its frame through the cro
 | A name the offline world does not know, and the geocoders are unreachable | `region-unavailable`: countries, continents and their parts still work; Codex answers in words. |
 | A place to mark is unknown | `place-not-found` (with a hint: add the country). |
 | Geocoders unreachable for a marker | Major cities still come from the gazetteer; otherwise `place-unavailable`. |
-| Elevation tiles unreachable | `terrain-unavailable`; `show_map` still works offline. |
+| Elevation tiles unreachable | `terrain-unavailable`; `show_map` still works offline. Since v0.5.2 the result says which stage failed: "the elevation service timed out / could not be reached / answered HTTP 503", "an elevation tile was invalid (…)", or "the height field could not be built". |
 | Near the poles | Web Mercator elevation tiles end at ±85.05°: Antarctica's terrain stops there; its map is complete. |
+
+## If terrain does not appear (v0.5.2)
+
+The chain is: Codex's tool list → `show_terrain` → region → AWS Terrain Tiles → PNG decoding → mosaic → height field →
+the hub (media) → the Presence surface → the particle body. Each stage fails differently:
+
+| Symptom | Stage | Check |
+| --- | --- | --- |
+| Codex says it has no terrain tool, or shows a map instead | Codex's tool exposure (v0.4.5–v0.5.1: hidden by Codex's plugin budget, see [MCP-TOOLS.md](MCP-TOOLS.md#v052-the-terrain-regression)) | `npm run codex:tools`: the version Codex runs and how many Aion tools a new conversation gets; start a new conversation after updating |
+| `region-not-found` / `region-unavailable` | Region lookup | the name, or the geocoders (countries and continents work offline) |
+| `terrain-unavailable (…)` | Elevation service, a tile, or the height field | the cause in brackets; `npm run geo:coverage` measures the live services |
+| A result, but nothing forms | Media delivery or the renderer | `npm run smoke -- --only=v41` (terrain and maps in both renderers); the surface's `&debug=1` line |
 
 ## Proof
 

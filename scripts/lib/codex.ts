@@ -28,7 +28,7 @@ export const LEGACY_PLUGIN_ID = `aion-presence@${LEGACY_MARKETPLACE}`;
  * a tool missing here is a server or registration problem; a tool present here but absent from a conversation is the
  * host's tool exposure (its metadata budget, or a conversation that started before an update).
  */
-export async function codexToolInventory(codex: string, env: NodeJS.ProcessEnv, waitMs = 8_000): Promise<{ name: string; tools: Record<string, { description?: string; inputSchema?: unknown; outputSchema?: unknown }> }[]> {
+export async function codexToolInventory(codex: string, env: NodeJS.ProcessEnv, waitMs = 8_000): Promise<{ name: string; pluginId: string | null; version: string | null; tools: Record<string, { description?: string; inputSchema?: unknown; outputSchema?: unknown }> }[]> {
   const { spawn } = await import("node:child_process");
   const child = spawn(codex, ["app-server"], { env: { ...env, AION_PRESENCE_BROWSER: "none" }, stdio: ["pipe", "pipe", "ignore"] });
   let buffer = "", id = 0;
@@ -48,7 +48,63 @@ export async function codexToolInventory(codex: string, env: NodeJS.ProcessEnv, 
     child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
     await new Promise(resolve => setTimeout(resolve, waitMs));
     const list = await call("mcpServerStatus/list", {});
-    const data = (list.result as { data?: { name: string; tools?: Record<string, never> }[] } | undefined)?.data ?? [];
-    return data.map(server => ({ name: server.name, tools: server.tools ?? {} }));
+    const data = (list.result as { data?: { name: string; pluginId?: string | null; serverInfo?: { version?: string } | null; tools?: Record<string, never> }[] } | undefined)?.data ?? [];
+    return data.map(server => ({ name: server.name, pluginId: server.pluginId ?? null, version: server.serverInfo?.version ?? null, tools: server.tools ?? {} }));
   } finally { child.kill(); }
+}
+
+/**
+ * What a new Codex conversation will expose of the *installed* Aion (v0.5.2): starts the MCP server exactly as Codex
+ * would (`codex mcp list --json`), reads its instructions and tools, and applies Codex's own plugin budget
+ * (src/host/mcp/budget.ts `codexExposureReport`). Codex's app server lists every tool even when the model gets fewer.
+ */
+export async function installedAionExposure(codex: string, env: NodeJS.ProcessEnv) {
+  const { execFileSync } = await import("node:child_process");
+  const { Client } = await import("@modelcontextprotocol/client");
+  const { getDefaultEnvironment, StdioClientTransport } = await import("@modelcontextprotocol/client/stdio");
+  const { codexExposureReport } = await import("../../src/host/mcp/budget");
+  const servers = JSON.parse(execFileSync(codex, ["mcp", "list", "--json"], { env, encoding: "utf8", timeout: 60_000 })) as { name: string; transport: { command: string; args: string[]; env?: Record<string, string>; cwd?: string } }[];
+  const server = servers.find(item => item.name === "aion-presence");
+  if (!server) return null;
+  const transport = new StdioClientTransport({
+    command: server.transport.command, args: server.transport.args, cwd: server.transport.cwd,
+    env: { ...getDefaultEnvironment(), ...server.transport.env, AION_PRESENCE_BROWSER: "none" }, stderr: "ignore",
+  });
+  const client = new Client({ name: "aion-codex-exposure", version: "1.0.0" }, { capabilities: {} });
+  await client.connect(transport);
+  try {
+    const instructions = client.getInstructions() ?? "";
+    const { tools } = await client.listTools();
+    return { version: client.getServerVersion()?.version ?? null, instructions: Buffer.byteLength(instructions), report: codexExposureReport(tools, instructions) };
+  } finally { await client.close(); }
+}
+
+/**
+ * The Aion tools a real Codex conversation holds (v0.5.2): one `codex exec` turn in `home` (which must hold a login)
+ * asks the model to run `ALL_TOOLS.filter(...)` in code mode; the answer is read from the session rollout — the tool's
+ * own output, not the model's retelling. `resume`: the same conversation as the last turn. Uses one turn of the account.
+ */
+export async function liveAionTools(codex: string, home: string, workdir: string, resume = false, keep?: string): Promise<string[] | null> {
+  const { execFileSync } = await import("node:child_process");
+  const { copyFileSync, existsSync, readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const js = "text(JSON.stringify({aionTools:ALL_TOOLS.filter(x=>x.name.includes('aion_presence')).map(x=>x.name.replace('mcp__aion_presence__',''))}));";
+  const prompt = `Do not do anything else. Call exec once with exactly this JavaScript, then reply with only its raw output:\n\n${js}`;
+  const env = { ...process.env, CODEX_HOME: home, AION_PRESENCE_BROWSER: "none" };
+  const args = resume ? ["exec", "resume", "--last", "--json", "--skip-git-repo-check", prompt] : ["exec", "--json", "--skip-git-repo-check", "-C", workdir, prompt];
+  try { execFileSync(codex, args, { env, cwd: workdir, encoding: "utf8", timeout: 300_000, stdio: ["ignore", "pipe", "pipe"] }); } catch { /* read what the rollout holds */ }
+  const walk = (dir: string): string[] => readdirSync(dir).flatMap(name => { const path = join(dir, name); return statSync(path).isDirectory() ? walk(path) : [path]; });
+  const sessions = join(home, "sessions");
+  const rollouts = existsSync(sessions) ? walk(sessions).filter(file => file.endsWith(".jsonl")).sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs) : [];
+  if (keep && rollouts[0]) copyFileSync(rollouts[0], keep);
+  for (const file of rollouts.slice(0, 1)) {
+    const outputs = readFileSync(file, "utf8").split("\n").filter(line => line.includes("custom_tool_call_output") && line.includes("aionTools"));
+    const last = outputs.at(-1);
+    if (!last) continue;
+    const output = (JSON.parse(last) as { payload: { output: unknown } }).payload.output;
+    const text = Array.isArray(output) ? output.map((item: { text?: string }) => item.text ?? "").join("") : String(output);
+    const at = text.indexOf("{\"aionTools\"");
+    if (at >= 0) return (JSON.parse(text.slice(at, text.indexOf("}", at) + 1)) as { aionTools: string[] }).aionTools;
+  }
+  return null;
 }

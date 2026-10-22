@@ -2,16 +2,16 @@ import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@model
 import { CLIENT_CAPABILITIES_META_KEY, McpServer, type CallToolResult, type ClientCapabilities, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { AION_BODIES, bodyLabel, PERSISTENT_BODIES } from "../../core/body";
-import { AION_IDENTITY, embodimentStatement } from "../../core/identity";
+import { AION_IDENTITY } from "../../core/identity";
 import {
   cleanCode, cleanText, describePresentation, LIMITS, type ImageMode, type Presentation, type PresentationContent,
 } from "../../core/presentation";
 import { PRESENTATION_ROUTES, type PresentationPreference } from "../../core/presentationRouter";
 import type { TerrainStyle } from "../../visual/types";
 import type { Scene3D as Scene3DType } from "../../visual/scene3d/types";
-import { greetingLine, greetingLineChinese, onboardingGuidance } from "../../core/guidance";
+import { greetingLine, greetingLineChinese } from "../../core/guidance";
 import { ACTIVITY_STATES } from "../../core/state";
-import { errorCode } from "../../visual/errors";
+import { errorCode, errorDetail } from "../../visual/errors";
 import { fitForIntent, portraitStyleFor, type ImageFit, type PortraitStyle } from "../../visual/types";
 import { accentColor, contrastOnBlack, COLOR_PRESETS, hexToRgb, parseColor, type NamedColor } from "../../core/colors";
 import { markerWords, MARKER_LIMITS, type GeoMarker } from "../../core/presentation";
@@ -170,9 +170,14 @@ type PresenceOutput = z.infer<typeof presenceOutput>;
 
 /** Every form id SCF's own visual language offers, grouped by category (symbols have their own tool). */
 export function formCatalog(registry: VisualFormRegistry = visualForms): string {
+  // Compact (v0.5.2): Codex cuts a plugin tool's description at 1,000 B, so each id prefix is written once.
   return registry.categories().filter(category => category.id !== "symbol")
-    .map(category => `${category.label}: ${registry.forms().filter(form => form.category === category.id).map(form => form.id).join(", ")}`)
-    .join(". ");
+    .map(category => {
+      const ids = registry.forms().filter(form => form.category === category.id).map(form => form.id);
+      const prefix = ids[0]?.slice(0, ids[0].indexOf(".") + 1) ?? "";
+      return ids.every(id => id.startsWith(prefix)) && prefix ? `${prefix}{${ids.map(id => id.slice(prefix.length)).join(",")}}` : ids.join(",");
+    })
+    .join(" ");
 }
 
 /** The variants forms declare, forms with the same set grouped together; the first is the default (SCF). */
@@ -222,11 +227,10 @@ export const TOOL_DESCRIPTIONS = {
     + "every particle visual and 3D object); accent is the colour of markers and highlights. Names in any language (\"blue\", \"warm gold\", "
     + `"紫色"), presets (${COLOR_PRESETS.join(", ")}) or #RRGGBB. "Restore your original colour" → reset base (Aion Silver). Photographs and `
     + "cards are never tinted. Use only when the user asks for a colour.",
-  show_form: () => "Form a symbol or figure from Aion's own visual language directly with its particle body. It is drawn procedurally on the "
-    + "device, with no image search: Taoist symbols (the yin-yang/taiji, the yin and yang lines, the eight trigrams 乾 兑 离 震 巽 坎 艮 坤 "
-    + "and the bagua), constellations as star maps, the twelve zodiac signs and the planetary symbols. Always prefer it to show_image for "
-    + "these (\"What does Orion look like?\", \"Show me the yin-yang\"). Pass a form id from the list, or a plain name in English or Chinese "
-    + `("yin yang", "Orion", "Leo zodiac sign", "猎户座"). Form ids: ${formCatalog()}.`,
+  show_form: () => "Form a symbol or figure from Aion's own visual language with its particle body, drawn procedurally (no image search): "
+    + "Taoist symbols (yin-yang/taiji, yin and yang lines, the trigrams 乾 兑 离 震 巽 坎 艮 坤, the bagua), constellations as star maps, "
+    + "zodiac, planetary and music symbols. Prefer it to show_image for these (\"What does Orion look like?\", \"Show me the yin-yang\"). "
+    + `Pass a form id or a plain name in English or Chinese ("yin yang", "Orion", "猎户座"). Form ids: ${formCatalog()}.`,
   show_clock: "Form a clock face showing a time with Aion's particle body. Use when seeing a time helps: the user asks what time it is, or "
     + "a specific time matters to the answer. Omit time to show the user's current local time; the result tells you that time so you can say it.",
   show_number: "Show one short, key number with Aion's particle body (e.g. 42%, 84, 23°C, £28,000, 3.14). Use only for the single number "
@@ -296,18 +300,41 @@ function routeWords(presentation: Presentation): string {
 }
 
 /** Model-facing explanations of resolver failures (SCF's tool statuses), so Codex can carry on in words. */
-function resolveFailure(code: string, what: string): string {
+/**
+ * Which stage of the terrain pipeline failed (v0.5.2), from the cause a `terrain-unavailable` carries: the elevation
+ * service, a tile, or the height field. Short and free of URLs and paths.
+ */
+export function terrainCause(detail?: string): string | null {
+  if (!detail) return null;
+  if (detail === "timeout") return "the elevation service timed out";
+  if (detail === "network") return "the elevation service could not be reached";
+  if (/^http-\d{3}$/.test(detail)) return `the elevation service answered HTTP ${detail.slice(5)}`;
+  if (detail === "terrain-tile-invalid" || detail === "type" || detail === "too-large" || /^png-/.test(detail)) return `an elevation tile was invalid (${detail})`;
+  if (detail === "heightfield-failed") return "the height field could not be built";
+  if (detail === "url-rejected") return "the elevation host is not allowed";
+  return detail === "error" ? null : detail;
+}
+
+function resolveFailure(code: string, what: string, detail?: string): string {
   switch (code) {
     case "portrait-not-found": return `portrait-not-found: no public portrait of ${what} was found. Describe them in words instead.`;
     case "image-not-found": return `image-not-found: no suitable open image of "${what}" was found. Describe it in words, or try a more specific query.`;
     case "region-not-found": return `region-not-found: no place called "${what}" was found. Check the name, or describe the terrain in words.`;
-    case "terrain-unavailable": return `terrain-unavailable: elevation data for ${what} could not be loaded right now. Describe the terrain in words.`;
+    case "terrain-unavailable": { const cause = terrainCause(detail); return `terrain-unavailable: elevation data for ${what} could not be loaded right now${cause ? ` (${cause})` : ""}. Describe the terrain in words.`; }
     case "region-unavailable": return `region-unavailable: the place finder (OpenStreetMap) could not be reached for "${what}". Countries, continents and their named parts work offline; try one of those, or answer in words.`;
     case "place-not-found": return `place-not-found: no place called "${what}" was found to mark. Check the name, or add the country (e.g. "Springfield, Illinois").`;
     case "place-unavailable": return `place-unavailable: the place finder could not be reached to find "${what}". Major cities work offline; otherwise answer in words.`;
     default: return `${code}: the public image sources could not be reached right now. Answer in words; Aion stays as it is.`;
   }
 }
+
+/**
+ * The server's instructions (v0.5.2: one short line). Codex sends them to the model as the description of *every* tool's
+ * namespace and counts them once per tool against its plugin budget (budget.ts, `CODEX_PLUGIN_BUDGET`): v0.5.1's 1.27 KB
+ * of instructions cost about 32 KB and hid nine tools, `show_terrain` among them. The embodiment and onboarding guidance
+ * they carried lives in the aion-presence skill (Embodiment Mode, Onboarding), which Codex loads once.
+ */
+export const SERVER_INSTRUCTIONS = "Aion is Codex's visual presence, not a separate AI. Follow the aion-presence skill.";
 
 /**
  * The Aion Presence MCP server: a small, coherent tool surface over the presence hub. Codex is the
@@ -321,10 +348,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
   const resolver = options.resolver ?? new VisualResolver({ env, assetsDir: options.assetsDir });
   const now = options.now ?? (() => new Date());
   const server = new McpServer({ name: "aion-presence", title: "Aion Presence", version: options.version }, {
-    instructions: `${embodimentStatement("Codex")} Call open_presence with display "immersive" when the user asks to open Aion. While Aion `
-      + "is open, you are present to the user as Aion: speak in the first person, never describe Aion as a separate agent, and do not narrate "
-      + "these tools. When the user asks to see something, or what someone or something looks like, show it with the matching tool instead of "
-      + `only describing it; otherwise use the tools sparingly. ${onboardingGuidance()} See the aion-presence skill (Embodiment Mode).`,
+    instructions: SERVER_INSTRUCTIONS,
   });
   // Every tool is listed without the dialect line of its JSON Schema (see budget.ts: tool metadata stays small).
   const registerTool = server.registerTool.bind(server);
@@ -657,7 +681,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
         markers = placed;
       }
       return await presentTerrain(ctx, args.region, args.style ?? "terrain", markers, args.hold_seconds, args.presentation);
-    } catch (error) { return failure(resolveFailure(errorCode(error), args.region)); }
+    } catch (error) { return failure(resolveFailure(errorCode(error), args.region, errorDetail(error))); }
   });
 
   server.registerTool("show_map", {
@@ -736,7 +760,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
       const shown = kind === "map" ? await presentMap(ctx, base.region, markers) : await presentTerrain(ctx, base.region, base.style, markers);
       if (note && !shown.isError) (shown.content[0] as { text: string }).text += note;
       return shown;
-    } catch (error) { return failure(resolveFailure(errorCode(error), base.region)); }
+    } catch (error) { return failure(resolveFailure(errorCode(error), base.region, errorDetail(error))); }
   });
 
   server.registerTool("set_colors", {

@@ -24,12 +24,12 @@ real MCP tools (`patch`, `undo`, `inspect`, … as well).
 | `npm run runtime:check` | Fails if the committed runtime differs from what the sources build |
 | `npm run plugin:validate -- --runtime` | Agent Plugins schema, paths, skills, hooks, marketplace, versions, license files |
 | `npm run check` | lint, typecheck, tests, runtime check, validation |
-| `npm run smoke` | The surface in headless Chrome, both renderers: every presentation kind, cards, generated scenes (patches checked by pixels, selection, undo, refusals, cleanup and timings). `-- --offline` skips lookups; `-- --only=v05` one section |
+| `npm run smoke` | The surface in headless Chrome, both renderers: every presentation kind, cards, generated scenes (patches checked by pixels, selection, undo, refusals, cleanup and timings). `-- --offline` skips lookups; `-- --only=v05` one section; `-- --only=terrain` real terrain, styles and routes (v0.5.2) |
 | `npm run showcase` | The visual review: records each demo in the real renderer through the real MCP tools (`-- --list`, `-- <names>`, `-- --headed`, `-- --canvas`) |
 | `npm run scene -- <command>` | Drive a running Aion's generated scene by hand (show, patch, undo, redo, revert, inspect, card commands) |
 | `npm run scene:eval` | Natural-language scene generation with the real Codex CLI, measured from request to confirmed render (uses your Codex account; [SCENE-GENERATION-TESTS.md](SCENE-GENERATION-TESTS.md)) |
-| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes |
-| `npm run mcp:budget` · `npm run codex:tools` | Aion's tool metadata against its budget · what your Codex receives from every MCP server ([MCP-TOOLS.md](MCP-TOOLS.md)) |
+| `npm run codex:verify` | A from-scratch Git install and the one-command fallback with the real Codex CLI, in throwaway homes; `-- --live` also reads `ALL_TOOLS` in a real conversation (one turn of your account) |
+| `npm run mcp:budget` · `npm run codex:tools` | Aion's tool metadata against its budget and Codex's own plugin budget · what your Codex receives from every MCP server, the Aion version it runs, and how many Aion tools a new conversation gets ([MCP-TOOLS.md](MCP-TOOLS.md)) |
 | `npm run audio:eval` | The music detector on real recordings on this Mac |
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge |

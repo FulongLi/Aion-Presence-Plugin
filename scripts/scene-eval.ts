@@ -26,7 +26,7 @@ import { REPO_ROOT } from "./lib/pluginPackage";
  * Usage: `npm run scene:eval` (all), `-- --only gears,dab`, `-- --list`, `-- --out <dir>`. It uses your Codex account's
  * usage: about 20 turns for the full run. Results: <out>/results.json, <out>/*.png (default .e2e/scene-eval/<time>/).
  */
-interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal"; select?: "largest" }
+interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map"; select?: "largest" }
 interface Scenario { id: string; title: string; steps: Step[] }
 
 export const SCENARIOS: Scenario[] = [
@@ -50,6 +50,15 @@ export const SCENARIOS: Scenario[] = [
     ],
   },
   { id: "flux", title: "G. Unsupported computation", steps: [{ prompt: "Calculate an accurate magnetic flux density field.", expect: "refusal" }] },
+  {
+    // v0.5.2, the terrain regression: real places must reach show_terrain / show_map, never a generated or decorative scene.
+    id: "geo", title: "H. Real terrain and maps", steps: [
+      { prompt: "Show me the terrain of Scotland.", expect: "terrain" },
+      { prompt: "Show me China's topography.", expect: "terrain" },
+      { prompt: "Show me the map of Scotland.", expect: "map" },
+      { prompt: "Show me the terrain of Scotland and mark Glasgow.", expect: "terrain" },
+    ],
+  },
 ];
 
 interface ToolCall { tool: string; ok: boolean; text: string; arguments?: unknown }
@@ -106,15 +115,18 @@ const revisionOf = () => snapshot().card?.scene?.revision ?? 0;
 const renderedOf = () => snapshot().card?.scene?.rendered;
 
 /** One Codex turn; resolves with its events once the process exits. Watches the hub for the confirmed render meanwhile. */
-function turn(prompt: string, resume: boolean): Promise<{ events: Record<string, unknown>[]; seconds: number; renderedSeconds: number | null }> {
+function turn(prompt: string, resume: boolean): Promise<{ events: Record<string, unknown>[]; seconds: number; renderedSeconds: number | null; kinds: Set<string> }> {
   const args = resume
     ? ["exec", "resume", "--last", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", prompt]
     : ["exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-C", workdir, prompt];
   const started = performance.now(), before = revisionOf(), presentationBefore = snapshot().presentation?.id ?? null;
   let renderedSeconds: number | null = null;
+  const kinds = new Set<string>();
   const watch = setInterval(() => {
+    const now = snapshot().presentation;
+    if (now && now.id !== presentationBefore) kinds.add(now.kind);
     if (renderedSeconds !== null) return;
-    const rendered = renderedOf(), presentation = snapshot().presentation;
+    const rendered = renderedOf(), presentation = now;
     const card = rendered && rendered.ok && rendered.revision > before;
     const body = presentation && presentation.id !== presentationBefore && presentation.kind === "scene";
     if (card || body) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
@@ -137,7 +149,7 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     child.on("exit", () => {
       clearTimeout(timer); clearInterval(watch);
       if (!events.length) console.log(`  (no events; stderr: ${stderr.slice(-400)})`);
-      resolve({ events, seconds: Math.round((performance.now() - started) / 100) / 10, renderedSeconds });
+      resolve({ events, seconds: Math.round((performance.now() - started) / 100) / 10, renderedSeconds, kinds });
     });
   });
 }
@@ -196,7 +208,12 @@ try {
       if (card?.scene) writeFileSync(join(out, `${scenario.id}-${index + 1}.scene.json`), JSON.stringify(card.scene.document, null, 1));
       const revisionAfter = revisionOf();
       const presentation = snapshot().presentation;
-      const outcome = step.expect === "refusal"
+      const geoTool = step.expect === "terrain" ? "show_terrain" : "show_map";
+      const outcome = step.expect === "terrain" || step.expect === "map"
+        ? (calls.some(c => c.tool === geoTool && c.ok) && ran.kinds.has(step.expect)
+          ? `${step.expect} formed by ${geoTool}${calls.some(c => ["show_interactive_card", "show_scene", "show_image"].includes(c.tool)) ? " (also called a scene/image tool)" : ""}`
+          : `NOT SHOWN (${[...ran.kinds].join(", ") || "nothing"} shown; tools: ${calls.map(c => c.tool).join(", ") || "none"})`)
+        : step.expect === "refusal"
         ? (sceneCalls.some(c => /unsupported:/.test(c.text)) ? "refused as unsupported (Aion)" : calls.length === 0 ? "declined by Codex without calling Aion" : sceneCalls.some(c => c.ok) ? "SHOWN (should have been refused)" : "refused")
         : step.expect === "body" ? (presentation?.kind === "scene" ? "formed by the body" : card?.scene ? `card (revision ${revisionAfter})` : "nothing shown")
           : revisionAfter > revisionBefore && card?.scene?.rendered?.ok && card.scene.rendered.revision >= revisionAfter ? `rendered revision ${revisionAfter}` : revisionAfter > revisionBefore ? `revision ${revisionAfter}, not confirmed` : "no change";

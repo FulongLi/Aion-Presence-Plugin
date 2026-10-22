@@ -245,7 +245,8 @@ Choosing the tool (Aion's own visual language comes first):
 - The result lists every marker with its coordinates (`markers`): you may mention them when they help.
 - A large country is framed around its main part (the United States: the contiguous states); a place outside the
   view (Honolulu, Anchorage) widens the map to include it.
-- If a lookup fails (`region-not-found`, `place-not-found`, `…-unavailable`), say so briefly and answer in words.
+- If a lookup fails (`region-not-found`, `place-not-found`, `…-unavailable`), say so briefly and answer in words; a
+  `terrain-unavailable` result says which stage failed (the elevation service, a tile, the height field).
 
 ## Music
 
@@ -412,7 +413,8 @@ a magnetic field, a converter circuit, "the passage of time" — **write it** as
 `show_interactive_card` with `app: "generative-scene"` and `scene`. Read [references/scene-ir.md](references/scene-ir.md)
 the first time: it lists every object, material and animation type, the limits, and the patch operations; its
 "Plan it in one pass" steps and [references/scene-examples.md](references/scene-examples.md) show how to turn a request
-into a document. Write it once, completely, with material `preset`s; leave the camera to Aion.
+into a document. Write it once, completely, with material `preset`s; leave the camera to Aion. A real place's terrain,
+topography, relief or map is never a generated scene: `show_terrain` and `show_map` use real elevation and outline data.
 
 - **Aion decides how to show it** (leave `presentation` out unless the user asked): abstract, look-only ideas become the
   particle body; anything to inspect or edit becomes an interactive card beside the body; a concrete scene the body can
@@ -446,10 +448,12 @@ into a document. Write it once, completely, with material `preset`s; leave the c
 
 ## If a tool seems to be missing
 
-Every Aion tool is registered by the plugin. If one you need is not in your tool list (for example
-`show_stroke_animation`), do not conclude it does not exist: search for it (in Codex, `tools.tool_search` with
-"aion writing", or filter `ALL_TOOLS` for `aion_presence`) and call it by its full name. A conversation keeps the tool
-list it started with: after Aion is updated, a new conversation (or restarting Codex) picks up new tools.
+Every Aion tool is registered by the plugin. If one you need is not in your tool list (for example `show_terrain`),
+filter `ALL_TOOLS` for `aion_presence` (or use `tools.tool_search` where it exists) and call it by its full name. If it
+is not there either, it is not available in this conversation: say so in one sentence and never pass off another visual
+(a map, a generated landscape) as the one asked for. A conversation keeps the tool list it started with, so after Aion
+is updated a new conversation (or restarting Codex) picks up its tools; `npm run codex:tools` in the Aion repository
+shows how many Aion tools a new conversation gets.
 
 ## Sound
 

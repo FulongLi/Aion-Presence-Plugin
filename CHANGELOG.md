@@ -4,9 +4,35 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
-## [0.5.1] — Unreleased (in review)
+## [0.5.2] — Unreleased (in review)
 
-Generative experience refinement and project governance. Development branch `feat/v0.5.1-generative-refinement`.
+Regression fix: terrain (and eight other tools) missing from Codex conversations. Branch `fix/v0.5.1-terrain-regression`.
+Details: [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md#v052-the-terrain-regression).
+
+### Fixed
+- **`show_terrain` is available again in Codex.** Codex 0.163 charges each tool of a plugin's MCP server its model
+  spec *plus the server's instructions* (cut at 1,000 B, repeated on every tool) against a 64,000-byte budget shared by
+  plugin servers, and silently hides the tools that do not fit. Aion's 1.27 KB of instructions made its 32 tools cost
+  86.8 KB, so a new conversation got only the first 23 (`clear_presentation` … `show_music`): `show_number`,
+  `show_portrait`, `show_result`, `show_scene`, `show_stroke_animation`, `show_symbol`, `show_terrain`, `show_text` and
+  `show_visual_form` were hidden, although `codex app-server` listed all 32. The instructions are now one line (83 B;
+  the guidance they carried is in the skill): Codex's measure is 57.2 KB, every tool exposed. Present since v0.4.5.
+- `show_form`'s description fits Codex's 1,000-byte cut (its form-id catalogue is written compactly), so Codex sees it whole.
+
+### Added
+- Codex's own measure in `npm run mcp:budget` and the tests (`codexExposureReport`, held 10 % inside the budget);
+  `npm run codex:tools` reports the Aion version Codex runs and how many Aion tools a new conversation gets;
+  `npm run codex:verify` checks Codex's measure, and with `--live` reads `ALL_TOOLS` in a real Codex conversation.
+- `terrain-unavailable` says which stage failed: the elevation service (timeout, unreachable, HTTP status), an invalid
+  tile, or the height field.
+
+### Changed
+- The skill: a real place's terrain or map is never a generated scene; if a tool is missing from `ALL_TOOLS`, say so
+  rather than substitute another visual.
+
+## [0.5.1] — 2026-10-18
+
+Generative experience refinement and project governance. Branch `feat/v0.5.1-generative-refinement` (PR #13).
 
 ### Added
 - **Bounded scene repair**: a refused scene or patch lists every independent problem (up to 8) with a fix hint, and

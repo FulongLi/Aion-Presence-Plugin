@@ -55,6 +55,10 @@ Codex's binary contains a tool-metadata budget (`core/src/context/world_state/to
 
 ## Cause
 
+> v0.5.2 correction: the mechanism was Codex's *plugin* budget, measured on Codex's own representation (which repeats the
+> server's instructions on every tool) — see [v0.5.2: the terrain regression](#v052-the-terrain-regression). The
+> v0.4.4 numbers below are tools/list sizes.
+
 Aion's tool metadata outgrew what Codex keeps for one server. v0.4.3 sent **302,010 bytes** for 29 tools — on average 10.4
 KB a tool, because every tool repeated the same 7.9 KB output schema (229 KB in all) — and Codex kept the alphabetical
 prefix that fit (≈ 207 KB) and silently dropped the rest. The writing tool was not missing from the source, the plugin or
@@ -129,3 +133,62 @@ Reliability work in v0.5.1 changed what the existing tools *return*, not their m
 Patches are checked against the reported scene in the MCP server first (so hints are complete) and again,
 authoritatively, in the hub. The user's own edits in the card travel over the Card Bridge (`EDIT`), not over MCP.
 
+
+## v0.5.2: the terrain regression
+
+### The report
+
+With v0.5.1 installed, "Show me China's topography" got a map of China instead: Codex said the conversation had no Aion
+terrain tool. Network, the terrain engine and the installation were not the cause.
+
+### What was traced
+
+| Layer | Finding |
+| --- | --- |
+| Source and runtime | `show_terrain` registered (32 tools); the installed 0.5.1 copy is byte-identical to the repository. |
+| Codex's MCP layer | `codex app-server` → `mcpServerStatus/list` lists all 32 Aion tools (`npm run codex:tools`). |
+| The conversation | The user's failing conversation started *after* the update (04:57, update 04:53). Its `ALL_TOOLS` held **23** Aion tools — `clear_presentation` … `show_music` in name order; `ALL_TOOLS.find(show_terrain)` → `undefined`; no `tool_search`. A v0.5.0 conversation on 2026-10-16 had the same 23: present since v0.4.5's 32 tools. |
+| Reproduction | A fresh, isolated Codex 0.163.0-alpha.10.2 with only Aion installed: 23 of 32 (`ALL_TOOLS` read from the session rollout). |
+| Codex's source | `codex-rs/core/src/mcp_tool_exposure.rs`: the tools of *plugin* MCP servers share `MAX_AGENT_PLUGIN_MCP_TOTAL_BYTES` = 64,000 (8,000 a tool), in name order; a tool that does not fit is registered `Hidden`. The bytes are `serde_json` of the tool's spec: a namespace whose description is the server's `instructions` (cut at 1,000 B, `core/src/tools/handlers/mcp.rs`) around the function, whose description has " This tool is part of plugin `Aion Presence`." appended (`codex-mcp/src/rmcp_client.rs`) and is cut at 1,000 B, with the schema reduced to the keywords Codex keeps (`tools/src/json_schema.rs`). |
+
+### Cause
+
+Aion's server instructions (1,267 B, cut to 1,000) were charged **once per tool**: about 32 KB on top of 54.6 KB of
+specs. Codex's measure was 86,846 B; the first 23 tools used 63,008 B and `show_number` would have reached 64,777 B, so it
+and every tool after it — `show_portrait`, `show_result`, `show_scene`, `show_stroke_animation`, `show_symbol`,
+`show_terrain`, `show_text`, `show_visual_form` — were hidden from the model, silently. v0.4.4 had measured tools/list
+(57.6 KB) and checked Codex's app server, which lists hidden tools too; neither layer could see this.
+
+### Fix
+
+| | v0.5.1 | v0.5.2 |
+| --- | --- | --- |
+| Server instructions | 1,267 B (embodiment, onboarding) | 83 B; the guidance is in the skill |
+| Codex's measure | 86,846 B — 23 of 32 exposed | **57,211 B — all 32 exposed** (10.6 % inside 64,000) |
+| tools/list | 57,584 B | 56,915 B |
+| `show_form` description in Codex | cut at 1,000 B (half the form ids lost) | 967 B, whole |
+
+- `src/host/mcp/budget.ts` models Codex's measure (`codexExposureReport`); `npm run mcp:budget` prints it, and the tests
+  hold it under 57,600 B and reproduce the v0.5.1 cut (23, `show_number` first hidden).
+- `npm run codex:tools` now tells you the Aion version your Codex runs and how many Aion tools a new conversation gets.
+- `npm run codex:verify` checks Codex's measure; `-- --live` runs one real turn and reads `ALL_TOOLS`.
+- `terrain-unavailable` results now say which stage failed (see [MAPS.md](MAPS.md#if-terrain-does-not-appear-v052)).
+
+### Verified (2026-10-19, Codex 0.163.0-alpha.10.2, model gpt-6.1-sol)
+
+- `npm run codex:verify -- --live`: installed from Git, a new conversation holds **32 of 32** Aion tools.
+- Upgrade, in a throwaway Codex: v0.5.1 → new conversation 23 tools, `show_terrain` absent; `codex plugin marketplace
+  upgrade` → 0.5.2 installed; the same conversation resumed with `codex exec resume`: 32; a new conversation: 32.
+  (`marketplace upgrade` also replaced files without a version change; the version moved to 0.5.2 so an installed copy
+  says whether it has the fix.) Codex Desktop, which keeps its MCP connections across a conversation, was not tested
+  here: after updating, start a new conversation or restart Codex.
+- `npm run scene:eval -- --only geo`: "Show me the terrain of Scotland." → `show_terrain` → formed; "Show me China's
+  topography." → `show_terrain` (`style: "topography"`); "Show me the map of Scotland." → `show_map`; "…and mark
+  Glasgow." → `show_terrain` with a Glasgow marker. No generated scene, image or substitute.
+
+### Remaining limits
+
+- The 64,000-byte budget is shared by every *plugin* MCP server, in name order. A plugin whose server name sorts before
+  `aion-presence` and uses most of it would hide Aion's later tools again; `npm run codex:tools` lists such servers.
+- Codex's measure is modelled from Codex's source (main, October 2026) and checked against the observed cut; a Codex
+  release that changes its representation needs `npm run codex:verify -- --live` again.

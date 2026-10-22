@@ -7,7 +7,7 @@ or as interactive 3D scenes generated from what you describe.
 
 Aion is not another AI model. It makes **no model API calls and needs no API key**; everything Aion says, Codex says.
 
-*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.5.1** (in review) ·
+*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.5.2** (in review) ·
 [Changelog](CHANGELOG.md)
 
 ```text
