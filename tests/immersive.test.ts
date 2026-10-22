@@ -34,7 +34,7 @@ test("Open Aion in the companion: a foreground app window that offers fullscreen
 test("Open Aion in an MCP Apps host asks the host for fullscreen, and says the host decides", async () => {
   const aion = await connectAion({ capabilities: MCP_APPS_CAPABILITIES });
   try {
-    const opened = structured(await aion.call("open_presence", { display: "immersive" }));
+    const opened = structured(await aion.call("open_presence", { display: "immersive", surface: "embedded" }));
     assert.equal(opened.surface.mode, "embedded");
     assert.equal(opened.window_opened, false);
     assert.deepEqual(opened.immersive, { requested: true, path: "host-fullscreen", needs_gesture: false });

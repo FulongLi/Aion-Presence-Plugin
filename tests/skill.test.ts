@@ -17,7 +17,8 @@ const INPUTS: Record<string, { safeParse(value: unknown): { success: boolean } }
   show_image: schemas.showImageInput, show_portrait: schemas.showPortraitInput, show_terrain: schemas.showTerrainInput, show_form: schemas.showFormInput,
   show_clock: schemas.showClockInput, show_number: schemas.showNumberInput, show_text: schemas.showTextInput, show_symbol: schemas.showSymbolInput,
   show_emoji: schemas.showEmojiInput, express: schemas.expressInput, show_scene: schemas.showSceneInput, set_scene_view: schemas.setSceneViewInput, show_result: schemas.showResultInput, show_artifact: schemas.showArtifactInput, show_visual_form: schemas.showVisualFormInput,
-  show_map: schemas.showMapInput, mark_map: schemas.markMapInput, set_colors: schemas.setColorsInput,
+  show_map: schemas.showMapInput, mark_map: schemas.markMapInput, set_colors: schemas.setColorsInput, plan_route: schemas.planRouteInput,
+  control_interactive_card: schemas.controlInteractiveCardInput, show_interactive_card: schemas.showInteractiveCardInput,
   show_stroke_animation: schemas.showStrokeAnimationInput, play_animation: schemas.playAnimationInput, control_animation: schemas.controlAnimationInput,
 };
 
@@ -73,7 +74,7 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|music|control|inspect)_|^express$/.test(name)));
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|plan|music|control|inspect)_|^express$/.test(name)));
   for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name), `${name} is a real tool`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);
@@ -129,6 +130,10 @@ test("Visual Intent Policy: natural requests map to the right tool, with argumen
     ["Show me how to write a treble clef.", "show_stroke_animation"], ["Write it more slowly.", "control_animation"], ["Repeat the third stroke.", "control_animation"],
     ["Show the whole character again.", "control_animation"], ["Show a stick figure jumping over a box.", "play_animation"], ["Make the figure walk toward the box.", "play_animation"],
     ["Replay the animation.", "control_animation"], ["Stop reacting to your voice.", "set_audio_visualizer"],
+    // v0.6: routes, as the brief words them.
+    ["Plan a cycling route from Glasgow to Edinburgh.", "plan_route"], ["Plan a walking route from Edinburgh Castle to Arthur's Seat.", "plan_route"],
+    ["Show me a hiking route from Ambleside to Grasmere.", "plan_route"], ["Reverse the route.", "plan_route"], ["Change to cycling.", "plan_route"],
+    ["Show me the highest point.", "control_interactive_card"], ["Show me the full route again.", "control_interactive_card"], ["Remove the route.", "plan_route"],
   ];
   for (const [say, tool] of expected) {
     const row = rows.find(item => item.say === say);
