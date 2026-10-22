@@ -95,3 +95,11 @@ html[data-tone="light"] .btn[aria-pressed="true"] { color: #10161d; }
 html[data-layout="compact"] .rx-head { padding: 8px 11px 6px; }
 html[data-layout="compact"] .rx-stats { gap: 1px 10px; }
 html[data-layout="compact"] .rx-stats dd { font-size: 11.5px; }
+/* v0.7: the CAD backend's progress (FreeCAD recomputing): a quiet pill; the previous model stays on show beneath it. */
+.backend-status { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); padding: 5px 12px 5px 26px; border-radius: 999px;
+  background: #0b1016d9; border: 1px solid #ffffff1a; color: var(--muted); font-size: 11.5px; letter-spacing: .03em; pointer-events: none; }
+.backend-status::before { content: ""; position: absolute; left: 11px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%;
+  background: var(--accent); animation: backend-pulse 1.2s ease-in-out infinite; }
+.backend-status[hidden] { display: none; }
+@keyframes backend-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .backend-status::before { animation: none; } }

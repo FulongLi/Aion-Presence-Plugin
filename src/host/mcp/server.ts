@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { CLIENT_CAPABILITIES_META_KEY, McpServer, type CallToolResult, type ClientCapabilities, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
@@ -35,7 +36,7 @@ import {
   showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
-  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput,
+  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput, cadModelInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
@@ -59,7 +60,11 @@ import { checkCommand, checkConfig, UNIVERSAL_COMMANDS, type CardAppManifest } f
 import { newInstanceId } from "../../cards/protocol";
 import { describeSpec, type CardValue } from "../../cards/values";
 import type { CardSnapshot } from "../../cards/state";
-import { AssetError, BUNDLED_MODEL_NAMES, loadModel } from "../cardAssets";
+import { AssetError, BUNDLED_MODEL_NAMES, loadModel, modelFromBytes } from "../cardAssets";
+import { FreecadBackend, type CadDocumentReport, type WorkerResponse } from "../cad/freecad";
+import { previewGlb } from "../cad/preview";
+import { CHANGES_MODEL, checkCadArguments, COMPONENT_FIELDS, NEEDS_DOCUMENT, WORKER_OP } from "../cad/commands";
+import { openInFreecad } from "../cad/desktop";
 import { prepareSceneInput, validateScene, type SceneIssue } from "../../scene/validate";
 import { applyPatch, type PatchIssue } from "../../scene/patch";
 import { routeScene, type RouteMode, type SceneRoute } from "../../scene/router";
@@ -93,6 +98,12 @@ export interface AionServerOptions {
   routing?: RoutingProvider;
   /** Called once the host has connected and declared its capabilities (first-run opening). */
   onReady?: (host: { embedded: boolean; client?: string }) => void;
+  /** v0.7: the FreeCAD worker script (plugins/aion-presence/cad/aion_freecad_worker.py); absent, cad_model says so. */
+  cadScript?: string;
+  /** v0.7: the FreeCAD backend (injectable for tests). */
+  cad?: FreecadBackend;
+  /** v0.7: opens a saved document in the FreeCAD application (injectable for tests). */
+  openFreecad?: (path: string, command: string | null) => Promise<boolean>;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -211,6 +222,8 @@ export const TOOL_DESCRIPTIONS = {
     + "generative-scene: patch (operations on object ids, from revision), undo, redo, revert. Says if the card confirmed it.",
   inspect_interactive_card: "Read the open card as the user sees it: state, the selection and its metadata, the scene and its revisions. "
     + "Use before answering about it; never guess what it does not report.",
+  cad_model: "Parametric CAD in the user's FreeCAD, shown in Aion's CAD viewer: .FCStd documents, primitives, holes, sketches, pads, pockets, "
+    + "booleans, fillets, parameters, undo, save. args: the skill's FreeCAD reference.",
   show_image: `Form a picture of almost anything with Aion's particle body (a person, object, animal, building, place, artwork, logo, map or `
     + `idea). query: Aion's curated assets first (such as the ${AION_IDENTITY.creatorCompany} logo), then open image sources (Wikipedia, Commons, `
     + "Openverse); source: an image on this machine, shown as it is (intent portrait if the user says it is one). Use when seeing it helps. "
@@ -1605,6 +1618,115 @@ export function createAionServer(options: AionServerOptions): McpServer {
     if (!args.full || !snapshot.card.scene) return inspected;
     const text = (inspected.content[0] as { text: string }).text;
     return { ...inspected, content: [{ type: "text", text: `${text}\nScene document (revision ${snapshot.card.scene.revision}):\n${JSON.stringify(snapshot.card.scene.document)}` }] };
+  });
+
+  // ── v0.7: FreeCAD, the parametric CAD backend (FreeCAD owns the model; the CAD viewer shows its preview) ──────────
+  // Documents and their revisions persist in the plugin data directory (a new MCP server per turn carries on).
+  const cad = options.cad ?? (options.cadScript ? new FreecadBackend({ script: options.cadScript, env: { ...env, AION_CAD_WORKSPACE: env.AION_CAD_WORKSPACE ?? join(link.home, "cad") } }) : null);
+  /** Which CAD viewer card shows which FreeCAD document (by card instance). */
+  const cadCards = new Map<string, string>();
+  const cadSummary = (doc: CadDocumentReport | undefined, detail: boolean) => doc && ({
+    document: doc.id, name: doc.name, revision: doc.revision, file: doc.path, saved: doc.saved, ...(doc.handed_off ? { open_in_freecad: true } : {}),
+    solids: doc.solids,
+    ...(doc.components ? { components: detail ? doc.components : doc.components.slice(0, 40).map(c => ({ id: c.id, label: c.label, role: c.role, parameters: c.parameters })) } : {}),
+    ...(doc.history ? { history: doc.history.slice(-6) } : {}), ...(doc.undo ? { undo: doc.undo, redo: doc.redo } : {}),
+  });
+  const cadText = (message: string, extra: object) => ({ type: "text" as const, text: `${message}\n${JSON.stringify(extra)}` });
+
+  server.registerTool("cad_model", {
+    title: "Model in FreeCAD",
+    description: TOOL_DESCRIPTIONS.cad_model,
+    inputSchema: cadModelInput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    if (!cad) return failure("backend-unavailable: the FreeCAD worker is not installed with this build of Aion.");
+    const checked = checkCadArguments(args.action, args.args);
+    if (!checked.ok) return failure(`invalid-arguments: ${args.action}: ${checked.problem}. Nothing was changed (args are listed in the skill's FreeCAD reference).`);
+    const workerArgs: Record<string, unknown> = { ...checked.args };
+    const before = await link.run(backend => backend.state());
+    const viewer = before.card?.app === "cad-viewer" ? before.card : null;
+    // "this part": the component selected in the CAD viewer, by its FreeCAD id.
+    for (const field of COMPONENT_FIELDS) {
+      if (workerArgs[field] !== "$selected") continue;
+      const id = viewer?.selection?.objectId;
+      if (!id) return failure("no-selection: nothing is selected in the CAD viewer. Ask the user to click the part, or name it (inspect lists the ids). Nothing was changed.");
+      workerArgs[field] = id;
+    }
+    // The document the viewer shows: as the viewer itself reports it (it survives a restart of this server).
+    const shownDoc = viewer ? (typeof viewer.state.document === "string" ? viewer.state.document : cadCards.get(viewer.instance)) : undefined;
+    const document = args.document ?? (NEEDS_DOCUMENT.has(args.action) ? shownDoc : undefined);
+    if (document) workerArgs.document = document;
+    if (args.revision !== undefined) workerArgs.revision = args.revision;
+    // A quiet note on the open viewer while FreeCAD recomputes; the previous model stays on show until the new one is ready.
+    const busy = CHANGES_MODEL.has(args.action) && viewer && shownDoc && (!document || document === shownDoc) && watched(before, ctx);
+    if (busy) await link.run(backend => backend.apply({ type: "card", command: "status", value: "FreeCAD is recomputing…" }));
+    const started = Date.now();
+    const response: WorkerResponse = await cad.call(WORKER_OP[args.action] ?? args.action, workerArgs, args.action === "inspect" ? { detail: true } : {});
+    const clearBusy = async () => { if (busy) await link.run(backend => backend.apply({ type: "card", command: "status", value: "ready" })).catch(() => {}); };
+    if (!response.ok) {
+      await clearBusy();
+      const error = response.error;
+      const kept = ["backend-unavailable", "timeout"].includes(error.code) ? "" : " Nothing was changed: the previous valid model is unchanged.";
+      return { isError: true, content: [cadText(`${error.code}: ${error.message}${kept} Tell the user plainly; never say it worked.`, { error })] };
+    }
+    const doc = response.document;
+    const timing: Record<string, number> = { freecad_ms: response.timing_ms?.freecad ?? 0, tessellation_ms: response.timing_ms?.tessellation ?? 0 };
+    const notes: string[] = [];
+    if (args.action === "open_in_freecad") {
+      const path = String(response.result.path ?? "");
+      const opened = await (options.openFreecad ?? openInFreecad)(path, cad.install?.command ?? null);
+      notes.push(opened ? `Opened ${path} in the FreeCAD application. Aion will not change it until the user saves it there and says so (then reload).`
+        : `Saved ${path}, but the FreeCAD application could not be opened; the user can open the file themselves. Aion keeps it read-only until reload.`);
+    }
+    if (args.action === "close") for (const [instance, id] of cadCards) if (id === document) cadCards.delete(instance);
+    // A new revision: build the preview, validate it like any model, and show it in the CAD viewer (the same card).
+    let snapshot = before, shownRevision: number | null = null;
+    const preview = response.preview;
+    if (doc && preview && preview.triangles > 0) {
+      const built = Date.now();
+      const glb = previewGlb(preview, { title: `${doc.name} · rev ${doc.revision}`, documentId: doc.id, revision: doc.revision, backend: `FreeCAD ${cad.version ?? ""}`.trim(), path: doc.path });
+      let model;
+      try { model = await modelFromBytes(glb, `freecad-${doc.id}.glb`, doc.name); } catch (error) {
+        await clearBusy();
+        return failure(`preview-invalid: FreeCAD changed the model (revision ${doc.revision}), but its preview could not be shown: ${error instanceof AssetError ? `${error.message}: ${error.detail}` : String(error)}.`);
+      }
+      timing.preview_build_ms = Date.now() - built;
+      const transfer = Date.now();
+      const ref = await link.run(backend => backend.addMedia(model.bytes, model.mime));
+      timing.asset_transfer_ms = Date.now() - transfer;
+      const manifest = cardRegistry.get("cad-viewer")!;
+      const reuse = viewer && (!shownDoc || shownDoc === doc.id) ? viewer.instance : null;
+      const instance = reuse ?? (viewer ? viewer.instance : newInstanceId());
+      cadCards.set(instance, doc.id);
+      const content: PresentationContent = {
+        kind: "interactive", app: "cad-viewer", instance, title: doc.name.slice(0, LIMITS.title) || "FreeCAD model",
+        layout: viewer?.layout ?? manifest.display.defaultLayout, config: {},
+        asset: { id: ref.id, name: model.name, bytes: model.bytes.byteLength, sha256: model.sha256, mime: model.mime },
+      };
+      const render = Date.now();
+      await link.run(backend => backend.apply({ type: "present", content, hold: 0 }));
+      const shown = await link.run(backend => backend.state());
+      snapshot = watched(shown, ctx)
+        ? await waitForCard(card => card.instance !== instance || card.lifecycle === "error" || card.state.revision === doc.revision, 12_000)
+        : shown;
+      timing.card_render_ms = Date.now() - render;
+      const card = snapshot.card;
+      if (card?.instance === instance && card.state.revision === doc.revision) shownRevision = doc.revision;
+      const lost = card?.instance === instance && typeof card.state.lost === "string" ? card.state.lost : null;
+      if (lost) notes.push(`The selected component ${lost} no longer exists in this revision, so nothing is selected now.`);
+      if (!watched(shown, ctx)) notes.push("Aion is not open, so the model is not on screen (open_presence shows it).");
+      else if (shownRevision === null) notes.push(card?.lifecycle === "error" ? `The viewer could not show it: ${card.error?.message ?? "error"}.` : "The viewer has not confirmed the new revision yet.");
+    } else if (doc && preview && preview.triangles === 0) notes.push("The document has no visible solid yet, so the viewer is not opened.");
+    else await clearBusy();
+    timing.total_ms = Date.now() - started;
+    const selection = snapshot.card?.app === "cad-viewer" && snapshot.card.selection?.objectId ? { id: snapshot.card.selection.objectId, name: snapshot.card.selection.name } : null;
+    const summary = { ...cadSummary(doc, args.action === "inspect"), result: response.result, ...(selection ? { selected: selection } : {}), ...(shownRevision ? { shown_revision: shownRevision } : {}), timing };
+    const changed = CHANGES_MODEL.has(args.action) || args.action === "create_document" || args.action === "open_document" || args.action === "reload";
+    const head = !doc ? `FreeCAD ${cad.version ?? ""}: ${args.action} done.`
+      : changed ? `FreeCAD ${args.action === "undo" ? "undid" : args.action === "redo" ? "redid" : "applied"} it: ${doc.name} is at revision ${doc.revision} (recomputed, valid).`
+        : `${doc.name}, revision ${doc.revision}.`;
+    const output = summarize(snapshot, modeFor(ctx), `${head}${notes.length ? ` ${notes.join(" ")}` : ""} Report only what this result says.`);
+    return { content: [cadText(output.message, summary)], structuredContent: { ...output, cad: summary } };
   });
 
   server.registerTool("show_form", {

@@ -3,11 +3,13 @@ import type { CardAppManifest } from "../manifest";
 /**
  * The CAD viewer (v0.4.5): a glTF/GLB engineering model viewer. A viewer, not a CAD kernel: it renders, navigates,
  * selects and hides; geometry itself comes from a CAD backend as an exported asset. See docs/CAD-VIEWER.md.
+ * 1.1.0 (v0.7): a FreeCAD document's revisions replace each other in place (camera, selection and hidden parts kept when
+ * they still exist), the card reports the document and revision it shows, and `status` shows the backend's progress.
  */
 export const CAD_VIEWER_MANIFEST = {
   id: "cad-viewer",
   name: "CAD Viewer",
-  version: "1.0.0",
+  version: "1.1.0",
   entry: "cad-viewer",
   description: "An interactive glTF/GLB model viewer: orbit, zoom, pan, select components, inspect their metadata, hide, isolate and fit.",
   capabilities: ["webgl", "model-assets", "selection", "camera", "visibility", "interaction-events", "resource-status"],
@@ -28,6 +30,7 @@ export const CAD_VIEWER_MANIFEST = {
     "set-view": { value: { type: "enum", values: ["iso", "front", "back", "left", "right", "top", "bottom"] }, description: "A standard engineering view." },
     "reset-camera": { value: { type: "none" }, description: "The default isometric view of the whole model." },
     "show-edges": { value: { type: "boolean" }, description: "Feature edges on every component." },
+    status: { value: { type: "text", max: 80 }, description: "A short progress note from the CAD backend (\"ready\": none)." },
   },
   state: {
     model: { type: "text", max: 80 },
@@ -40,6 +43,9 @@ export const CAD_VIEWER_MANIFEST = {
     view: { type: "enum", values: ["iso", "front", "back", "left", "right", "top", "bottom", "custom"] },
     edges: { type: "boolean" },
     triangles: { type: "number", min: 0, max: 10_000_000, integer: true },
+    document: { type: "text", max: 40 },
+    revision: { type: "number", min: 0, max: 1_000_000_000, integer: true },
+    lost: { type: "id" },
   },
   resources: { assets: ["model"], maxAssetBytes: 16 * 1024 * 1024, maxTriangles: 2_000_000, maxTextures: 32, maxTextureSize: 4096, maxLoadSeconds: 20 },
   display: { minWidth: 360, minHeight: 260, layouts: ["compact", "expanded", "fullscreen"], defaultLayout: "expanded" },

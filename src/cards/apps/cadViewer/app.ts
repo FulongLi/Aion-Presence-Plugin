@@ -53,6 +53,9 @@ export function createCadViewer(ctx: CardContext): CardApp {
   let selected: Component | null = null, isolated: Component | null = null;
   let view: View = (ctx.config.view as View | undefined) ?? "iso";
   let edges = ctx.config.edges === true, triangles = 0, units = "";
+  // v0.7: a backend document's revisions replace each other in place (same asset name): the view, the selection and
+  // hidden parts stay when they still exist; a selection whose component is gone is reported as lost, never moved.
+  let assetName = "", documentId = "", revision = 0, lost = "";
   const original = new Map<Mesh, { emissive: Color; intensity: number }>();
   const outline: LineSegments[] = [];
   const edgeLines = new Map<Mesh, LineSegments>();
@@ -70,12 +73,16 @@ export function createCadViewer(ctx: CardContext): CardApp {
   props.hidden = true;
   props.setAttribute("aria-live", "polite");
   const empty = el("div", { className: "empty", text: "Waiting for a model…" });
+  const progress = el("div", { className: "backend-status" });
+  progress.hidden = true;
+  progress.setAttribute("aria-live", "polite");
   const edgesToggle = toggle("Edges", "Show feature edges", () => edges, on => { setEdges(on); });
   const bar = el("div", { className: "bar" }, [
     el("div", { className: "group" }, (["iso", "front", "top", "right"] as const).map(v => button(v === "iso" ? "Iso" : v[0].toUpperCase() + v.slice(1), `${v} view`, () => setView(v)))),
     el("div", { className: "group" }, [button("Fit", "Fit the model to the view", () => fit()), edgesToggle, button("Reset", "Reset the view", () => resetView())]),
   ]);
-  ctx.ui.append(treePanel, props, empty, bar);
+  ctx.ui.append(treePanel, props, empty, progress, bar);
+  const setProgress = (text: string) => { progress.textContent = text; progress.hidden = !text; };
 
   // ── Loading ────────────────────────────────────────────────────────────────────────────────────────────────────
   let blocked = 0;
@@ -131,9 +138,16 @@ export function createCadViewer(ctx: CardContext): CardApp {
       mesh.material = Array.isArray(mesh.material) ? mesh.material.map(m => m.clone()) : mesh.material.clone();
     });
     if (count > ctx.limits.maxTriangles) { ViewerEngine.release(gltf.scene); throw new Error("model-too-large"); }
+    const root = gltf.scene.children[0]?.userData ?? {};
+    const nextDocument = cleanCardText(root.document, 40) ?? "";
+    const keep = model !== null && asset.name === assetName && (nextDocument === "" || nextDocument === documentId);
+    const kept = keep ? { selected: selected?.id ?? null, hidden: components.filter(c => !c.object.visible).map(c => c.id), view } : null;
     unload();
     model = gltf.scene;
     triangles = Math.round(count);
+    assetName = asset.name;
+    documentId = nextDocument;
+    revision = typeof root.revision === "number" && Number.isInteger(root.revision) && root.revision >= 0 ? root.revision : 0;
     modelName = cleanCardText(gltf.scene.children[0]?.userData.title, 80) ?? cleanCardText(asset.name.replace(/\.(glb|gltf)$/i, ""), 80) ?? "Model";
     units = cleanCardText(gltf.scene.children[0]?.userData.units, 12) ?? "";
     scene.add(model);
@@ -149,9 +163,21 @@ export function createCadViewer(ctx: CardContext): CardApp {
     camera.near = size / 2000; camera.far = size * 50; camera.updateProjectionMatrix();
     if (edges) buildEdges();
     empty.hidden = true;
+    setProgress("");
+    lost = "";
+    if (kept) {
+      for (const id of kept.hidden) { const c = byId.get(id); if (c) c.object.visible = false; }
+      view = kept.view;
+    }
     renderTree();
-    setView(view === "custom" ? "iso" : view, 0);
+    if (!kept) setView(view === "custom" ? "iso" : view, 0);
+    else engine.requestRender();
     ctx.emit.loading("Ready", 1);
+    if (kept?.selected) {
+      const again = byId.get(kept.selected);
+      if (again) select(again);
+      else { lost = kept.selected; clearSelection(); }
+    }
     report();
   };
 
@@ -367,6 +393,7 @@ export function createCadViewer(ctx: CardContext): CardApp {
     ctx.emit.state({
       ...(modelName ? { model: modelName } : {}), components: tree, componentCount: components.length, truncated: components.length > STATE_TREE_LIMIT,
       hidden, view, edges, triangles, ...(selected ? { selected: selected.id } : {}), ...(isolated ? { isolated: isolated.id } : {}),
+      ...(documentId ? { document: documentId, revision } : {}), ...(lost ? { lost } : {}),
     });
   };
 
@@ -395,6 +422,7 @@ export function createCadViewer(ctx: CardContext): CardApp {
     "set-view": value => { if (!model) return { ok: false, problem: "no model is loaded" }; setView(value as Exclude<View, "custom">); return { ok: true }; },
     "reset-camera": () => { resetView(); return { ok: true }; },
     "show-edges": value => setEdges(value as boolean),
+    status: value => { setProgress(value === "ready" ? "" : String(value)); return { ok: true }; },
   };
 
   return {

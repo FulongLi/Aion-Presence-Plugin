@@ -429,8 +429,8 @@ below); nothing else can be launched, and you never pass code, HTML or URLs:
   never present them as an ephemeris.
 - **`cad-viewer`** — a glTF/GLB engineering model: orbit, zoom, pan, standard views, fit, select a component (it
   highlights and shows its metadata), hide, isolate, show all. `model: "transformer"` is the bundled demonstration (a
-  small EI transformer); a `.glb`/`.gltf` path the user names loads their model. It is a viewer, not a CAD editor: it
-  cannot change dimensions or regenerate geometry — say so if asked, and that a CAD backend would export a new model.
+  small EI transformer); a `.glb`/`.gltf` path the user names loads their model. The viewer itself never edits geometry:
+  to *design* or *change* a part, use `cad_model` (FreeCAD, below), which shows each revision in this same viewer.
 
 `show_interactive_card` opens one (`layout` compact, expanded — the default — or fullscreen; `settings` such as
 `{ "focus": "moon", "teaching": true }`). Showing the same app again keeps the card (a new model loads into the open
@@ -448,6 +448,33 @@ then asks, inspect. Teaching the Moon: open with `teaching` on (or `show-teachin
 user wants to look, explain that one rotation takes as long as one orbit, and offer `compare-no-rotation` to show what
 would happen otherwise. Fullscreen fills Aion's space; true browser fullscreen needs the user's click on the card's own
 fullscreen button. Close the card (`close`, or `clear_presentation`) when the topic ends.
+
+## Parametric CAD in FreeCAD
+
+When the user wants to **create or change a real CAD model** ("Create a 120 × 80 × 40 mm enclosure in FreeCAD", "Make it
+20 mm longer", "Add four 6 mm mounting holes near the corners", "Move this hole 5 mm inward", "Undo that", "Save the
+model"), use `cad_model`. FreeCAD — installed on the user's machine — owns the parametric model and recomputes every
+change; Aion's CAD viewer shows each confirmed revision (the camera and selection stay). It is real CAD, not a mesh
+picture: never use a generated scene or `show_scene` for it. Read [references/freecad.md](references/freecad.md) the
+first time: it lists every `action`, its `args` (millimetres, degrees) and a worked example.
+
+- **Start**: `create_document` (a name), then `add_primitive` / `add_sketch` + `pad`, then features (`add_holes`,
+  `pocket`, `fillet`, `chamfer`, `boolean`). An existing file: `open_document` with its absolute `.FCStd` path.
+- **Change, don't rebuild**: "make it longer" is `set_parameter` on the existing component (`value`, or `delta` for
+  "20 mm longer"); "move this hole inward" is `set_parameter` `Inset` with a `delta` (both insets in one change). Pass the `revision`
+  from the last result when you have it.
+- **"This part"**: a click in the viewer selects a component (its id is FreeCAD's object name). Use `"$selected"` as the
+  `component` (or `target`) — or `inspect_interactive_card` first if you need its parameters. If the result says the
+  selection was lost (the component no longer exists), say so; never guess another part.
+- **Say only what FreeCAD confirmed**: success means FreeCAD recomputed a valid model; the result gives the revision,
+  sizes and volume. A refusal (`invalid-parameter`, `regeneration-failed`, `stale-revision`, `modified-externally`)
+  changed nothing — explain it in a sentence and offer a fix. `backend-unavailable`: FreeCAD is not installed; give the
+  install line from the result and carry on without it.
+- **Files**: `save` writes a native `.FCStd` (absolute path; ask where if the user did not say, suggesting
+  `~/Documents/<name>.FCStd`); Aion never overwrites another file unless the user says so (`overwrite: true`).
+  `open_in_freecad` hands the saved document to the FreeCAD application; Aion then leaves it alone until the user saves
+  there and asks you to `reload`. `export` writes STEP or STL.
+- Do not narrate the tool calls; describe the part and what changed, in a sentence or two.
 
 ## Generated scenes
 
