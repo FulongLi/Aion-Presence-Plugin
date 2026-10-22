@@ -10,6 +10,9 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 - **Three persistent bodies**, one Aion: the particle **Sphere** (abstract intelligence, visuals), **Aion Eyes**
   (conversation, attention, expression) and the **Particle Figure** (gesture, explanation). Every visual forms out of,
   and returns to, the chosen body; switching bodies is one particle transition. [EYES.md](EYES.md), [FIGURE.md](FIGURE.md)
+- **A spoken welcome** (v0.7): the first time Aion's window opens, Aion introduces itself aloud in a few sentences
+  (English or Chinese, the system's own on-device voice), its body answering as it speaks; Skip, Replay, captions.
+  [HOST.md](HOST.md#v07-the-spoken-welcome)
 - **Real state** from Codex's lifecycle hooks: listening (locally), thinking, reading, editing, testing, building,
   answering. [HOST.md](HOST.md)
 - **Immersive mode**: "Open Aion" gives the cleanest Aion-only view the environment permits.
@@ -76,6 +79,17 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 (click an object, press W, drag it) → moved by hand, as a new revision Codex sees
 "Create a simplified Dual Active Bridge converter." → an engineering scene, labelled as not a simulation
 "Calculate an accurate magnetic flux density field." → Aion says it has no field solver; nothing is faked
+```
+
+- **Parametric CAD in FreeCAD** (v0.7, with FreeCAD installed): Codex creates and changes real `.FCStd` documents —
+  primitives, holes that follow the body's size, constrained sketches, pads, pockets, booleans, fillets, undo, save —
+  and the CAD viewer shows each revision FreeCAD recomputed, keeping your view and selection. [FREECAD.md](FREECAD.md)
+
+```text
+"Create a 120 by 80 by 40 mm enclosure in FreeCAD." → a real FreeCAD box, shown in the CAD viewer
+"Make it 20 mm longer." · "Add four 6 mm mounting holes near the corners." → recomputed in FreeCAD, shown in place
+(click a hole) "Move this hole 5 mm inward." → that hole's insets change; "Undo that." → FreeCAD's own undo
+"Save the model." → a native, editable .FCStd
 ```
 
 ## Sound

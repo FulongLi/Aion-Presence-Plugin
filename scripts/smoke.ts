@@ -8,6 +8,7 @@ import { build } from "esbuild";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { connectAion, MCP_APPS_CAPABILITIES } from "../tests/helpers";
 import { PresenceHub } from "../src/host/hub/hub";
+import { findFreecad, FreecadBackend } from "../src/host/cad/freecad";
 import type { PresentationContent } from "../src/core/presentation";
 import { VisualResolver } from "../src/host/resolver";
 import { visualForms } from "../src/visual/forms";
@@ -52,8 +53,11 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 complete); the figure jumping over a box (its props drawn) and returning; a local photograph as a
  *                 heritage oval; Codex Voice Sync reconnecting by itself when Aion is opened again (stand-in bridge)
  *
- *   welcome       v0.6: the first-run welcome on a fresh installation — shown once, examples, copy, Get started, remembered;
- *                 a returning user's window without it; shown again on request; Skip; it steps aside for a presentation
+ *   welcome       v0.7: the spoken first-run welcome on fresh installations, with a stand-in synthesizer — it waits for
+ *                 Codex, speaks four sentences (English, Chinese) with an on-device voice, captions, Replay, ?, Skip;
+ *                 autoplay refused → Listen; no voice → text; a visual or closing the window stops it; remembered
+ *   cad           v0.7: real FreeCAD → the CAD viewer: box, longer (view kept), holes, the selected hole moved (selection
+ *                 kept), undo, a refusal that changes nothing, a lost selection, a fillet; timings (skipped without FreeCAD)
  *   v06           v0.6 through the real MCP tools and real routing: Scotland's terrain → a cycling route on it (kept, not
  *                 re-formed) with the Route Explorer card (tiles, route, profile), the highest point on both, the profile's
  *                 pointer on the terrain, reversed, a waypoint, a marker, removed (terrain kept), a hike and a walk on
@@ -162,6 +166,7 @@ try {
   if (section("v05")) for (const renderer of ["auto", "canvas"] as const) await v05(renderer);
   if (section("terrain") && !offline) for (const renderer of ["auto", "canvas"] as const) await terrain(renderer);
   if (section("welcome")) await welcome();
+  if (section("cad")) await cad();
   if (section("v06") && !offline) for (const renderer of ["auto", "canvas"] as const) await v06(renderer);
 } finally {
   await browser.close();
@@ -1605,66 +1610,251 @@ console.log(failures.length ? `\n${failures.length} smoke check(s) failed` : `\n
 process.exit(failures.length ? 1 : 0);
 
 /**
- * v0.6: the first-run welcome and the Route Explorer, through the real MCP tools in the real renderer. The welcome runs
- * on a hub of its own (a fresh installation); routes use the real routing service (FOSSGIS Valhalla), the real elevation
- * model and OpenStreetMap's tiles, so this section needs the network (`--offline` skips it).
+ * v0.7: the spoken first-run welcome in the real renderer, on hubs of their own (fresh installations). The synthesizer is
+ * a stand-in injected into the page (it reports start, word boundaries and end like Chrome's, and can refuse without a
+ * user gesture or have no voices), so every path is exercised deterministically; it proves the lifecycle and the
+ * interface, not that a voice is audible — `npm run welcome:speech` speaks with the system's real voice.
  */
+function fakeSpeech(mode: string) {
+  // Plain JavaScript (a string), so the page receives it exactly as written.
+  return `(() => {
+  const mode = ${JSON.stringify(mode)};
+  const log = { spoken: [], cancels: 0 };
+  window.__speech = log;
+  const voices = mode === "none" ? [] : [
+    { name: "Google US English", lang: "en-US", localService: false, default: false, voiceURI: "g" },
+    { name: "Samantha", lang: "en-US", localService: true, default: true, voiceURI: "s" },
+    { name: "Tingting", lang: "zh-CN", localService: true, default: false, voiceURI: "t" },
+  ];
+  let queue = [], current = null, timers = [];
+  // A real click in the page (headless Chrome reports user activation as already given, so it is tracked here).
+  let gestured = false;
+  addEventListener("pointerdown", event => { if (event.isTrusted) gestured = true; }, true);
+  const synth = new EventTarget();
+  synth.getVoices = () => voices;
+  synth.speak = u => { queue.push(u); pump(); };
+  synth.cancel = () => {
+    log.cancels++;
+    const dropped = [current, ...queue].filter(Boolean);
+    queue = []; current = null; timers.forEach(clearTimeout); timers = [];
+    dropped.forEach(u => u.onerror && u.onerror({ error: "canceled" }));
+  };
+  const pump = () => {
+    if (current || !queue.length) return;
+    const u = current = queue.shift();
+    if (mode === "blocked" && !gestured) { current = null; timers.push(setTimeout(() => u.onerror && u.onerror({ error: "not-allowed" }), 30)); return; }
+    log.spoken.push({ text: u.text, voice: u.voice ? u.voice.name : null, lang: u.lang });
+    const words = u.text.split(/\\s+/);
+    timers.push(setTimeout(() => {
+      u.onstart && u.onstart({});
+      words.forEach((_, i) => timers.push(setTimeout(() => u.onboundary && u.onboundary({ name: "word" }), i * 110)));
+      timers.push(setTimeout(() => { current = null; u.onend && u.onend({}); pump(); }, words.length * 110 + 150));
+    }, 40));
+  };
+  Object.defineProperty(window, "speechSynthesis", { value: synth, configurable: true });
+  window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; this.voice = null; this.lang = ""; this.rate = 1; this.pitch = 1; this.volume = 1; } };
+})();`;
+}
+
 async function welcome() {
-  console.log("v0.6: first-run welcome");
-  const fresh = mkdtempSync(join(tmpdir(), "aion-welcome-"));
-  const own = new PresenceHub({ home: fresh, port: 0, page: () => readFileSync(pagePath, "utf8"), bridge: { locate: () => null } });
-  await own.start();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-  const errors: string[] = [];
-  page.on("pageerror", error => errors.push(error.message));
-  try {
+  console.log("v0.7: spoken first-run welcome (a stand-in synthesizer in the real renderer)");
+  const fresh = async (mode: string, locale = "en-US") => {
+    const dir = mkdtempSync(join(tmpdir(), "aion-welcome-"));
+    const own = new PresenceHub({ home: dir, port: 0, page: () => readFileSync(pagePath, "utf8"), bridge: { locate: () => null } });
+    await own.start();
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale });
+    await context.addInitScript({ content: fakeSpeech(mode) });
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
     await page.goto(`${own.surfaceUrl}&debug=1&mic=0`);
     await until(page, state => state.frames > 30, 10_000);
     await page.addStyleTag({ content: "#debug { display: none !important; }" });
-    check(own.snapshot().hub.welcome, "a fresh installation: the hub says the welcome is due");
-    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
-    const examples = await page.locator(".welcome-prompt").allTextContents();
-    check(examples.length === 3 && examples.some(text => /Scotland/.test(text)) && examples.some(text => /cycling route from Glasgow to Edinburgh/.test(text)) && examples.some(text => /solar system/.test(text)),
-      `three example requests: ${examples.join(" · ")}`);
-    check(/powered by Codex/.test(await page.locator(".welcome-intro").textContent() ?? ""), "it presents Aion as Codex's visual companion");
+    const phase = () => page.evaluate("window.aionPresence.narration.phase") as Promise<string>;
+    const waitPhase = async (want: string[], ms = 15_000) => { let now = await phase(); for (let t = 0; t < ms && !want.includes(now); t += 100) { await pause(100); now = await phase(); } return now; };
+    const spoken = () => page.evaluate("window.__speech") as Promise<{ spoken: { text: string; voice: string | null; lang: string }[]; cancels: number }>;
+    const done = () => existsSync(join(dir, "welcome-complete")) ? readFileSync(join(dir, "welcome-complete"), "utf8").trim() : "";
+    const close = async () => { await context.close(); await own.stop(); };
+    return { own, dir, page, errors, phase, waitPhase, spoken, done, close };
+  };
+
+  // English, speech available: it waits while Codex answers, then speaks the four sentences, then is remembered.
+  {
+    const t = await fresh("ok");
+    try {
+      check(t.own.snapshot().hub.welcome, "a fresh installation: the welcome is due");
+      t.own.apply({ type: "activity", state: "responding" });
+      await t.page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
+      await pause(3_000);
+      check((await t.spoken()).spoken.length === 0, "while Codex is answering, Aion waits (no overlapping speech)");
+      t.own.apply({ type: "activity", state: "idle" });
+      check(await t.waitPhase(["speaking"]) === "speaking", "once Codex is quiet, Aion speaks");
+      await pause(500);
+      const box = await t.page.locator("#welcome").boundingBox();
+      check(!!box && box.height < 150, `no panel over the stage: the welcome is ${Math.round(box?.height ?? 0)} px tall (title, caption, controls)`);
+      check(await t.page.locator(".welcome-intro, .welcome-examples:visible").count() === 0, "no introduction paragraph and no examples by default");
+      const caption = await t.page.locator(".welcome-caption").textContent() ?? "";
+      check(/Aion|Codex|companion/.test(caption), `the caption follows the sentence being spoken: "${caption}"`);
+      const field = await t.page.evaluate("({ state: window.aionPresence.aion.currentState, responding: window.aionPresence.presence.signal.responding })") as { state: string; responding: number };
+      check(field.state === "responding" || field.responding > 0.2, `the body answers while it speaks (semantic field: state ${field.state}, responding ${field.responding.toFixed(2)})`);
+      await t.page.screenshot({ path: join(OUT, "v07-welcome-speaking.png") });
+      check(await t.waitPhase(["finished"], 20_000) === "finished", "it finishes");
+      const log = await t.spoken();
+      check(log.spoken.length === 4 && log.spoken.every(u => u.voice === "Samantha"), `four sentences, an on-device voice (never the network one): ${log.spoken.map(u => u.voice).join(", ")}`);
+      check(/^Hello, I'm Aion\./.test(log.spoken[0]?.text ?? "") && /powered by Codex/.test(log.spoken[1]?.text ?? ""), "the welcome script, in English");
+      for (let i = 0; i < 20 && !t.done(); i++) await pause(150);
+      check(/ spoken$/.test(t.done()), `remembered as spoken: "${t.done()}"`);
+      // Replay, then the examples behind "?".
+      await t.page.locator(".welcome-replay").click();
+      check(await t.waitPhase(["speaking"]) === "speaking", "Replay speaks it again");
+      await t.page.locator(".welcome-help-toggle").click();
+      check(await t.page.locator(".welcome-examples").isVisible(), "? opens the three examples");
+      await t.page.screenshot({ path: join(OUT, "v07-welcome-help.png") });
+      await t.page.locator(".welcome-copy").first().click();
+      let said = "";
+      for (let i = 0; i < 20 && !/Copied|Selected/.test(said); i++) { await pause(100); said = await t.page.locator(".welcome-status").textContent() ?? ""; }
+      check(/Copied|Selected/.test(said), `an example click copies it: "${said}"`);
+      // Skip while speaking: the voice stops at once.
+      const cancels = (await t.spoken()).cancels;
+      await t.page.locator(".welcome-skip").click();
+      await pause(900);
+      check((await t.spoken()).cancels > cancels && !(await t.page.locator("#welcome").isVisible()), "Skip stops the voice and puts the welcome away");
+      await t.page.reload();
+      await until(t.page, state => state.frames > 30, 10_000);
+      await pause(3_000);
+      check(!(await t.page.locator("#welcome").isVisible()) && (await t.spoken()).spoken.length === 0, "a returning user is not welcomed again");
+      check(!t.errors.length, `no page errors${t.errors.length ? `: ${t.errors.join("; ")}` : ""}`);
+    } finally { await t.close(); }
+  }
+  // Chinese.
+  {
+    const t = await fresh("ok", "zh-CN");
+    try {
+      check(await t.waitPhase(["speaking"]) === "speaking", "zh-CN: Aion speaks");
+      await t.waitPhase(["finished"], 20_000);
+      const log = await t.spoken();
+      check(log.spoken.length === 4 && log.spoken.every(u => u.voice === "Tingting") && /你好，我是 Aion/.test(log.spoken[0]?.text ?? ""), `Chinese, with a Chinese on-device voice: ${log.spoken[0]?.text} (${log.spoken[0]?.voice})`);
+      check(await t.page.locator(".welcome-title").textContent() === "欢迎使用 Aion", "the title in Chinese");
+    } finally { await t.close(); }
+  }
+  // The browser refuses without a gesture: "Listen to the welcome", nothing remembered until it is heard.
+  {
+    const t = await fresh("blocked");
+    try {
+      const offered = await t.waitPhase(["offered"]);
+      check(offered === "offered", `autoplay refused: Listen to the welcome is offered (${offered})`);
+      check(await t.page.locator(".welcome-listen").isVisible() && !t.done(), "one button, and nothing is remembered yet");
+      await t.page.screenshot({ path: join(OUT, "v07-welcome-listen.png") });
+      await t.page.locator(".welcome-listen").click();
+      check(await t.waitPhase(["speaking"]) === "speaking", "the user's click lets it speak");
+      await t.waitPhase(["finished"], 20_000);
+      for (let i = 0; i < 20 && !t.done(); i++) await pause(150);
+      check(/ spoken$/.test(t.done()), "then remembered as spoken");
+    } finally { await t.close(); }
+  }
+  // No on-device voice: a few lines of text instead.
+  {
+    const t = await fresh("none");
+    try {
+      check(await t.waitPhase(["text"]) === "text", "no voice: the short text stands in");
+      const text = await t.page.locator(".welcome-transcript").textContent() ?? "";
+      check(await t.page.locator(".welcome-transcript").isVisible() && /powered by Codex/.test(text), "the script as a small, readable text");
+      await t.page.screenshot({ path: join(OUT, "v07-welcome-text.png") });
+      await t.page.locator(".welcome-skip").click();
+      for (let i = 0; i < 20 && !t.done(); i++) await pause(150);
+      check(/ skipped$/.test(t.done()), `closed: remembered (${t.done()}), never as spoken`);
+    } finally { await t.close(); }
+  }
+  // A visual request while it speaks, and the window closed while it speaks.
+  {
+    const t = await fresh("ok");
+    try {
+      await t.waitPhase(["speaking"]);
+      t.own.apply({ type: "present", content: { kind: "form", form: "tao.yin-yang", label: visualForms.label("tao.yin-yang") }, hold: 6 });
+      await pause(1_200);
+      check((await t.spoken()).cancels > 0 && !(await t.page.locator("#welcome").isVisible()), "a visual request stops the voice and puts the welcome away");
+      for (let i = 0; i < 20 && !t.done(); i++) await pause(150);
+      check(/ started$/.test(t.done()), `remembered: the user has started (${t.done()})`);
+    } finally { await t.close(); }
+    const u = await fresh("ok");
+    try {
+      await u.waitPhase(["speaking"]);
+      await pause(400);
+      await u.page.close({ runBeforeUnload: true });
+      for (let i = 0; i < 30 && !u.done(); i++) await pause(150);
+      check(/ interrupted$/.test(u.done()), `the window closed while speaking: stopped, remembered as heard in part (${u.done()})`);
+    } finally { await u.close(); }
+  }
+}
+
+/**
+ * v0.7: FreeCAD in the real renderer — the real FreeCAD backend (skipped, and said so, when FreeCAD is not installed)
+ * through the real cad_model tool, into the CAD viewer card: a box, a longer box (the view kept), holes, the selected
+ * hole moved (the selection kept), undo, a refusal that changes nothing, and a selection that is lost.
+ */
+async function cad() {
+  console.log("v0.7: FreeCAD → CAD viewer (real FreeCAD, real renderer)");
+  if (!findFreecad()) { console.log("  – FreeCAD is not installed: skipped (not evidence either way)"); return; }
+  const { page, errors } = await open(browser, "&mic=0", { width: 1440, height: 900 });
+  await page.addStyleTag({ content: "#debug { display: none !important; }" });
+  const backend = new FreecadBackend({ script: join(PLUGIN_ROOT, "cad", "aion_freecad_worker.py"), env: { AION_CAD_WORKSPACE: join(home, "cad") } });
+  const aion = await connectAion({ home, cad: backend });
+  type Result = { isError?: boolean; content: { text: string }[]; structuredContent?: { cad?: { revision: number; shown_revision?: number; timing: Record<string, number>; solids: { size_mm: number[]; volume_mm3: number }[]; selected?: { id: string } } } };
+  const call = (action: string, args: Record<string, unknown> = {}) => aion.call("cad_model", { action, args }) as Promise<Result>;
+  const card = () => hub.snapshot().card;
+  const shot = (moment: string) => page.screenshot({ path: join(OUT, `v07-cad-${moment}.png`) });
+  const timings: Record<string, number>[] = [];
+  try {
+    await call("create_document", { name: "Enclosure" });
+    let r = await call("add_primitive", { kind: "box", length: 120, width: 80, height: 40, name: "Enclosure" });
+    check(!r.isError && r.structuredContent?.cad?.shown_revision === r.structuredContent?.cad?.revision, `A: FreeCAD made the box and the viewer confirmed revision ${r.structuredContent?.cad?.shown_revision}`);
+    timings.push(r.structuredContent!.cad!.timing);
     await pause(1_200);
-    const body = await page.evaluate("window.aionPresence.runtime.quality().frames") as number;
-    await page.screenshot({ path: join(OUT, "v06-welcome.png") });
-    check(body > 30, "the particle body stays visible and alive above it");
-    // In an immersive window before its click, Enter Presence stands beneath the welcome: both fit, the body above them.
-    own.apply({ type: "open", display: "immersive" });
-    await pause(2_200);
-    await page.screenshot({ path: join(OUT, "v06-welcome-immersive.png") });
-    own.apply({ type: "open", display: "auto" });
-    await pause(600);
-    await page.locator(".welcome-copy").first().click();
-    // The clipboard answers asynchronously: wait (briefly) for what the welcome says.
-    let said = "";
-    for (let i = 0; i < 20 && !/Copied|Selected/.test(said); i++) { await pause(100); said = await page.locator(".welcome-status").textContent() ?? ""; }
-    check(/Copied|Selected/.test(said), `an example click copies it (or selects it to copy): "${said}"`);
-    await page.locator(".welcome-start").click();
-    await pause(900);
-    check(!(await page.locator("#welcome").isVisible()), "Get started closes it");
-    for (let i = 0; i < 20 && own.snapshot().hub.welcome; i++) await pause(150);
-    check(!own.snapshot().hub.welcome && existsSync(join(fresh, "welcome-complete")), "it is remembered as seen (welcome-complete in the plugin data)");
-    await page.reload();
-    await until(page, state => state.frames > 30, 10_000);
-    await pause(2_500);
-    check(!(await page.locator("#welcome").isVisible()), "a returning user's window opens without it");
-    own.apply({ type: "welcome", show: true });
-    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 }).then(() => check(true, "\"Show me the introduction again\" brings it back"), () => check(false, "\"Show me the introduction again\" brings it back"));
-    await page.keyboard.press("Escape");
-    await page.locator(".welcome-skip").click({ timeout: 2_000 }).catch(() => {});
-    await pause(900);
-    check(!(await page.locator("#welcome").isVisible()), "Skip (or Escape) closes it again");
-    // A request that shows something while the welcome is up: it steps aside by itself.
-    own.apply({ type: "welcome", show: true });
-    await page.locator("#welcome.visible").waitFor({ timeout: 6_000 });
-    own.apply({ type: "present", content: { kind: "form", form: "tao.yin-yang", label: visualForms.label("tao.yin-yang") }, hold: 6 });
-    await pause(1_200);
-    check(!(await page.locator("#welcome").isVisible()), "it steps aside as soon as Aion shows something");
+    await shot("1-box");
+    // The user turns the view; a FreeCAD change keeps it.
+    await aion.call("control_interactive_card", { action: "set-view", value: "top" });
+    await pause(1_400);
+    r = await call("set_parameter", { component: "Enclosure", parameter: "Length", value: 150 });
+    check(!r.isError && r.structuredContent?.cad?.shown_revision === r.structuredContent?.cad?.revision && r.structuredContent?.cad?.solids[0].size_mm[0] === 150, "B: length 150 recomputed in FreeCAD and shown");
+    check(card()?.state.view === "top", `the view the user chose is kept across revisions (${String(card()?.state.view)})`);
+    timings.push(r.structuredContent!.cad!.timing);
+    await aion.call("control_interactive_card", { action: "set-view", value: "iso" });
+    r = await call("add_holes", { target: "Enclosure", diameter: 6, corners: 8 });
+    const ids = ((card()?.state.components ?? []) as { id: string }[]).map(c => c.id);
+    check(!r.isError && ["Hole1", "Hole2", "Hole3", "Hole4"].every(id => ids.includes(id)), `C: four holes, each its own component in the viewer (${ids.join(", ")})`);
+    timings.push(r.structuredContent!.cad!.timing);
+    await pause(1_400);
+    await shot("2-holes");
+    // D: the user selects Hole 2 in the viewer, then "move this hole 5 mm inward".
+    await aion.call("control_interactive_card", { action: "select", value: "Hole2" });
+    await pause(400);
+    r = await call("set_parameter", { component: "$selected", parameter: "Inset", delta: 5 });
+    check(!r.isError && card()?.selection?.objectId === "Hole2", `D: the selected hole moved, and it is still selected (${card()?.selection?.objectId})`);
+    timings.push(r.structuredContent!.cad!.timing);
+    await pause(1_400);
+    await shot("3-selected-hole-moved");
+    const before = r.structuredContent!.cad!.revision;
+    r = await call("undo");
+    check(!r.isError && r.structuredContent!.cad!.revision > before && r.structuredContent?.cad?.shown_revision === r.structuredContent?.cad?.revision, "E: undo is a new revision, shown");
+    // G: an impossible change: refused, nothing changes on screen.
+    const shownBefore = card()?.state.revision;
+    r = await call("set_parameter", { component: "Hole2", parameter: "Diameter", value: -3 });
+    const refused = await call("add_holes", { target: "Enclosure", diameter: 6, positions: [[900, 900]] });
+    check(!!refused.isError && /Nothing was changed/.test(refused.content[0].text) && card()?.state.revision === shownBefore, "G: an impossible hole is refused; the viewer keeps the previous valid revision");
+    // A selection whose component disappears is reported, never moved to another part.
+    await aion.call("control_interactive_card", { action: "select", value: "Hole3" });
+    await pause(400);
+    r = await call("delete", { component: "$selected" });
+    check(!r.isError && /no longer exists/.test(r.content[0].text) && !card()?.selection?.objectId, "a deleted selection is reported as lost, nothing else is selected");
+    r = await call("fillet", { target: "Enclosure", radius: 4 });
+    check(!r.isError, "a fillet on the vertical edges");
+    await pause(1_400);
+    await shot("4-fillet");
+    timings.push(r.structuredContent!.cad!.timing);
+    const keys = ["freecad_ms", "tessellation_ms", "preview_build_ms", "asset_transfer_ms", "card_render_ms", "total_ms"];
+    console.log(`  timings (ms): ${keys.map(k => `${k} ${timings.map(t => Math.round(t[k] ?? 0)).join("/")}`).join("; ")}`);
     check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
-  } finally { await page.close(); await own.stop(); }
+  } finally { backend.stop(); await aion.call("clear_presentation", {}).catch(() => {}); await aion.close(); await page.close(); }
 }
 
 async function v06(renderer: "auto" | "canvas") {

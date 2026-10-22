@@ -60,6 +60,11 @@ export async function loadModel(source: string, assetsDir: string | undefined): 
   return finish(Buffer.from(packed), name.replace(/\.gltf$/i, ".glb"), name.replace(/\.gltf$/i, ""), false);
 }
 
+/** v0.7: a GLB Aion made itself (the FreeCAD preview): the same validation as a model from a file. Throws AssetError. */
+export function modelFromBytes(bytes: Uint8Array, name: string, title: string): Promise<LoadedModel> {
+  return finish(bytes, name, title, false);
+}
+
 async function finish(bytes: Uint8Array, name: string, title: string, bundled: boolean): Promise<LoadedModel> {
   const contained = await selfContainedGlb(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
   const info = validateGlb(contained);

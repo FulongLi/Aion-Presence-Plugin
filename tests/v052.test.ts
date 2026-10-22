@@ -11,8 +11,8 @@ import { TOOL_NAMES } from "../src/host/mcp/toolNames";
 test("codex measure: reproduces the v0.5.1 cut observed in real Codex sessions (23 of 32, show_terrain hidden)", async () => {
   const aion = await connectAion();
   try {
-    // v0.5.1's 32 tools (v0.6 added plan_route); its instructions were 1,267 B and Codex keeps 1,000 B of them on every tool.
-    const tools = (await aion.client.listTools()).tools.filter(tool => tool.name !== "plan_route");
+    // v0.5.1's 32 tools (v0.6 added plan_route, v0.7 cad_model); its instructions were 1,267 B and Codex keeps 1,000 B of them on every tool.
+    const tools = (await aion.client.listTools()).tools.filter(tool => tool.name !== "plan_route" && tool.name !== "cad_model");
     const before = codexExposureReport(tools, "x".repeat(1_267));
     // Observed with v0.5.1's own descriptions: 23 exposed, show_number first hidden (docs/MCP-TOOLS.md). v0.6 shortened
     // a few shared parameter descriptions, so the same instructions now cost one tool less — the mechanism is the same.

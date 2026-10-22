@@ -4,7 +4,44 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
-## [0.6.0] — Unreleased (in review)
+## [0.7.0] — Unreleased (in review)
+
+A spoken first-run welcome, and FreeCAD as a real parametric CAD backend. Branch `feat/v0.7-spoken-welcome-freecad`.
+Details: [docs/FREECAD.md](docs/FREECAD.md), [docs/HOST.md](docs/HOST.md#v07-the-spoken-welcome).
+
+### Added
+- **FreeCAD backend** (`cad_model`, one tool): Codex creates, opens and changes native `.FCStd` documents in the user's
+  own FreeCAD (1.0+, found automatically or via `AION_FREECAD`), through a fixed worker script run by FreeCAD's
+  `freecadcmd` over pipes (no port, no code from Codex or cards). Primitives, holes (parametric: they follow a box's
+  size), constrained sketches, pads, pockets, booleans, fillets and chamfers (edge rules that survive changes),
+  parameters, moves, visibility, appearance, delete, undo/redo, save (never over another file), STEP/STL export, a
+  single-writer hand-off to the FreeCAD application and reload. Every change is a FreeCAD transaction, recomputed and
+  checked; a failure is aborted and the previous valid model stays. Documents persist: each revision is saved in Aion's
+  workspace, so a new MCP server (Codex may start one per turn) or a restart carries on, and undo/redo restore saved
+  FreeCAD states. Without FreeCAD, `cad_model` says how to install it and nothing else changes.
+- **FreeCAD → Aion**: each confirmed revision is tessellated per face, each face assigned (by geometry) to the feature
+  that made it, and shown as a validated GLB in the CAD viewer — the selected hole is `Hole2`, FreeCAD's own id; "this
+  part" is `"$selected"`.
+- **Spoken welcome**: the first time Aion's window opens, Aion speaks four short sentences (English or Chinese) with an
+  on-device system voice while its body takes the answering field (semantic, with each sentence's real onset — not lip
+  sync). Skip, Replay, captions, "?" for the three examples; "Listen to the welcome" when the browser needs a click; a
+  few lines of text when no on-device voice exists. It waits for Codex to finish answering, stops for a new turn or a
+  visual, and is remembered only with a real outcome (`welcome-complete` records it).
+- `tests/v07-welcome.test.ts`, `tests/v07-cad.test.ts` (unit, mocked backend, and real FreeCAD scenarios A–G);
+  `npm run cad:verify`; `npm run welcome:speech`; smoke sections `welcome` (spoken) and `cad`; `scene:eval` scenario K
+  (FreeCAD through the real Codex — its first run found that a new MCP server per turn lost the documents).
+
+### Changed
+- The welcome panel is gone: a title, a caption and small controls beneath the body. Codex no longer introduces Aion
+  when the window speaks the welcome (Skill, `open_presence` result).
+- CAD viewer 1.1.0: revisions of a document replace each other in place (camera, selection, hidden parts kept; a lost
+  selection is reported), the card reports `document`/`revision`, and a `status` command shows FreeCAD's progress.
+- The "Aion never speaks" rule has one documented exception: the fixed welcome, with an on-device voice
+  (`tests/apiIndependence.test.ts`).
+- Tool metadata: 34 tools, 58,636 B by Codex's measure; the internal target moves from 57,600 B (10 % inside Codex's
+  64,000 B) to 59,000 B (≈ 8 %) for the one compact `cad_model` tool. All tools stay exposed.
+
+## [0.6.0] — 2026-10-22
 
 Route Explorer, Aion's own window and a first-run welcome. Branch `feat/v0.6-route-explorer-onboarding`. Details:
 [docs/ROUTE-EXPLORER.md](docs/ROUTE-EXPLORER.md), [docs/HOST.md](docs/HOST.md#v06-aions-own-window-and-the-first-run-welcome).

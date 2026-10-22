@@ -246,7 +246,7 @@ export class PresenceHub {
           this.welcomeRequested = false;
           if (!this.welcomeDone) {
             this.welcomeDone = true;
-            try { mkdirSync(this.home, { recursive: true, mode: 0o700 }); writeFileSync(join(this.home, WELCOME_FILE), `${new Date(this.clock.now()).toISOString()}\n`, { mode: 0o600 }); } catch { /* remembered for this hub's life */ }
+            try { mkdirSync(this.home, { recursive: true, mode: 0o700 }); writeFileSync(join(this.home, WELCOME_FILE), `${new Date(this.clock.now()).toISOString()}${command.outcome ? ` ${command.outcome}` : ""}\n`, { mode: 0o600 }); } catch { /* remembered for this hub's life */ }
           }
           this.changed();
         }

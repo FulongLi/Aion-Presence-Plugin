@@ -6,6 +6,7 @@ import {
 } from "../../core/presentation";
 import { CLOCK_TIME, isSingleEmojiGrapheme, validNumber } from "../../visual/validate";
 import { ACTIVITY_STATES } from "../../core/state";
+import { WELCOME_OUTCOMES } from "../../core/welcomeNarration";
 import { EYE_EXPRESSIONS } from "../../core/eyes/expression";
 import { FIGURE_GESTURES } from "../../core/figure/motion";
 import { checkScene } from "../../visual/scene3d/validate";
@@ -103,8 +104,12 @@ export type HubCommand =
   | { type: "supersede" }
   /** v0.6: a companion window is being launched (other processes wait for it instead of opening another); `failed`: it could not be. */
   | { type: "launching"; failed?: boolean }
-  /** v0.6: show the welcome again (`show`), or the user has seen it (`done`: remembered, never shown again unasked). */
-  | { type: "welcome"; show?: boolean; done?: boolean }
+  /**
+   * v0.6: show the welcome again (`show`), or the user has seen it (`done`: remembered, never shown again unasked); v0.7:
+   * `outcome` says how (the spoken welcome finished, was skipped, the user started something, it was interrupted after it
+   * was heard, or the text alternative was read).
+   */
+  | { type: "welcome"; show?: boolean; done?: boolean; outcome?: (typeof WELCOME_OUTCOMES)[number] }
   /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
   | { type: "express"; expression?: (typeof EYE_EXPRESSIONS)[number]; gesture?: (typeof FIGURE_GESTURES)[number]; seconds?: number }
   /** Turn, tilt or zoom the 3D object on show. */
@@ -270,7 +275,7 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("introduced") }).strict(),
   z.object({ type: z.literal("supersede") }).strict(),
   z.object({ type: z.literal("launching"), failed: z.boolean().optional() }).strict(),
-  z.object({ type: z.literal("welcome"), show: z.boolean().optional(), done: z.boolean().optional() }).strict(),
+  z.object({ type: z.literal("welcome"), show: z.boolean().optional(), done: z.boolean().optional(), outcome: z.enum(WELCOME_OUTCOMES).optional() }).strict(),
   z.object({
     type: z.literal("express"), expression: z.enum(EYE_EXPRESSIONS).optional(), gesture: z.enum(FIGURE_GESTURES).optional(),
     seconds: z.number().min(1).max(30).optional(),

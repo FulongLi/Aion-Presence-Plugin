@@ -1,4 +1,10 @@
-# The CAD viewer card (`cad-viewer`, v0.4.5)
+# The CAD viewer card (`cad-viewer`, v0.4.5; 1.1.0 in v0.7)
+
+> **v0.7:** the viewer is also the visual front of a real FreeCAD document ([FREECAD.md](FREECAD.md)). Each revision
+> FreeCAD recomputes arrives as a GLB whose components are FreeCAD's features (ids = FreeCAD object names) and replaces
+> the previous one **in place**: the camera, hidden parts and the selection stay; a selection whose feature is gone is
+> cleared and reported (`lost`). The card reports `document` and `revision`, and the `status` command shows "FreeCAD is
+> recomputing…" over the previous revision while a change is computed. The viewer still never edits geometry itself.
 
 An interactive glTF/GLB model viewer with an engineering feel: orbit, zoom, pan, standard views, fit, selection with
 highlight and metadata, a component hierarchy, hide, isolate and restore.

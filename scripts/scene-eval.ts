@@ -26,7 +26,7 @@ import { REPO_ROOT } from "./lib/pluginPackage";
  * Usage: `npm run scene:eval` (all), `-- --only gears,dab`, `-- --list`, `-- --out <dir>`. It uses your Codex account's
  * usage: about 20 turns for the full run. Results: <out>/results.json, <out>/*.png (default .e2e/scene-eval/<time>/).
  */
-interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map" | "route" | "highlight" | "reversed" | "cleared" | "route-refusal" | "answer" | "welcome"; select?: "largest" }
+interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map" | "route" | "highlight" | "reversed" | "cleared" | "route-refusal" | "answer" | "welcome" | "cad" | "cad-saved" | "cad-refusal"; select?: "largest" | "hole" }
 interface Scenario { id: string; title: string; steps: Step[] }
 
 export const SCENARIOS: Scenario[] = [
@@ -76,6 +76,19 @@ export const SCENARIOS: Scenario[] = [
       { prompt: "Remove the route.", expect: "cleared" },
       { prompt: "Plan a walking route from London to New York.", expect: "route-refusal" },
       { prompt: "Show me the introduction again.", expect: "welcome" },
+    ],
+  },
+  {
+    // v0.7: the final acceptance scenario's CAD part — real FreeCAD, driven only by natural language. "{out}" is this
+    // run's output folder. Needs FreeCAD installed.
+    id: "freecad", title: "K. Parametric CAD in FreeCAD", steps: [
+      { prompt: "Create a 120 by 80 by 40 millimeter enclosure in FreeCAD.", expect: "cad" },
+      { prompt: "Increase the length to 150 millimeters.", expect: "cad" },
+      { prompt: "Add four 6-millimeter mounting holes near the corners.", expect: "cad" },
+      { prompt: "Move this hole 5 millimeters inward.", expect: "cad", select: "hole" },
+      { prompt: "Undo the last change.", expect: "cad" },
+      { prompt: "Add a mounting hole 500 millimeters from the corner.", expect: "cad-refusal" },
+      { prompt: "Save the model as {out}/Enclosure.FCStd.", expect: "cad-saved" },
     ],
   },
 ];
@@ -140,6 +153,8 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     : ["exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-hook-trust", "-C", workdir, prompt];
   const started = performance.now(), before = revisionOf(), presentationBefore = snapshot().presentation?.id ?? null;
   const routeBefore = snapshot().card?.route?.document.id ?? null;
+  const cadRevision = () => snapshot().card?.app === "cad-viewer" ? Number(snapshot().card?.state.revision ?? 0) : 0;
+  const cadBefore = cadRevision();
   let renderedSeconds: number | null = null;
   const kinds = new Set<string>();
   const watch = setInterval(() => {
@@ -152,7 +167,9 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     // v0.6: a new route counts once the card has drawn it.
     const route = snapshot().card?.route;
     const drawn = route && route.document.id !== routeBefore && route.rendered?.ok && route.rendered.revision >= route.revision;
-    if (card || body || drawn) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
+    // v0.7: a FreeCAD revision counts once the CAD viewer has loaded it.
+    const cad = cadRevision() > cadBefore;
+    if (card || body || drawn || cad) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
   }, 100);
   return new Promise((resolve, reject) => {
     const child = spawn(codex!, args, { env, cwd: workdir, stdio: ["ignore", "pipe", "pipe"] });
@@ -221,9 +238,16 @@ try {
         const target = doc?.objects.filter(n => n.type === "gear" || (n.radius !== undefined && n.type !== "circle")).sort((a, b) => (b.radius ?? 0) - (a.radius ?? 0))[0];
         if (target) { hub.apply({ type: "card", command: "select", value: target.id }); selected = target.id; await page.waitForTimeout(1500); }
       }
+      if (step.select === "hole") {
+        // The user clicks one of the holes in the CAD viewer.
+        const ids = ((snapshot().card?.state.components ?? []) as { id: string }[]).map(c => c.id).filter(id => /^Hole\d+$/.test(id));
+        const target = ids.includes("Hole2") ? "Hole2" : ids[0];
+        if (target) { hub.apply({ type: "card", command: "select", value: target }); selected = target; await page.waitForTimeout(1500); }
+      }
+      const cadBefore = snapshot().card?.app === "cad-viewer" ? Number(snapshot().card?.state.revision ?? 0) : 0;
       const revisionBefore = revisionOf();
       const originBefore = snapshot().card?.route?.document.origin.name ?? null;
-      const ran = await turn(step.prompt, true);
+      const ran = await turn(step.prompt.replace("{out}", out), true);
       await page.waitForTimeout(1500);
       const calls = toolCalls(ran.events).filter(c => c.tool !== "set_presence_state");
       const sceneCalls = calls.filter(c => ["show_interactive_card", "control_interactive_card"].includes(c.tool));
@@ -239,7 +263,13 @@ try {
       const geoTool = step.expect === "terrain" ? "show_terrain" : "show_map";
       const routeCalls = calls.filter(c => c.tool === "plan_route"), drawnRoute = card?.route?.rendered?.ok ? card.route.document : null;
       const journey = drawnRoute ? `${drawnRoute.origin.name} → ${drawnRoute.destination.name}, ${drawnRoute.travelMode}, ${(drawnRoute.distanceMeters / 1000).toFixed(1)} km, ↑${drawnRoute.totalAscentMeters} m` : "";
-      const outcome = step.expect === "route" ? (routeCalls.some(c => c.ok) && drawnRoute ? `route drawn: ${journey}` : `NO ROUTE (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+      const cadCalls = calls.filter(c => c.tool === "cad_model"), cadAfter = card?.app === "cad-viewer" ? Number(card.state.revision ?? 0) : 0;
+      const cadState = (() => { const last = cadCalls.filter(c => c.ok).at(-1); try { return last ? JSON.parse(last.text.split("\n").slice(1).join("\n")) as { revision?: number; solids?: { size_mm: number[]; volume_mm3: number }[]; file?: string } : null; } catch { return null; } })();
+      const cadWords = cadState?.solids?.[0] ? `${cadState.solids[0].size_mm.join(" × ")} mm, ${Math.round(cadState.solids[0].volume_mm3)} mm³` : "";
+      const outcome = step.expect === "cad" ? (cadCalls.some(c => c.ok) && cadAfter > cadBefore ? `FreeCAD revision ${cadAfter} shown: ${cadWords}` : `NO CAD CHANGE SHOWN (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+        : step.expect === "cad-saved" ? (existsSync(join(out, "Enclosure.FCStd")) ? `saved: ${join(out, "Enclosure.FCStd")}` : `NOT SAVED (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+        : step.expect === "cad-refusal" ? (cadAfter === cadBefore && (cadCalls.some(c => !c.ok) || cadCalls.length === 0) ? `${cadCalls.length ? `refused by FreeCAD/Aion: ${cadCalls.find(c => !c.ok)?.text.split(":")[0]}` : "declined by Codex without calling Aion"}; the model unchanged` : "THE MODEL CHANGED")
+        : step.expect === "route" ? (routeCalls.some(c => c.ok) && drawnRoute ? `route drawn: ${journey}` : `NO ROUTE (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
         : step.expect === "highlight" ? (card?.state.highlight === "highest" ? `highest point highlighted: ${card.state.highlightM} m at km ${card.state.highlightKm}` : `NOT HIGHLIGHTED (tools: ${calls.map(c => c.tool).join(", ") || "none"})`)
         : step.expect === "reversed" ? (drawnRoute && originBefore && drawnRoute.origin.name !== originBefore ? `reversed: ${journey}` : "NOT REVERSED")
         : step.expect === "cleared" ? (presentation?.kind === "terrain" && !card ? "route removed, terrain kept" : `NOT CLEARED (${presentation?.kind ?? "nothing"} on show)`)

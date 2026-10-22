@@ -20,6 +20,8 @@ import { decodeHeightField } from "../visual/heightfield";
 import { decodeMap } from "../visual/geo/map";
 import { MarkerLayer, type BodyRoute } from "./markers";
 import { Welcome } from "./welcome";
+import { BrowserWelcomeSpeech, type WelcomeSpeech } from "./welcomeSpeech";
+import { WelcomeNarration, welcomeScript, type NarrationOutcome, type NarrationStep } from "../core/welcomeNarration";
 import { routeAlong, elevationAt } from "../visual/geo/route";
 import { accentColor, particlePalette, type Appearance } from "../core/colors";
 import { HOLD_SECONDS, markerWords, type GeoMarker } from "../core/presentation";
@@ -159,7 +161,7 @@ export class PresenceView {
     this.aion = new Aion({ activity: () => this.presence.activity, presenting: () => this.visual.presenting, signal: () => this.presence.signal });
     // Codex's real voice (when the user has the bridge capture it) is the engine's host audio; Aion's own music keeps
     // the microphone from taking the speakers for the user.
-    this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.activity, audio: this.audio.hostAudio, playback: () => this.audio.playbackAudible });
+    this.presence = new PresenceEngine({ state: () => this.aion.currentState, host: () => this.hostActivity(), audio: this.audio.hostAudio, playback: () => this.audio.playbackAudible });
     this.immersive = new ImmersiveController({ entry: elements.entry, enter: elements.enter }, transport, () => this.userGesture());
     this.sceneLayer = elements.scene ? new SceneLayer(elements.scene, {
       frame: () => {
@@ -170,8 +172,17 @@ export class PresenceView {
       project: point => this.runtime?.project(point) ?? null,
       colors: () => ({ base: this.appearance?.base.hex ?? "#a8bed1", accent: accentColor(this.appearance?.accent.hex ?? "#e2725b") }),
     }) : null;
-    // v0.6: the welcome lives only in Aion's own window (the hub remembers it was seen).
-    this.welcome = elements.welcome && transport.kind === "companion" ? new Welcome({ root: elements.welcome, dismissed: () => this.welcomeSeen() }) : null;
+    // v0.6: the welcome lives only in Aion's own window (the hub remembers it was seen); v0.7: Aion speaks it.
+    const language = /^zh\b/i.test(navigator.language) ? "zh" : "en";
+    this.welcomeScript = welcomeScript(language);
+    this.welcome = elements.welcome && transport.kind === "companion" ? new Welcome({
+      root: elements.welcome,
+      listen: () => this.narrate(this.narration.listen(Date.now(), this.speechReady === true)),
+      replay: () => this.narrate(this.narration.listen(Date.now(), this.speechReady === true)),
+      skip: () => { this.narrate(this.narration.skip()); this.welcome?.hide(); this.narration.close(); },
+    }, navigator.language, this.welcomeScript) : null;
+    this.speech = this.welcome ? new BrowserWelcomeSpeech() : null;
+    addEventListener("pagehide", () => this.narrate(this.narration.interrupt("closed")));
     this.markerLayer = elements.markers ? new MarkerLayer(elements.markers, {
       target: () => this.visual.phase === "sphere" ? null : this.visual.target,
       level: () => this.visual.level,
@@ -195,6 +206,9 @@ export class PresenceView {
     transport.onSuperseded = () => this.retire();
     setInterval(() => {
       if (this.greeting.pending && this.greeting.update({ bodyReady: this.runtime !== null, userActive: this.presence.userVoiced }, Date.now())) this.aion.gesture("greeting");
+      if (this.narration.active && this.speechReady !== null) {
+        this.narrate(this.narration.tick({ bodyReady: this.runtime !== null && !this.greeting.pending, busy: this.conversationBusy(), speech: this.speechReady }, Date.now()));
+      }
     }, 150);
     this.updateFullscreenControl();
     if (options.debug) {
@@ -265,9 +279,12 @@ export class PresenceView {
     }
     // v0.6: the welcome stands below the body; the body rises a little above it, still itself and alive.
     // With Enter Presence offered beneath it (an immersive window before its click), a little higher and smaller still.
+    // v0.7: the spoken welcome leaves only a caption and small controls, so the body barely moves — unless the examples
+    // are open beneath it.
     if (this.welcome?.shown && !open) {
-      const entry = this.immersive.phase === "offered";
-      return this.ease(narrow ? { x: 0, y: entry ? 0.36 : 0.3, scale: entry ? 0.5 : 0.6 } : entry ? { x: 0, y: 0.3, scale: 0.6 } : { x: 0, y: 0.2, scale: 0.74 }, dt);
+      const entry = this.immersive.phase === "offered", help = this.welcome.helpOpen;
+      if (help) return this.ease(narrow ? { x: 0, y: entry ? 0.36 : 0.3, scale: entry ? 0.5 : 0.6 } : entry ? { x: 0, y: 0.3, scale: 0.6 } : { x: 0, y: 0.2, scale: 0.74 }, dt);
+      return this.ease(narrow ? { x: 0, y: entry ? 0.2 : 0.12, scale: entry ? 0.68 : 0.8 } : entry ? { x: 0, y: 0.16, scale: 0.76 } : { x: 0, y: 0.08, scale: 0.9 }, dt);
     }
     // A written word runs wider than other visuals (v0.4.4): it steps further aside and a little smaller.
     const word = (this.writing.sequence?.items.length ?? 0) > 1;
@@ -363,14 +380,22 @@ export class PresenceView {
   };
 
   /**
-   * v0.6: the first-run welcome. Shown when the hub says it is due (the first launch, or "show me the introduction
-   * again"), a moment after the body has appeared; remembered as seen once it has been on screen a few seconds; it steps
-   * aside by itself as soon as Codex shows something (the user has started). An embedded view, while Aion is in its own
-   * window, says so instead of showing a second Aion.
+   * v0.6: the first-run welcome; v0.7: spoken. Due when the hub says so (the first launch, or "show me the introduction
+   * again"): the body appears and waves, and once nothing else is happening (Codex has finished answering, the user is
+   * not talking) Aion speaks a few sentences with an on-device voice while its body takes answering's warm, swelling
+   * field (semantic, not lip sync: no amplitude is available from the synthesizer). The lifecycle is WelcomeNarration
+   * (core); the hub remembers the welcome only with a real outcome (spoken, skipped, the user started something,
+   * interrupted after it was heard, or the text alternative read). An embedded view, while Aion is in its own window,
+   * says so instead of showing a second Aion.
    */
   private readonly welcome: Welcome | null;
+  private readonly welcomeScript: readonly string[];
+  private readonly narration = new WelcomeNarration();
+  private readonly speech: WelcomeSpeech | null;
+  /** null until the voice list has been checked. */
+  private speechReady: boolean | null = null;
   private welcomeTimer?: ReturnType<typeof setTimeout>;
-  private welcomeSent = false;
+  private welcomeHideTimer?: ReturnType<typeof setTimeout>;
   private applyWelcome(snapshot: HubSnapshot, previous: HubSnapshot | null) {
     const elsewhere = this.elements.elsewhere;
     if (elsewhere && this.transport.kind === "embedded") {
@@ -382,22 +407,75 @@ export class PresenceView {
     const welcome = this.welcome;
     if (!welcome) return;
     const due = snapshot.hub.welcome, wasDue = previous?.hub.welcome ?? false;
-    if (snapshot.presentation && welcome.shown) { welcome.hide(); this.welcomeSeen(); return; }
+    // The user has started: a visual request puts the welcome away (and stops the voice).
+    if (snapshot.presentation && (welcome.shown || this.narration.active)) {
+      this.narrate(this.narration.interrupt("visual"));
+      this.narration.close();
+      welcome.hide();
+      return;
+    }
+    // A new conversation turn while Aion is speaking: it stops rather than talk over it.
+    if (this.narration.speaking && this.conversationBusy() && previous && snapshot.activity.state !== previous.activity.state) this.narrate(this.narration.interrupt("conversation"));
     if (due && (!wasDue || !previous) && !welcome.shown && !snapshot.presentation) {
       clearTimeout(this.welcomeTimer);
-      this.welcomeSent = false;
+      this.narrate(this.narration.due(Date.now()));
+      if (this.speechReady === null && this.speech) void this.speech.ready(welcome.language).then(ok => { this.speechReady = ok; welcome.speechKnown = ok; this.renderWelcome(); });
       this.welcomeTimer = setTimeout(() => {
         if (this.snapshot?.presentation) return;
         welcome.show();
-        // Seen: remembered once it has been on screen a little while, even if the user just starts talking.
-        setTimeout(() => { if (welcome.shown) this.welcomeSeen(); }, 6_000);
+        this.renderWelcome();
       }, previous ? 200 : 1_400);
     }
   }
-  private welcomeSeen() {
-    if (this.welcomeSent) return;
-    this.welcomeSent = true;
-    void this.transport.welcome?.(true);
+
+  /** Codex is working or answering, the user is talking, or Codex's real voice is audible: not a moment to speak. */
+  private conversationBusy() {
+    const quiet: ActivityState[] = ["idle", "complete", "error", "presenting"];
+    return !quiet.includes(this.activity) || this.presence.userVoiced || this.presence.signal.mode === "speaking";
+  }
+
+  /** While the welcome is spoken, the body answers (the engine's semantic responding field). */
+  private hostActivity(): ActivityState {
+    return this.narration.phase === "speaking" ? "responding" : this.activity;
+  }
+
+  /** Carries out what the narration decided, and shows it. */
+  private narrate(step: NarrationStep) {
+    if (step.cancel) this.speech?.stop();
+    if (step.speak && this.speech) {
+      this.speech.speak(this.welcomeScript, {
+        started: () => this.narrate(this.narration.started()),
+        sentence: index => {
+          this.narration.spokeSentence(index);
+          // Each sentence's real onset: a small gathering of the field.
+          this.presence.focusImpulse.trigger(0.32, performance.now() / 1000);
+          this.renderWelcome();
+        },
+        word: () => this.welcome?.root.querySelector(".welcome-voice")?.animate?.([{ opacity: 1 }, { opacity: 0.55 }], { duration: 180 }),
+        ended: () => this.narrate(this.narration.ended()),
+        failed: notAllowed => this.narrate(this.narration.failed(Date.now(), notAllowed)),
+      });
+    }
+    if (step.complete) this.welcomeComplete(step.complete);
+    this.renderWelcome();
+  }
+
+  private renderWelcome() {
+    const welcome = this.welcome;
+    if (!welcome) return;
+    const phase = this.narration.phase;
+    if (phase !== "idle") welcome.render(phase, this.narration.sentence);
+    // Finished (or stopped by a new turn): the controls stay a few seconds for Replay, then Aion is itself again.
+    clearTimeout(this.welcomeHideTimer);
+    if ((phase === "finished" || phase === "stopped") && welcome.shown) {
+      this.welcomeHideTimer = setTimeout(() => {
+        if ((this.narration.phase === "finished" || this.narration.phase === "stopped") && !welcome.helpOpen) { welcome.hide(); this.narration.close(); }
+      }, 6_000);
+    }
+  }
+
+  private welcomeComplete(outcome: NarrationOutcome) {
+    void this.transport.welcome?.(true, outcome);
   }
 
   /**
@@ -928,6 +1006,8 @@ export class PresenceView {
         return `${phase} · ${at.toFixed(2)}/${animation.playback.duration.toFixed(2)} s · rate ${animation.playback.rate} · ${detail}`;
       })(),
       hooks: this.snapshot?.hub.hooksActive ? "active" : "not detected",
+      welcome: this.welcome ? `${this.narration.phase}${this.narration.sentence >= 0 ? ` · sentence ${this.narration.sentence + 1}` : ""} · voice ${this.speech?.voice ?? "none"} · ${this.speech?.inventory ?? "-"}`
+        + ` · ${this.narration.completed ?? "not complete"}` : "not in this window",
       audio: (() => {
         const settings = this.audio.settings, route = this.audio.route, bridge = this.snapshot?.audio?.bridge;
         const sources = (["microphone", "codex", "system", "tab", "music"] as const).map(kind => {

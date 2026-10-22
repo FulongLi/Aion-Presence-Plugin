@@ -1,7 +1,8 @@
 # Privacy and security
 
 Aion makes **no model API calls and needs no API key**: no `OPENAI_API_KEY`, no Realtime or Live session, no second
-subscription, no speech-to-text or text-to-speech of its own. Everything Aion says, Codex says.
+subscription, no speech-to-text. Everything Aion says, Codex says — with one fixed exception since v0.7: the first-run
+welcome, four sentences spoken by the system's own on-device voice (below).
 
 - **No credentials**: no OpenAI key, ChatGPT or Codex token is read, stored or requested.
 - **Network**: the hub listens on `127.0.0.1` only (per-user token, loopback `Host` check). Countries, continents, their
@@ -18,7 +19,14 @@ subscription, no speech-to-text or text-to-speech of its own. Everything Aion sa
   servers through Aion's hub, only for the area being viewed, and are cached in the plugin data directory as OSM's
   policy asks (`AION_PRESENCE_TILES=off` turns them off). Like any map, the routing and tile servers see your IP address
   and which area is looked at. Aion never reads your location. [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
-- **First-run welcome (v0.6)**: one marker file (`welcome-complete`, a date) in the plugin data directory; nothing else.
+- **First-run welcome (v0.6; spoken since v0.7)**: one marker file (`welcome-complete`, a date and how it ended) in the
+  plugin data directory; nothing else. The welcome is spoken by the browser's Speech Synthesis API with an **on-device**
+  voice only (network voices, which would send the text to a speech service, are never chosen); the text is Aion's fixed
+  script, never anything from the conversation. Nothing is recorded or heard. [HOST.md](HOST.md#v07-the-spoken-welcome)
+- **FreeCAD (v0.7)**: optional. Aion runs your own FreeCAD (`freecadcmd`) as a child process over pipes — no network
+  port, no account, nothing sent anywhere. It reads and writes only the `.FCStd`, STEP or STL paths Codex names (never
+  over another file unless you said so), with your permissions, and keeps the revisions of each document it works on
+  in `cad/` in the plugin data directory (for undo and to carry on in the next conversation turn). [FREECAD.md](FREECAD.md)
 - **Rendering**: presented content is rendered as text (never as HTML), images only through `<img>` or as particles.
   Cards and the Presentation Router run locally; card contents are never sent anywhere.
 - **Interactive cards**: only registered applications run, each in a sandboxed frame with an opaque origin and no

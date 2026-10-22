@@ -144,12 +144,62 @@ by a new foreground window and closes itself (as since v0.4).
 
 Fullscreen still needs the user's click (Enter Presence); closing the window and Esc are always the user's.
 
-**The welcome.** The first time Aion's window opens, a short panel below the living body: "Welcome to Aion Presence —
-Your ideas, brought into view.", one paragraph (Aion is Codex's visual companion), three example requests that work in
-this build (terrain, a route, a generated solar system), **Get started** and **Skip**. The window cannot send a request
-to Codex (no host offers that), so a click copies the example (or selects it to copy). It steps aside by itself as soon
-as Codex shows something, and is remembered as seen after a few seconds on screen (`welcome-complete` in the plugin data
-directory; nothing else is stored). Returning users never see it again unless they ask ("Show me the introduction
-again" → `open_presence` with `welcome: true`). English or Chinese, by the window's language. No narration: Codex says
-one or two sentences of greeting (`greeting.line`) and does not list the examples.
+**The welcome** (v0.6) was a short panel below the body with a paragraph, three examples, Get started and Skip. Since
+v0.7 it is spoken — see below. It is still shown once per installation (`welcome-complete` in the plugin data
+directory), again on request ("Show me the introduction again" → `open_presence` with `welcome: true`), in English or
+Chinese by the window's language, and the window still cannot send a request to Codex (examples are copied).
+
+## v0.7: the spoken welcome
+
+The first time Aion's window opens, Aion **speaks** a short introduction instead of showing a paragraph:
+
+> Hello, I'm Aion. I'm your visual companion, powered by Codex. I can help you explore the world, visualize ideas,
+> create three-dimensional models, and bring your projects to life. Just tell me what you'd like to create or explore.
+
+(In Chinese: 你好，我是 Aion。我是你的视觉伙伴，由 Codex 驱动。…) About 15–17 s with the macOS voices measured.
+
+| Speaking (the caption follows the voice) | The browser wants a click first | No on-device voice: a few lines instead |
+| --- | --- | --- |
+| ![Speaking](media/v0.7.0/welcome-speaking.jpg) | ![Listen to the welcome](media/v0.7.0/codex-welcome.jpg) | ![Text](media/v0.7.0/welcome-text.jpg) |
+
+**What is on screen.** The living body (it barely moves aside), a small "Welcome to Aion", the sentence being spoken as
+a caption, a speaking indicator, **Skip** (Close once finished), **Replay**, and **?**, which opens the three example
+requests (copied, as before). No panel covers the stage.
+
+**Which voice.** There is no speech-output API for a plugin in any host Aion supports: Codex's voice is not exposed as a
+controllable stream to MCP servers, and the audio bridge only *captures* audio. So the window speaks with the browser's
+Speech Synthesis API, which on macOS uses the system's own voices. Aion chooses an **on-device** voice in the user's
+language and region (enhanced or premium first; never a network voice such as Chrome's "Google …" voices, which would
+send the text to a service; never a novelty voice). No model, no key, no download. If no on-device voice speaks the
+language, the script stands in as a few lines of small text.
+
+**The body while speaking.** The synthesizer gives no amplitude, so Aion does not pretend to lip-sync: while it speaks
+its body takes the engine's semantic *answering* field (warm, a gentle swell — the same field as Codex responding), and
+each sentence's real onset (reported by the synthesizer) gathers it slightly. It returns to its normal sphere when the
+welcome ends.
+
+**When it speaks.** After the body has appeared and waved, and only when nothing else is happening: while Codex is
+working or answering (hook activity), the user is talking (the microphone) or Codex's real voice is audible (the
+bridge), it waits; after 12 s of waiting it offers "Listen to the welcome" instead. A new turn while it speaks stops it.
+A visual request stops it and puts it away (the user has started). Closing the window stops it at once.
+
+**Autoplay.** Chrome refuses speech before the user has interacted with the page. Measured on this Mac (Chrome, Aion's
+own app window, a fresh installation, nobody touching it): the welcome reached "offered" after 3.2 s — one button,
+"Listen to the welcome" — and nothing was recorded as heard. Aion does not work around the policy (no
+`--autoplay-policy` switch on its window). A Chrome started by automation (Playwright) allowed it without a click.
+
+**What is remembered** (`welcome-complete`, now with how it ended): `spoken` (heard to the end), `skipped`, `started`
+(a visual request came first), `interrupted` (a turn or closing the window *after* it began), `read` (the text
+alternative was on screen 9 s). A welcome that never began — refused, no voice, the window closed first — is not
+remembered, so the next first launch tries again.
+
+**Codex does not repeat it.** When the window speaks the welcome, `open_presence` tells Codex not to introduce Aion and
+to answer in a few words, so Codex's own voice does not talk over Aion's (the Skill says the same).
+
+**Verification** (`docs/SCENE-GENERATION-TESTS.md` keeps the categories apart): the lifecycle as a pure state machine
+(`tests/v07-welcome.test.ts`); every path in the real renderer with a stand-in synthesizer (`npm run smoke -- --only=welcome`:
+waits for Codex, four sentences, English and Chinese, an on-device voice chosen over a network one, captions, Replay, ?,
+Skip, autoplay refused → Listen → spoken, no voice → text, a visual and closing the window); the real system voices
+(`npm run welcome:speech`: Samantha 15.6 s, Tingting 16.8 s, Chrome 155); Aion's real app window (`-- --app-window`:
+the autoplay result above); and **heard** — the owner confirmed both languages were audible and natural (2026-10-22).
 

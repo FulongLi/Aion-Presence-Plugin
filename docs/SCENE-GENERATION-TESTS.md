@@ -142,6 +142,43 @@ For the hike Codex added "Check local path conditions and access before setting 
 One run each; no person watched these runs. The welcome screenshot was taken in the immersive window before its click
 (Enter Presence beneath it); v0.6 since raises the body a little more in that case.
 
+## Results — 2026-10-22: FreeCAD (scenario K, v0.7)
+
+`npm run scene:eval -- --only freecad`, Codex 0.163.0-alpha.11.1, gpt-6.1-sol, effort low, FreeCAD 1.1.4 on this Mac; a
+fresh plugin data directory. Outcomes are read from the hub: a step counts only once the CAD viewer confirmed the new
+FreeCAD revision. The hole is "clicked" through the viewer's `select` command (the same code and report as a click).
+Full record of the final run: [media/v0.7.0/codex-freecad.json](media/v0.7.0/codex-freecad.json).
+
+**The first run failed, and found a real defect.** `codex exec` starts a new MCP server — and so a new FreeCAD worker —
+for every turn. The worker held documents in memory, so from the second request on each turn began with
+`missing-document`; Codex recovered by rebuilding the model from scratch every time (it said so), "move this hole"
+lost its selection, and "undo" had nothing to undo. Documents now persist (each revision saved in Aion's workspace,
+[FREECAD.md](FREECAD.md#documents-revisions-history)), and "move it inward" became one change (`Inset`) so that undo
+reverts all of it. The second run found the restored document named after its snapshot file (`r000004`); fixed.
+
+**The final run** (the third; the second gave the same calls and outcomes):
+
+| Request | Codex called | Outcome (confirmed by the viewer) | Visible | Turn |
+| --- | --- | --- | --- | --- |
+| "Open Aion." | `open_presence` | first run: the spoken welcome due; headless Chrome refused speech, so "Listen to the welcome" | — | 15.8 s |
+| "Create a 120 by 80 by 40 millimeter enclosure in FreeCAD." | `create_document`, `add_primitive {box 120 × 80 × 40}` | revision 2: 120 × 80 × 40 mm, 384,000 mm³ | 19.4 s | 24.0 s |
+| "Increase the length to 150 millimeters." | `set_parameter {Enclosure, Length, 150}` | revision 3: 150 × 80 × 40 mm | 7.2 s | 9.9 s |
+| "Add four 6-millimeter mounting holes near the corners." | `add_holes {Enclosure, Ø6, corners 8}` | revision 4: 475,476 mm³ (four through holes) | 7.5 s | 14.7 s |
+| (Hole 2 selected) "Move this hole 5 millimeters inward." | `set_parameter {$selected, Inset, delta 5}` | revision 5: Hole 2 at 13/13 mm, still selected | 6.0 s | 8.9 s |
+| "Undo the last change." | `undo` | revision 6: Hole 2 back at 8/8 mm | 10.0 s | 12.9 s |
+| "Add a mounting hole 500 millimeters from the corner." | (none) | declined by Codex: "the enclosure is only 150 × 80 mm … Did you mean 50 mm?"; model unchanged | — | 10.5 s |
+| "Save the model as …/Enclosure.FCStd." | `save {path}` | saved; reopened independently by FreeCAD: 150 × 80 × 40, four holes, Hole 2 at 8/8 mm, valid, its expressions intact | — | 10.7 s |
+
+Every call succeeded on its first attempt (no refusal, no repair). FreeCAD's own work per step is tens of milliseconds
+([FREECAD.md](FREECAD.md#performance)); the 6–10 s are Codex's turn. Codex's answers stayed within the results
+("Moved Hole 2 inward by 5 mm on both axes. Its center is now 13 mm from each adjacent edge. The model remains valid.").
+Not covered by these runs: an impossible request that reaches FreeCAD (Codex declined it first; FreeCAD's own refusal is
+covered by the tests, smoke and `cad:verify`), and the FreeCAD application hand-off. One run; no person watched it.
+
+| After "Add four 6-millimeter mounting holes near the corners." | After "Move this hole 5 millimeters inward." (Hole 2 selected) |
+| --- | --- |
+| ![Four holes](media/v0.7.0/codex-freecad-3.jpg) | ![Hole 2 moved inward](media/v0.7.0/codex-freecad-4.jpg) |
+
 ## Level 4: manual procedure (for a person)
 
 1. Install this branch: `codex plugin marketplace add <path to this checkout>` then

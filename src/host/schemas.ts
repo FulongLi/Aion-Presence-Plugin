@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CAD_ACTIONS } from "./cad/commands";
 import { OPENABLE_CARD_APP_IDS } from "../cards/registry";
 import { CARD_LAYOUTS } from "../cards/manifest";
 import { AION_BODIES } from "../core/body";
@@ -475,6 +476,14 @@ export const controlInteractiveCardInput = z.object({
 }).strict();
 
 export const inspectInteractiveCardInput = z.object({ full: z.boolean().optional().describe("The whole scene document.") }).strict();
+
+/** v0.7: one FreeCAD operation (the action's own arguments are validated by src/host/cad/commands.ts). */
+export const cadModelInput = z.object({
+  action: z.enum(CAD_ACTIONS),
+  args: z.record(z.string(), z.unknown()).optional().describe("mm, degrees; \"$selected\": the viewer's selection"),
+  document: z.string().max(40).optional(),
+  revision: z.number().int().min(1).optional(),
+}).strict();
 
 /** The embedded view's report about its interactive card (app-only; validated again by the hub). */
 export const cardReportInput = z.object({ report: z.record(z.string(), z.unknown()) }).strict();

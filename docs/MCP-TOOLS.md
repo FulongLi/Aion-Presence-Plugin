@@ -25,6 +25,7 @@
 | `show_clock` · `show_number` · `show_text` · `show_symbol` · `show_emoji` | Local, instant glyphs. The clock result tells Codex the local time. `show_text` `emphasis` marks a term the figure points at. |
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
 | `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model, v0.5's `generative-scene` with a Scene IR `scene`, routed to body, card or hybrid), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close), the app's commands, and for scenes `patch` (with `revision`), `undo`, `redo` and `revert`, each confirmed by the card; its state, selection, metadata and scene (with `full`, the whole document) as the user sees it. |
+| `cad_model` | v0.7: one operation in the user's FreeCAD (create/open/save `.FCStd`, primitives, holes, sketches, pad, pocket, booleans, fillets, parameters, transform, undo/redo, export, hand-off); each confirmed revision is shown in the CAD viewer. `"$selected"` is the viewer's selection. Arguments: the Skill's FreeCAD reference. [FREECAD.md](FREECAD.md) |
 | `clear_presentation` | Return to the persistent body now (also closes an interactive card). |
 
 `show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
@@ -213,4 +214,24 @@ the marker fields (`place`, `label`, `color`, `highlight`, on three tools), `hol
 `route-explorer` is not offered by `show_interactive_card` (it shows only routes `plan_route` planned), which keeps that
 enum unchanged. The v0.5.1 cut is still reproduced by the model (`tests/v052.test.ts`: with v0.5.1's 1,267-byte
 instructions the 32 v0.5 tools would again be cut, now after 24 instead of 23 because of the shorter descriptions).
+
+## v0.7: one compact tool for FreeCAD
+
+Parametric CAD needed a tool of its own: creating a document is not a card command (no card is open yet), and its
+operations are FreeCAD's, not the viewer's. Rather than one tool per operation, `cad_model` takes an `action` (an enum of
+25) and an `args` object; the arguments of each action are validated by a strict schema in the MCP server
+(`src/host/cad/commands.ts`) and documented in the Skill's `references/freecad.md` — the Skill costs no tool metadata.
+The description says what it is and where the arguments are, nothing more.
+
+| | v0.6 | v0.7 |
+| --- | --- | --- |
+| Tools | 33 | **34** (`cad_model`: 1,100 B by Codex's measure) |
+| Codex's measure | 57,536 B | **58,636 B** — all 34 exposed, 8.4 % inside 64,000 B |
+| tools/list | 57,190 B | 58,257 B |
+| Internal target | 57,600 B (10 %) | **59,000 B (≈ 8 %)** |
+
+The 10 % margin chosen in v0.4.4 would have required shortening other tools' tuned descriptions by about 1 KB; that
+risks how Codex picks tools that work today, so v0.7 spends part of the margin instead and says so here. The order Codex
+counts in is by name: `cad_model` sorts early, so a future tool that does not fit hides tools *after* it in name order
+(`tests/v052.test.ts` checks the exposure). The v0.5.1 reproduction leaves `cad_model` out, as it leaves `plan_route`.
 

@@ -55,6 +55,15 @@ the frame's CSP is unchanged). It may ask for tiles by grid coordinates only (`T
 the open route (`403` elsewhere, `404` with no route) and needs the token. Its pointer along the route (`CURSOR`) is a
 number or null. It cannot plan or change a route: routes change only through `plan_route`.
 
+## v0.7: the CAD viewer and FreeCAD
+
+The FreeCAD backend never meets a card. The CAD viewer still receives only a validated, self-contained GLB (built on the
+host from FreeCAD's tessellation and passed through the same model policy) and reports only what it reported before — a
+selection (an id), its state, the document id and revision it shows. "This part" is resolved by the MCP server from that
+id; a card message cannot name a file, an operation or code for FreeCAD. The one new command, `status`, carries a line
+of text the card shows as text. The backend itself runs in the host (a `freecadcmd` child process over pipes, no
+port, a fixed set of validated operations): [FREECAD.md](FREECAD.md#security).
+
 ## Rendering what a card says
 
 Names, metadata and properties from a model or a card are data. Every surface renders them with `textContent`

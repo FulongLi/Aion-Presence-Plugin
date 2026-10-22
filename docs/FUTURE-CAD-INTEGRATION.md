@@ -1,5 +1,11 @@
 # Future CAD and engineering integration (v0.5: the boundary, not the backend)
 
+> **v0.7: a backend exists.** FreeCAD is now connected — see [FREECAD.md](FREECAD.md). It follows this boundary in
+> spirit (FreeCAD owns parameters and regeneration; Aion shows a mesh of each revision with stable component ids; changes
+> go through the backend; errors are shown as they are; stale revisions are refused) but through the CAD viewer and one
+> `cad_model` tool with FreeCAD's own operations, rather than the generic `EngineeringBackend.regenerate` below, which
+> remains the interface for a future solver-style backend (AIPE). The rest of this page is v0.5's design, unchanged.
+
 v0.5 ships **no** CAD kernel, field solver or circuit simulator. It defines where one plugs in
 (`src/scene/cad.ts`), so FreeCAD or OpenCASCADE, and later AIPE's engineering tools, can use Aion's visualization and
 interaction layer without changing it. The CAD viewer (`cad-viewer`, v0.4.5) is unchanged and still works.
