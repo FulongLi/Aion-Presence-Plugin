@@ -73,11 +73,19 @@ A v0.1 development install (`aion-presence@aion-presence-dev`) is replaced autom
 
 ## First run and auto-open
 
-The first Codex session after installation opens Aion's window once, with a short welcome and three example requests
-(v0.6; shown once, then only when you ask "Show me the introduction again"). "Open Aion" always opens Aion in its own
+The first Codex session after installation opens Aion's window once, and Aion speaks a short welcome (v0.7; with the
+system's own voice — if the browser wants a click first, a "Listen to the welcome" button appears; heard once, then
+only when you ask "Show me the introduction again"; "?" shows three example requests). "Open Aion" always opens Aion in its own
 window (an open one is reused). To change the first-run opening, create
 `settings.json` in the plugin's data directory with `{ "autoOpen": "first-run" | "always" | "never" }`, or set
 `AION_PRESENCE_AUTO_OPEN`.
+
+## FreeCAD (optional, v0.7)
+
+For parametric CAD ("Create a 120 by 80 by 40 mm enclosure in FreeCAD"), install FreeCAD 1.0 or newer from
+<https://www.freecad.org/downloads.php> (macOS: drag FreeCAD.app into Applications). Aion finds it by itself; otherwise
+set `AION_FREECAD` to its `freecadcmd` (or the FreeCAD.app bundle). Nothing else is needed — no Python setup, no add-on,
+no port. Without FreeCAD, everything else works. [docs/FREECAD.md](docs/FREECAD.md)
 
 ## Offline teaching (v0.4.4)
 

@@ -26,6 +26,9 @@ to you:   one presence, speaking in the first person — "Here's Nikola Tesla."
   elevation profile beside it: "Plan a cycling route from Glasgow to Edinburgh."
 - **Teaches** — about 9,500 Chinese characters written stroke by stroke (offline), English handwriting, music notation
   with playback, short figure animations and stories.
+- **Real CAD in FreeCAD** — with FreeCAD installed, Codex creates and changes parametric `.FCStd` models ("a 120 × 80 ×
+  40 mm enclosure", "20 mm longer", "four 6 mm holes near the corners", "move this hole 5 mm inward", "undo") and Aion
+  shows each revision FreeCAD recomputed.
 - **Interactive 3D cards** — an Earth–Moon system, a glTF/GLB CAD viewer, and **generated scenes**: describe a solar
   system, a gear train or a converter and Codex writes it as validated Scene IR; you turn it, select parts, move them by
   hand, and change it by asking — every change a revision you can undo.
@@ -59,7 +62,8 @@ codex plugin add aion-presence@spirit-connect
 ```
 
 Then **restart Codex once** and **trust the hooks** when asked. Aion opens by itself on the first session, in its own
-window, with a short welcome; afterwards say **"Open Aion"**. Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
+window, and speaks a short welcome; afterwards say **"Open Aion"**. Optional: [FreeCAD](https://www.freecad.org/) 1.0+
+for parametric CAD. Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
 and for the full body a browser with WebGPU (others get a canvas fallback). Fallback from a clone:
 `node scripts/install.mjs`.
 
@@ -72,6 +76,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 "Show me Scotland's terrain."  →  "Plan a cycling route from Glasgow to Edinburgh."  →  "Show me the highest point."
 "Teach me how to write 永."
 "Create a 3D solar system with the Sun and eight planets."  →  "Make Earth three times larger."  →  "Undo that."
+"Create a 120 by 80 by 40 mm enclosure in FreeCAD."  →  "Add four 6 mm mounting holes near the corners."
 ```
 
 ## Documentation
@@ -82,6 +87,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 | [INSTALL](INSTALL.md) | Installation for people and for Codex |
 | [Generative Visual Engine](docs/GENERATIVE-VISUAL-ENGINE.md) | Generated scenes: [Scene IR](docs/SCENE-IR.md), [animation](docs/SCENE-ANIMATION.md), [interaction](docs/SCENE-INTERACTION.md), [Router 2.0](docs/PRESENTATION-ROUTER-V2.md), [real-Codex tests](docs/SCENE-GENERATION-TESTS.md) |
 | [Interactive cards](docs/CARDS.md) | Card 2.0, [bridge](docs/CARD-BRIDGE.md), [security](docs/CARD-SECURITY.md), [Earth–Moon](docs/EARTH-MOON.md), [CAD viewer](docs/CAD-VIEWER.md) |
+| [FreeCAD](docs/FREECAD.md) | Parametric CAD in the user's FreeCAD: the backend, operations, revisions, the hand-off, limits |
 | [Route Explorer](docs/ROUTE-EXPLORER.md) | Routes on the terrain and in their card: providers, elevation, tiles, limits |
 | [Architecture](docs/architecture.md) | How Codex, the hub, the surface and the renderer fit together |
 | [MCP tools](docs/MCP-TOOLS.md) · [Host](docs/HOST.md) | Tool reference and discovery · what each host and browser allows, lifecycle hooks |

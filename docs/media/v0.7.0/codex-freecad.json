@@ -1,0 +1,572 @@
+{
+  "codex": "codex-cli 0.163.0-alpha.11.1",
+  "model": "gpt-6.1-sol",
+  "effort": "low",
+  "at": "2026-10-22T19:05:33.184Z",
+  "results": [
+    {
+      "id": "freecad",
+      "title": "K. Parametric CAD in FreeCAD",
+      "steps": [
+        {
+          "prompt": "Create a 120 by 80 by 40 millimeter enclosure in FreeCAD.",
+          "expect": "cad",
+          "seconds": 24,
+          "renderedSeconds": 19.4,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD applied it: Enclosure is at revision 1 (recomputed, valid). The document has no visible solid yet, so the viewer is not opened. Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":1,\"file\":null,\"saved\":false,\"solids\":[],\"result\":{\"document\":\"cad-c41a82\"},\"timing\":{\"freecad_ms\":30.5,\"tessellation_ms\":0,\"total_ms\":458}}",
+              "arguments": {
+                "action": "create_document",
+                "args": {
+                  "name": "Enclosure"
+                }
+              }
+            },
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD applied it: Enclosure is at revision 2 (recomputed, valid). Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":2,\"file\":null,\"saved\":false,\"solids\":[{\"id\":\"Enclosure\",\"label\":\"Enclosure\",\"volume_mm3\":384000,\"valid\":true,\"size_mm\":[120,80,40]}],\"result\":{\"created\":\"Enclosure\"},\"shown_revision\":2,\"timing\":{\"freecad_ms\":103.4,\"tessellation_ms\":10.8,\"preview_build_ms\":1,\"asset_transfer_ms\":3,\"card_render_ms\":260,\"total_ms\":379}}",
+              "arguments": {
+                "action": "add_primitive",
+                "document": "cad-c41a82",
+                "revision": 1,
+                "args": {
+                  "kind": "box",
+                  "length": 120,
+                  "width": 80,
+                  "height": 40,
+                  "name": "Enclosure"
+                }
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                }
+              ],
+              "componentCount": 2,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 12,
+              "model": "Enclosure · rev 2",
+              "document": "cad-c41a82",
+              "revision": 2
+            },
+            "animations": 0
+          },
+          "answer": "Created a valid 120 × 80 × 40 mm solid enclosure blank in FreeCAD, shown in the viewer. The document is unsaved.",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-1.png",
+          "outcome": "FreeCAD revision 2 shown: 120 × 80 × 40 mm, 384000 mm³"
+        },
+        {
+          "prompt": "Increase the length to 150 millimeters.",
+          "expect": "cad",
+          "seconds": 9.9,
+          "renderedSeconds": 7.2,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD applied it: Enclosure is at revision 3 (recomputed, valid). Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":3,\"file\":null,\"saved\":false,\"solids\":[{\"id\":\"Enclosure\",\"label\":\"Enclosure\",\"volume_mm3\":480000,\"valid\":true,\"size_mm\":[150,80,40]}],\"result\":{\"changed\":\"Enclosure\",\"parameter\":\"Length\",\"from\":120,\"to\":150},\"shown_revision\":3,\"timing\":{\"freecad_ms\":46.9,\"tessellation_ms\":2.6,\"preview_build_ms\":1,\"asset_transfer_ms\":2,\"card_render_ms\":256,\"total_ms\":440}}",
+              "arguments": {
+                "action": "set_parameter",
+                "document": "cad-c41a82",
+                "revision": 2,
+                "args": {
+                  "component": "Enclosure",
+                  "parameter": "Length",
+                  "value": 150
+                }
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                }
+              ],
+              "componentCount": 2,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 12,
+              "model": "Enclosure · rev 3",
+              "document": "cad-c41a82",
+              "revision": 3
+            },
+            "animations": 0
+          },
+          "answer": "Updated to 150 × 80 × 40 mm. FreeCAD recomputed the model successfully; it remains unsaved.",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-2.png",
+          "outcome": "FreeCAD revision 3 shown: 150 × 80 × 40 mm, 480000 mm³"
+        },
+        {
+          "prompt": "Add four 6-millimeter mounting holes near the corners.",
+          "expect": "cad",
+          "seconds": 14.7,
+          "renderedSeconds": 7.5,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD applied it: Enclosure is at revision 4 (recomputed, valid). Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":4,\"file\":null,\"saved\":false,\"solids\":[{\"id\":\"Enclosure_Drilled\",\"label\":\"Enclosure\",\"volume_mm3\":475476.107,\"valid\":true,\"size_mm\":[150,80,40]}],\"result\":{\"created\":[\"Hole1\",\"Hole2\",\"Hole3\",\"Hole4\"],\"result\":\"Enclosure_Drilled\"},\"shown_revision\":4,\"timing\":{\"freecad_ms\":83.5,\"tessellation_ms\":19.7,\"preview_build_ms\":4,\"asset_transfer_ms\":4,\"card_render_ms\":255,\"total_ms\":499}}",
+              "arguments": {
+                "action": "add_holes",
+                "document": "cad-c41a82",
+                "revision": 3,
+                "args": {
+                  "target": "Enclosure",
+                  "diameter": 6,
+                  "corners": 8
+                }
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure_Drilled",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure body",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole1",
+                  "name": "Hole 1",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole2",
+                  "name": "Hole 2",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole4",
+                  "name": "Hole 4",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole3",
+                  "name": "Hole 3",
+                  "depth": 2,
+                  "visible": true
+                }
+              ],
+              "componentCount": 7,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 2044,
+              "model": "Enclosure · rev 4",
+              "document": "cad-c41a82",
+              "revision": 4
+            },
+            "animations": 0
+          },
+          "answer": "Added four Ø6 mm through-holes, centered 8 mm from each corner’s adjacent edges. The model is valid and remains unsaved.",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-3.png",
+          "outcome": "FreeCAD revision 4 shown: 150 × 80 × 40 mm, 475476 mm³"
+        },
+        {
+          "prompt": "Move this hole 5 millimeters inward.",
+          "expect": "cad",
+          "seconds": 8.9,
+          "renderedSeconds": 6,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD applied it: Enclosure is at revision 5 (recomputed, valid). Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":5,\"file\":null,\"saved\":false,\"solids\":[{\"id\":\"Enclosure_Drilled\",\"label\":\"Enclosure\",\"volume_mm3\":475476.107,\"valid\":true,\"size_mm\":[150,80,40]}],\"result\":{\"changed\":\"Hole2\",\"parameter\":\"Inset\",\"to\":[13,13]},\"selected\":{\"id\":\"Hole2\",\"name\":\"Hole 2\"},\"shown_revision\":5,\"timing\":{\"freecad_ms\":74.6,\"tessellation_ms\":18.6,\"preview_build_ms\":3,\"asset_transfer_ms\":2,\"card_render_ms\":255,\"total_ms\":497}}",
+              "arguments": {
+                "action": "set_parameter",
+                "document": "cad-c41a82",
+                "revision": 4,
+                "args": {
+                  "component": "$selected",
+                  "parameter": "Inset",
+                  "delta": 5
+                }
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure_Drilled",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure body",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole1",
+                  "name": "Hole 1",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole2",
+                  "name": "Hole 2",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole4",
+                  "name": "Hole 4",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole3",
+                  "name": "Hole 3",
+                  "depth": 2,
+                  "visible": true
+                }
+              ],
+              "componentCount": 7,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 2044,
+              "model": "Enclosure · rev 5",
+              "document": "cad-c41a82",
+              "revision": 5,
+              "selected": "Hole2"
+            },
+            "animations": 0
+          },
+          "answer": "Moved Hole 2 inward by 5 mm on both axes. Its center is now 13 mm from each adjacent edge. The model remains valid.",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-4.png",
+          "outcome": "FreeCAD revision 5 shown: 150 × 80 × 40 mm, 475476 mm³",
+          "selected": "Hole2"
+        },
+        {
+          "prompt": "Undo the last change.",
+          "expect": "cad",
+          "seconds": 12.9,
+          "renderedSeconds": 10,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "FreeCAD undid it: Enclosure is at revision 6 (recomputed, valid). Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":6,\"file\":null,\"saved\":false,\"solids\":[{\"id\":\"Enclosure_Drilled\",\"label\":\"Enclosure\",\"volume_mm3\":475476.107,\"valid\":true,\"size_mm\":[150,80,40]}],\"result\":{\"reverted\":\"Hole 2 insets +5 mm (to 13, 13)\",\"restored_revision\":4},\"selected\":{\"id\":\"Hole2\",\"name\":\"Hole 2\"},\"shown_revision\":6,\"timing\":{\"freecad_ms\":53.1,\"tessellation_ms\":19.1,\"preview_build_ms\":4,\"asset_transfer_ms\":1,\"card_render_ms\":187,\"total_ms\":395}}",
+              "arguments": {
+                "action": "undo",
+                "document": "cad-c41a82",
+                "revision": 5
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure_Drilled",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure body",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole1",
+                  "name": "Hole 1",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole2",
+                  "name": "Hole 2",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole4",
+                  "name": "Hole 4",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole3",
+                  "name": "Hole 3",
+                  "depth": 2,
+                  "visible": true
+                }
+              ],
+              "componentCount": 7,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 2044,
+              "model": "Enclosure · rev 6",
+              "document": "cad-c41a82",
+              "revision": 6,
+              "selected": "Hole2"
+            },
+            "animations": 0
+          },
+          "answer": "Undone. Hole 2 is back to 8 mm from both adjacent edges. The model remains valid.",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-5.png",
+          "outcome": "FreeCAD revision 6 shown: 150 × 80 × 40 mm, 475476 mm³"
+        },
+        {
+          "prompt": "Add a mounting hole 500 millimeters from the corner.",
+          "expect": "cad-refusal",
+          "seconds": 10.5,
+          "renderedSeconds": null,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure_Drilled",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure body",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole1",
+                  "name": "Hole 1",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole2",
+                  "name": "Hole 2",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole4",
+                  "name": "Hole 4",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole3",
+                  "name": "Hole 3",
+                  "depth": 2,
+                  "visible": true
+                }
+              ],
+              "componentCount": 7,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 2044,
+              "model": "Enclosure · rev 6",
+              "document": "cad-c41a82",
+              "revision": 6,
+              "selected": "Hole2"
+            },
+            "animations": 0
+          },
+          "answer": "The enclosure is only 150 × 80 mm, so 500 mm from a corner falls outside it. Did you mean 50 mm?",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-6.png",
+          "outcome": "declined by Codex without calling Aion; the model unchanged"
+        },
+        {
+          "prompt": "Save the model as {out}/Enclosure.FCStd.",
+          "expect": "cad-saved",
+          "seconds": 10.7,
+          "renderedSeconds": null,
+          "firstAttempt": null,
+          "refusals": [],
+          "calls": [
+            {
+              "tool": "cad_model",
+              "ok": true,
+              "text": "Enclosure, revision 6. Report only what this result says.\n{\"document\":\"cad-c41a82\",\"name\":\"Enclosure\",\"revision\":6,\"file\":\"<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/Enclosure.FCStd\",\"saved\":true,\"solids\":[{\"id\":\"Enclosure_Drilled\",\"label\":\"Enclosure\",\"volume_mm3\":475476.107,\"valid\":true,\"size_mm\":[150,80,40]}],\"result\":{\"saved\":\"<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/Enclosure.FCStd\",\"bytes\":9535},\"selected\":{\"id\":\"Hole2\",\"name\":\"Hole 2\"},\"timing\":{\"freecad_ms\":87.7,\"tessellation_ms\":11,\"total_ms\":513}}",
+              "arguments": {
+                "action": "save",
+                "document": "cad-c41a82",
+                "revision": 6,
+                "args": {
+                  "path": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/Enclosure.FCStd"
+                }
+              }
+            }
+          ],
+          "revisionBefore": 0,
+          "revisionAfter": 0,
+          "route": null,
+          "card": {
+            "state": {
+              "components": [
+                {
+                  "id": "cad-c41a82",
+                  "name": "Enclosure",
+                  "depth": 0,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure_Drilled",
+                  "name": "Enclosure",
+                  "depth": 1,
+                  "visible": true
+                },
+                {
+                  "id": "Enclosure",
+                  "name": "Enclosure body",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole1",
+                  "name": "Hole 1",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole2",
+                  "name": "Hole 2",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole4",
+                  "name": "Hole 4",
+                  "depth": 2,
+                  "visible": true
+                },
+                {
+                  "id": "Hole3",
+                  "name": "Hole 3",
+                  "depth": 2,
+                  "visible": true
+                }
+              ],
+              "componentCount": 7,
+              "truncated": false,
+              "hidden": [],
+              "view": "iso",
+              "edges": false,
+              "triangles": 2044,
+              "model": "Enclosure · rev 6",
+              "document": "cad-c41a82",
+              "revision": 6,
+              "selected": "Hole2"
+            },
+            "animations": 0
+          },
+          "answer": "Saved as [Enclosure.FCStd](<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/Enclosure.FCStd).",
+          "screenshot": "<repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/freecad-7.png",
+          "outcome": "saved: <repo>/.e2e/scene-eval/2026-10-22T19-03-25-428Z/Enclosure.FCStd"
+        }
+      ]
+    }
+  ]
+}
