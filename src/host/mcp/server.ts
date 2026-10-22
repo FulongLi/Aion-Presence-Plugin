@@ -484,7 +484,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
     const launch = async () => {
       // Every Aion process sees that a window is on its way (several conversations asking at once open one window).
       await link.run(backend => backend.apply({ type: "launching" }));
-      return openWindow(url!, { immersive });
+      const launched = await openWindow(url!, { immersive });
+      if (!launched) await link.run(backend => backend.apply({ type: "launching", failed: true }));
+      return launched;
     };
     if (decision.mode === "embedded") embeddedSeen = true;
     else if (snapshot.hub.viewers === 0 && snapshot.hub.launching && before.hub.launching) waiting = true;

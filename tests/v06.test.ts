@@ -645,6 +645,13 @@ test("v0.6 window: several conversations asking at once open one window; an open
     assert.match(b.content[0].text, /already opening/);
     assert.equal(b.structuredContent.surface.open, true);
   } finally { await second.close(); await first.close(); }
+  // A launch that failed (no browser could be started) does not make the next request wait.
+  const home = tempHome();
+  const hub = new PresenceHub({ home, port: 0, page: () => PAGE, bridge: { locate: () => null } });
+  hub.apply({ type: "launching" });
+  assert.equal(hub.snapshot().hub.launching, true);
+  hub.apply({ type: "launching", failed: true });
+  assert.equal(hub.snapshot().hub.launching, false);
 });
 
 test("v0.6 welcome: on a fresh installation only, remembered once seen, shown again when asked", async () => {

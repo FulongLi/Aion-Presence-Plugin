@@ -101,8 +101,8 @@ export type HubCommand =
   | { type: "introduced" }
   /** A new companion window is on its way to the foreground: the open ones retire once it has connected. */
   | { type: "supersede" }
-  /** v0.6: a companion window is being launched (other processes wait for it instead of opening another). */
-  | { type: "launching" }
+  /** v0.6: a companion window is being launched (other processes wait for it instead of opening another); `failed`: it could not be. */
+  | { type: "launching"; failed?: boolean }
   /** v0.6: show the welcome again (`show`), or the user has seen it (`done`: remembered, never shown again unasked). */
   | { type: "welcome"; show?: boolean; done?: boolean }
   /** An expression or gesture by name (Aion Eyes wear it, the figure acts it out). */
@@ -269,7 +269,7 @@ export const hubCommandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("open"), display: z.enum(DISPLAY_PREFERENCES).optional(), greet: z.boolean().optional(), introduce: z.boolean().optional(), surface: z.enum(["companion", "embedded"]).optional() }).strict(),
   z.object({ type: z.literal("introduced") }).strict(),
   z.object({ type: z.literal("supersede") }).strict(),
-  z.object({ type: z.literal("launching") }).strict(),
+  z.object({ type: z.literal("launching"), failed: z.boolean().optional() }).strict(),
   z.object({ type: z.literal("welcome"), show: z.boolean().optional(), done: z.boolean().optional() }).strict(),
   z.object({
     type: z.literal("express"), expression: z.enum(EYE_EXPRESSIONS).optional(), gesture: z.enum(FIGURE_GESTURES).optional(),

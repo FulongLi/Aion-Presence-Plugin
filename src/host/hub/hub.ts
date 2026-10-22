@@ -237,7 +237,7 @@ export class PresenceHub {
         break;
       case "launching":
         // A window takes a few seconds to start (longer the first time a browser opens): others wait that long for it.
-        this.launchingUntil = this.clock.now() + LAUNCH_WAIT_MS;
+        this.launchingUntil = command.failed ? 0 : this.clock.now() + LAUNCH_WAIT_MS;
         this.changed();
         break;
       case "welcome":
