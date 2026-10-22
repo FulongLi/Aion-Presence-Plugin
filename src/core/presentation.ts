@@ -8,6 +8,7 @@ import type { CardLayout } from "../cards/manifest";
 import type { CardAssetRef } from "../cards/state";
 import type { CardValue } from "../cards/values";
 import type { SceneDocument } from "../scene/ir";
+import type { GeoRoute } from "../visual/geo/route";
 import { cardSeconds, isGlyphText, routePresentation, type PresentationCapabilities, type PresentationPreference, type PresentationRoute, type RouteReason } from "./presentationRouter";
 
 export { GLYPH_TEXT_MAX, isGlyphText } from "./presentationRouter";
@@ -142,8 +143,14 @@ export type PresentationContent =
    * `card`. v0.5: `scene` — a generative scene card's Scene IR document; the store moves it into the card's scene state
    * (revision and history) and never keeps it on the presentation itself. v0.5.1: `bodyEcho` — when a change to a hybrid
    * scene last altered its particle form (`bodyScene` is then the new form): the body re-forms it for a moment.
+   * v0.6: `terrain` — the real terrain the body forms beside the card (the Route Explorer: the route is drawn over it);
+   * `geoRoute` — a route-documents card's GeoRoute; like a scene, the store moves it into the card's route state (with
+   * its revision) and never keeps it on the presentation itself. (Not `route`: that is how a presentation is shown.)
    */
-  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D; scene?: SceneDocument; bodyEcho?: number };
+  | { kind: "interactive"; app: string; instance: string; title: string; layout: CardLayout; config: Record<string, CardValue>; asset?: CardAssetRef; bodyScene?: Scene3D; scene?: SceneDocument; bodyEcho?: number; terrain?: InteractiveTerrain; geoRoute?: GeoRoute };
+
+/** v0.6: the terrain an interactive card's body forms (what `show_terrain` showed, or the route's own area). */
+export interface InteractiveTerrain { media: MediaRef; style: TerrainStyle; label: string; region?: string; elevation?: { min: number; max: number }; credit?: string; markers?: GeoMarker[] }
 
 export type PresentationKind = PresentationContent["kind"];
 
@@ -204,7 +211,8 @@ function bodySeconds(content: PresentationContent): number {
     case "image": return content.fit === "portrait" ? HOLD_SECONDS.portrait : HOLD_SECONDS.image;
     case "terrain": return content.markers?.length ? HOLD_SECONDS.markedTerrain : HOLD_SECONDS.terrain;
     case "result": case "artifact": return HOLD_SECONDS.image;
-    case "interactive": return HOLD_SECONDS.interactive;
+    // v0.6: the terrain beside a route stays as long as the card (the user is working with both).
+    case "interactive": return content.terrain ? 0 : HOLD_SECONDS.interactive;
     // As long as the sequence plays, and a moment after it.
     case "animation": return Math.ceil(animationDuration(content) + 1.5);
     default: return HOLD_SECONDS[content.kind];
@@ -282,7 +290,8 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
     case "writing": return { type: "writing", stroke: presentation.stroke, source: presentation.source, ...(presentation.highlight ? { highlight: presentation.highlight } : {}) };
     case "animation": return { type: "performance" };
-    case "interactive": return presentation.bodyScene ? { type: "scene", scene: presentation.bodyScene } : { type: "none" };
+    case "interactive": return presentation.terrain ? { type: "terrain", media: presentation.terrain.media, style: presentation.terrain.style }
+      : presentation.bodyScene ? { type: "scene", scene: presentation.bodyScene } : { type: "none" };
   }
 }
 

@@ -8,7 +8,7 @@ import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
 import { GLB_MIME } from "../../cards/assets/gltf";
-import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE } from "../paths";
+import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE, WELCOME_FILE } from "../paths";
 import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
 import { NativeAudioBridge, type BridgeOptions } from "../audio/bridge";
@@ -18,6 +18,9 @@ import { AUDIO_INTENSITIES, AUDIO_MODES, DEFAULT_AUDIO_SETTINGS, type AudioSetti
 import { CARD_REPORT_BYTES, checkCardReport } from "../../cards/state";
 import { RateLimiter } from "../../cards/protocol";
 import { cardRegistry } from "../../core/cards";
+import { TileCache, tileAllowed } from "../route/tiles";
+import { routeBox } from "../../visual/geo/route";
+import { errorCode } from "../../visual/errors";
 
 export interface HubOptions {
   /** Runtime directory (hub.json, token, hook heartbeat). Default: presenceHome(). */
@@ -27,6 +30,8 @@ export interface HubOptions {
   /** The presence surface page (the same single file the MCP Apps resource serves). */
   page: () => string;
   clock?: StoreClock;
+  /** v0.6: the map tile cache (injectable for tests). */
+  tiles?: TileCache;
   /** The native audio bridge (injectable for tests); default: the macOS bridge, if installed. */
   bridge?: Partial<Pick<BridgeOptions, "locate" | "launch" | "isMac" | "macosVersion" | "connectTimeout">>;
 }
@@ -47,6 +52,8 @@ const MODEL_PRECEDENCE_MS = 120_000;
  * plugin can read; its length is, from the Stop hook). Bounded, and any new prompt, interrupt or state ends it.
  */
 export const ANSWER_TAIL = { minSeconds: 1.5, maxSeconds: 45 };
+/** v0.6: how long other "Open Aion" requests wait for a window that is being launched. */
+export const LAUNCH_WAIT_MS = 20_000;
 /** A new prompt is a new topic: a temporary presentation from the last one ends within this many seconds. */
 export const NEW_TOPIC_SECONDS = 15;
 
@@ -62,6 +69,7 @@ export const NEW_TOPIC_SECONDS = 15;
  *   GET  /media/:id     image bytes for a surface
  *   POST /api/hook      Codex lifecycle hook events
  *   POST /api/card      a companion window's report about the interactive card it shows (v0.4.5)
+ *   GET  /tile/z/x/y    v0.6: an OpenStreetMap tile the open Route Explorer card shows (cached; only around its route)
  *   GET  /health        identity check for discovery
  *
  * The event stream also carries `audio` events (v0.4.2): features of Codex's voice or another app's sound, analysed here
@@ -96,16 +104,25 @@ export class PresenceHub {
   /** When the agent said it is responding during this turn (null: it has not). */
   private respondingAt: number | null = null;
   private introduction = false;
+  /** v0.6: until when a companion window is being launched (any process), and the welcome's state. */
+  private launchingUntil = 0;
+  private welcomeRequested = false;
+  private surfaceMode: "companion" | "embedded" = "companion";
+  private welcomeDone: boolean;
   private lastHookAt = 0;
   private heartbeat?: ReturnType<typeof setInterval>;
   /** The macOS capture bridge for Codex's voice and other apps' sound (started only when the user asks). */
   readonly bridge: NativeAudioBridge;
   /** Codex Voice Sync (v0.4.3): once the user opted in, Codex's voice is followed whenever a window is open. */
   readonly voiceSync: VoiceSyncController;
+  /** v0.6: the Route Explorer's map tiles (fetched only as viewed, cached as OpenStreetMap's policy asks). */
+  readonly tiles: TileCache;
 
   constructor(private readonly options: HubOptions) {
     this.home = options.home ?? presenceHome();
     this.clock = options.clock ?? systemClock;
+    this.welcomeDone = existsSync(join(this.home, WELCOME_FILE));
+    this.tiles = options.tiles ?? new TileCache(join(this.home, "tiles"));
     this.store = new PresenceStore(this.clock);
     // Aion's colours are the user's choice: they come back whenever Aion does.
     this.store.setAppearance(loadAppearance(this.home));
@@ -181,6 +198,7 @@ export class PresenceHub {
       ...state, revision: this.revision,
       hub: {
         id: this.id, url: this.url, viewers: this.viewers.size, display: this.display, hooksActive: this.hooksActive(), introduction: this.introduction,
+        launching: this.viewers.size === 0 && this.clock.now() < this.launchingUntil, welcome: this.welcomeRequested || !this.welcomeDone, surfaceMode: this.surfaceMode,
         surface: this.surfaceState(), audioWindow: this.audioWindow,
       },
     };
@@ -203,9 +221,10 @@ export class PresenceHub {
         break;
       case "body": this.store.setBody(command.body); break;
       case "present": this.store.present(command.content, command.hold, { preference: command.presentation, detail: command.detail, rate: command.rate }); break;
-      case "clear": this.store.clearPresentation(); break;
+      case "clear": this.store.clearPresentation({ keepTerrain: command.keep === "terrain" }); break;
       case "open":
         if (command.display && command.display !== this.display) { this.display = command.display; this.changed(); }
+        if (command.surface && command.surface !== this.surfaceMode) { this.surfaceMode = command.surface; this.changed(); }
         // A fresh opening greets; a window that is already showing Aion does not greet again.
         if (command.greet ?? this.viewers.size === 0) this.store.greet();
         if (command.introduce) { this.introduction = true; this.changed(); }
@@ -215,6 +234,22 @@ export class PresenceHub {
         break;
       case "supersede":
         this.retiring = new Set(this.viewers.values());
+        break;
+      case "launching":
+        // A window takes a few seconds to start (longer the first time a browser opens): others wait that long for it.
+        this.launchingUntil = this.clock.now() + LAUNCH_WAIT_MS;
+        this.changed();
+        break;
+      case "welcome":
+        if (command.show) { this.welcomeRequested = true; this.changed(); }
+        if (command.done) {
+          this.welcomeRequested = false;
+          if (!this.welcomeDone) {
+            this.welcomeDone = true;
+            try { mkdirSync(this.home, { recursive: true, mode: 0o700 }); writeFileSync(join(this.home, WELCOME_FILE), `${new Date(this.clock.now()).toISOString()}\n`, { mode: 0o600 }); } catch { /* remembered for this hub's life */ }
+          }
+          this.changed();
+        }
         break;
       case "express": this.store.express({ expression: command.expression, gesture: command.gesture, seconds: command.seconds }); break;
       case "view": { const { type: _type, ...view } = command; this.store.orient(view); break; }
@@ -429,6 +464,8 @@ export class PresenceHub {
         res.writeHead(200, { "Content-Type": item.mime, "Content-Length": item.bytes, "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox" });
         return res.end(item.data);
       }
+      const tile = /^\/tile\/(\d{1,2})\/(\d{1,6})\/(\d{1,6})$/.exec(url.pathname);
+      if (req.method === "GET" && tile) return await this.tile(res, Number(tile[1]), Number(tile[2]), Number(tile[3]));
       if (req.method === "POST" && url.pathname === "/api/command") {
         const command = hubCommandSchema.safeParse(await readJson(req, JSON_LIMIT));
         if (!command.success) return send(res, 400, { error: "invalid-command" });
@@ -476,6 +513,22 @@ export class PresenceHub {
       return send(res, 404, { error: "not-found" });
     } catch (error) {
       return send(res, error instanceof Error && error.message === "too-large" ? 413 : 400, { error: "bad-request" });
+    }
+  }
+
+  /** v0.6: a map tile for the open Route Explorer card — only around its route, and only while it is open. */
+  private async tile(res: ServerResponse, z: number, x: number, y: number) {
+    const card = this.store.snapshot().card;
+    if (!card?.route) return send(res, 404, { error: "no-route" });
+    if (!tileAllowed(z, x, y, routeBox(card.route.document.coordinates))) return send(res, 403, { error: "outside-route" });
+    try {
+      const bytes = await this.tiles.get(z, x, y, AbortSignal.timeout(15_000));
+      // The page may keep it a while (the hub's own cache decides what is fresh).
+      res.writeHead(200, { "Content-Type": "image/png", "Content-Length": bytes.length, "Cache-Control": "private, max-age=3600", "Content-Security-Policy": "default-src 'none'; sandbox" });
+      return res.end(bytes);
+    } catch (error) {
+      const code = errorCode(error);
+      return send(res, code === "tiles-busy" ? 429 : code === "tiles-off" ? 404 : 503, { error: code });
     }
   }
 

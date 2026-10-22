@@ -38,6 +38,8 @@ export type RouteReason =
   | "writing-hybrid"
   /** auto (v0.4.5): an interactive application is a card; the body stays alive beside it. */
   | "interactive"
+  /** auto (v0.6): a route — the particle terrain carries it, the Route Explorer card gives its exact map and profile. */
+  | "route-hybrid"
   /** auto: a looked-up, high-resolution picture — a particle impression and the picture itself. */
   | "picture-hybrid"
   /** auto: the picture is too small to be worth a card of its own. */
@@ -83,7 +85,7 @@ export function bodyCapable(content: PresentationContent): boolean {
     case "music": return content.symbol !== undefined;
     case "artifact": return (content.type === "svg" || content.type === "image") && content.media !== undefined;
     // Only an application with a particle form (and only as a hybrid: the application itself is never particles).
-    case "interactive": return content.bodyScene !== undefined;
+    case "interactive": return content.bodyScene !== undefined || content.terrain !== undefined;
   }
 }
 
@@ -99,7 +101,7 @@ function automatic(content: PresentationContent, detail: boolean): { route: Pres
     case "writing":
       return { route: "hybrid", reason: "writing-hybrid" };
     case "interactive":
-      return { route: "card", reason: "interactive" };
+      return content.terrain ? { route: "hybrid", reason: "route-hybrid" } : { route: "card", reason: "interactive" };
     case "text":
       return bodyCapable(content) ? { route: "body", reason: "body-native" } : { route: "card", reason: "fidelity" };
     case "result": case "artifact":

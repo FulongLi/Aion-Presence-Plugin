@@ -1,5 +1,6 @@
 import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 import type { CardReport } from "../../cards/state";
+import type { MapTile } from "../../cards/protocol";
 
 export type ConnectionState = "connecting" | "live" | "resting";
 
@@ -32,5 +33,9 @@ export interface PresenceTransport {
   audioStatus?(status: SurfaceAudio): void;
   /** v0.4.5: reports the interactive card this surface shows (validated again by the hub). */
   cardReport?(report: Omit<CardReport, "window">): Promise<void>;
+  /** v0.6: a map tile for the Route Explorer, from the hub (companion only: an embedded view has none). */
+  tile?(tile: MapTile): Promise<Blob>;
+  /** v0.6: tells the hub the first-run welcome has been seen (remembered), or asks for it again. */
+  welcome?(done: boolean): Promise<void>;
   close(): void;
 }

@@ -18,7 +18,9 @@ import { VisualActionController } from "../visual/controller";
 import { visualForms } from "../visual/forms";
 import { decodeHeightField } from "../visual/heightfield";
 import { decodeMap } from "../visual/geo/map";
-import { MarkerLayer } from "./markers";
+import { MarkerLayer, type BodyRoute } from "./markers";
+import { Welcome } from "./welcome";
+import { routeAlong, elevationAt } from "../visual/geo/route";
 import { accentColor, particlePalette, type Appearance } from "../core/colors";
 import { HOLD_SECONDS, markerWords, type GeoMarker } from "../core/presentation";
 import { normalizeImage } from "../visual/image";
@@ -55,6 +57,10 @@ export interface ViewElements {
   sound?: { root: HTMLElement; label: HTMLElement; action: HTMLButtonElement };
   /** v0.4.3: the overlay an action sequence's objects are drawn on (optional: absent, no props are drawn). */
   scene?: HTMLCanvasElement;
+  /** v0.6: the first-run welcome (optional: absent, none is shown). */
+  welcome?: HTMLElement;
+  /** v0.6: the note an embedded view shows while Aion is in its own window (optional). */
+  elsewhere?: HTMLElement;
   /** v0.4.5: where an interactive card (an isolated application) is shown (optional: absent, interactive cards are not shown). */
   workspace?: HTMLElement;
 }
@@ -164,10 +170,13 @@ export class PresenceView {
       project: point => this.runtime?.project(point) ?? null,
       colors: () => ({ base: this.appearance?.base.hex ?? "#a8bed1", accent: accentColor(this.appearance?.accent.hex ?? "#e2725b") }),
     }) : null;
+    // v0.6: the welcome lives only in Aion's own window (the hub remembers it was seen).
+    this.welcome = elements.welcome && transport.kind === "companion" ? new Welcome({ root: elements.welcome, dismissed: () => this.welcomeSeen() }) : null;
     this.markerLayer = elements.markers ? new MarkerLayer(elements.markers, {
       target: () => this.visual.phase === "sphere" ? null : this.visual.target,
       level: () => this.visual.level,
       project: point => this.runtime?.project(point) ?? null,
+      accent: () => accentColor(this.appearance?.accent.hex ?? "#e2725b"),
     }) : null;
     // An AnalyserNode fallback may wait for a first interaction (autoplay policy); so may music.
     for (const type of ["pointerdown", "keydown"]) addEventListener(type, () => { this.listener.resume(); if (this.playbackOwner) this.player.unlock(); }, { passive: true });
@@ -254,6 +263,8 @@ export class PresenceView {
         : layout === "compact" ? { x: -0.25, y: 0, scale: 0.8 } : layout === "expanded" ? { x: -0.385, y: 0.02, scale: 0.4 } : { x: -0.44, y: 0.02, scale: 0.26 };
       return this.ease(target, dt);
     }
+    // v0.6: the welcome stands below the body; the body rises a little above it, still itself and alive.
+    if (this.welcome?.shown && !open) return this.ease(narrow ? { x: 0, y: 0.3, scale: 0.6 } : { x: 0, y: 0.2, scale: 0.74 }, dt);
     // A written word runs wider than other visuals (v0.4.4): it steps further aside and a little smaller.
     const word = (this.writing.sequence?.items.length ?? 0) > 1;
     const target: Framing = !open ? { x: 0, y: 0, scale: 1 }
@@ -305,7 +316,8 @@ export class PresenceView {
     this.applyAudio(snapshot, previous);
     const presentation = snapshot.presentation;
     // Places marked on the map or terrain on show: they change in place, and the map stays up a while longer.
-    const markers: GeoMarker[] = presentation?.kind === "map" ? presentation.markers : presentation?.kind === "terrain" ? presentation.markers ?? [] : [];
+    const markers: GeoMarker[] = presentation?.kind === "map" ? presentation.markers : presentation?.kind === "terrain" ? presentation.markers ?? []
+      : presentation?.kind === "interactive" ? presentation.terrain?.markers ?? [] : [];
     const markersKey = `${presentation?.id ?? ""}|${markers.map(marker => `${marker.id}:${marker.color}:${marker.lat},${marker.lon}:${marker.label}:${marker.highlight ? 1 : 0}`).join(";")}`;
     if (markersKey !== this.markersKey) {
       const samePresentation = (presentation?.id ?? null) === this.presentationId && this.markersKey.startsWith(`${presentation?.id ?? ""}|`);
@@ -333,15 +345,95 @@ export class PresenceView {
     }
     // v0.4.5: the interactive card on show follows the hub's card (its layout, Codex's commands).
     if (this.cardHost && snapshot.card?.instance === this.cardHost.instance) this.cardHost.apply(snapshot.card);
+    // v0.6: the route on the terrain is the card's own route; its highlight and section follow what the card reports.
+    this.applyRoute(snapshot);
+    this.applyWelcome(snapshot, previous);
     // v0.5.1: a hybrid scene that changed shape: the body re-forms it for a moment beside the card, then returns.
     if (presentation?.kind === "interactive" && presentation.bodyEcho && presentation.bodyScene && presentation.id === this.presentationId && presentation.bodyEcho !== this.bodyEcho) {
       const first = this.bodyEcho === null;
       this.bodyEcho = presentation.bodyEcho;
-      if (!first || Date.now() - presentation.bodyEcho < 10_000) void this.visual.submit({ type: "scene", scene: presentation.bodyScene, hold: BODY_ECHO_SECONDS });
+      if (!first || Date.now() - presentation.bodyEcho < 10_000) { this.bodyKey = null; void this.visual.submit({ type: "scene", scene: presentation.bodyScene, hold: BODY_ECHO_SECONDS }); }
     } else if (presentation?.kind !== "interactive") this.bodyEcho = null;
     this.immersive.update(snapshot.hub.display);
     this.updateFullscreenControl();
   };
+
+  /**
+   * v0.6: the first-run welcome. Shown when the hub says it is due (the first launch, or "show me the introduction
+   * again"), a moment after the body has appeared; remembered as seen once it has been on screen a few seconds; it steps
+   * aside by itself as soon as Codex shows something (the user has started). An embedded view, while Aion is in its own
+   * window, says so instead of showing a second Aion.
+   */
+  private readonly welcome: Welcome | null;
+  private welcomeTimer?: ReturnType<typeof setTimeout>;
+  private welcomeSent = false;
+  private applyWelcome(snapshot: HubSnapshot, previous: HubSnapshot | null) {
+    const elsewhere = this.elements.elsewhere;
+    if (elsewhere && this.transport.kind === "embedded") {
+      const away = snapshot.hub.surfaceMode === "companion" && snapshot.hub.viewers > 0;
+      elsewhere.hidden = !away;
+      elsewhere.textContent = away ? "Aion is open in its own window." : "";
+      this.elements.root.classList.toggle("elsewhere-open", away);
+    }
+    const welcome = this.welcome;
+    if (!welcome) return;
+    const due = snapshot.hub.welcome, wasDue = previous?.hub.welcome ?? false;
+    if (snapshot.presentation && welcome.shown) { welcome.hide(); this.welcomeSeen(); return; }
+    if (due && (!wasDue || !previous) && !welcome.shown && !snapshot.presentation) {
+      clearTimeout(this.welcomeTimer);
+      this.welcomeSent = false;
+      this.welcomeTimer = setTimeout(() => {
+        if (this.snapshot?.presentation) return;
+        welcome.show();
+        // Seen: remembered once it has been on screen a little while, even if the user just starts talking.
+        setTimeout(() => { if (welcome.shown) this.welcomeSeen(); }, 6_000);
+      }, previous ? 200 : 1_400);
+    }
+  }
+  private welcomeSeen() {
+    if (this.welcomeSent) return;
+    this.welcomeSent = true;
+    void this.transport.welcome?.(true);
+  }
+
+  /**
+   * Forms what a presentation's body shows. v0.6: the same terrain (same height field, same style) that is already
+   * formed is kept and only held longer — a route drawn on the terrain on show, a reversed route, or a route's card
+   * closed back to its terrain never re-forms the land.
+   */
+  private bodyKey: string | null = null;
+  private formBody(body: ReturnType<typeof planPresentation>["body"], hold: number) {
+    const key = body.type === "terrain" ? `terrain:${body.media.id}:${body.style}` : null;
+    if (key && key === this.bodyKey && this.visual.presenting && this.visual.phase !== "returning") { this.visual.holdFor(hold); return; }
+    this.bodyKey = key;
+    void this.visual.submit(body.type === "none" ? null : { ...body, hold });
+  }
+
+  /** The route over the particle terrain (v0.6), from the hub's card: the same document the Route Explorer draws. */
+  private routeKey = "";
+  private applyRoute(snapshot: HubSnapshot) {
+    const layer = this.markerLayer, presentation = snapshot.presentation, card = snapshot.card;
+    const route = presentation?.kind === "interactive" && presentation.terrain && card?.instance === presentation.instance ? card.route : null;
+    if (!layer) return;
+    if (!route) { if (this.routeKey) { this.routeKey = ""; layer.setRoute(null); } return; }
+    const key = `${route.document.id}:${route.revision}`;
+    if (key !== this.routeKey) {
+      this.routeKey = key;
+      const document = route.document;
+      const body: BodyRoute = { id: key, coordinates: document.coordinates, along: routeAlong(document), origin: document.origin, destination: document.destination, waypoints: document.waypoints };
+      layer.setRoute(body);
+    }
+    // What the card highlights, as it reported it (Codex's "show the highest point", or the user's click).
+    const state = card!.state, kind = state.highlight;
+    const km = typeof state.highlightKm === "number" ? state.highlightKm : null;
+    const highlight = km !== null && kind !== "none" && kind !== "section" && kind !== "steepest" ? (() => {
+      const elevation = typeof state.highlightM === "number" ? state.highlightM : elevationAt(route.document, km * 1000);
+      const name = kind === "highest" ? "Highest" : kind === "lowest" ? "Lowest" : kind === "start" ? route.document.origin.name : kind === "end" ? route.document.destination.name : `${km.toFixed(1)} km`;
+      return { distance: km * 1000, label: `${name}${elevation === null ? "" : ` · ${Math.round(elevation)} m`}` };
+    })() : null;
+    const match = typeof state.sectionKm === "string" ? /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(state.sectionKm) : null;
+    layer.setFocus({ highlight, section: match ? [Number(match[1]) * 1000, Number(match[2]) * 1000] : null });
+  }
 
   connectionChanged = (state: ConnectionState) => {
     if (state === this.connection) return;
@@ -357,14 +449,14 @@ export class PresenceView {
     if (this.cardHost && !(presentation?.kind === "interactive" && presentation.instance === this.cardHost.instance)) this.closeWorkspace();
     if (presentation?.kind === "interactive") { this.presentInteractive(presentation); return; }
     if (!presentation) {
-      void this.visual.submit(null);
+      this.formBody({ type: "none" }, 0);
       this.closeCard();
       return;
     }
     const plan = planPresentation(presentation, presentation.route);
     if (plan.body.type === "performance" && presentation.kind === "animation") {
       // The body itself performs: nothing forms, the figure is borrowed for it (v0.4.3).
-      void this.visual.submit(null);
+      this.formBody({ type: "none" }, 0);
       this.closeCard();
       const playback = this.snapshot?.animation?.presentation === presentation.id ? this.snapshot.animation.playback : null;
       if (!playback) return;
@@ -383,7 +475,7 @@ export class PresenceView {
       return;
     }
     const hold = presentation.bodyHold > 0 ? presentation.bodyHold : Infinity;
-    void this.visual.submit(plan.body.type === "none" ? null : { ...plan.body, hold });
+    this.formBody(plan.body, hold);
     if (!plan.card) { this.closeCard(); return; }
     // A card alone: the body turns toward it for a moment, then carries on living (listening, answering).
     if (plan.body.type === "none") this.aion.gesture("offering");
@@ -436,7 +528,7 @@ export class PresenceView {
     const workspace = this.elements.workspace, card = this.snapshot?.card, manifest = cardRegistry.get(presentation.app);
     const plan = planPresentation(presentation, presentation.route);
     const hold = presentation.bodyHold > 0 ? presentation.bodyHold : Infinity;
-    void this.visual.submit(plan.body.type === "none" ? null : { ...plan.body, hold });
+    this.formBody(plan.body, hold);
     if (!workspace || !manifest || !card || card.instance !== presentation.instance) return;
     if (this.cardHost?.instance === presentation.instance) { this.cardHost.update(presentation); return; }
     this.closeCard();
@@ -457,6 +549,8 @@ export class PresenceView {
       fullscreen: () => this.transport.fullscreen(),
       attention: selection => this.attendToSelection(selection),
       interacting: on => this.runtime?.setFrameCap?.(on && this.workspaceLayout !== "compact" ? 30 : null),
+      ...(this.transport.tile ? { tile: (tile: Parameters<NonNullable<PresenceTransport["tile"]>>[0]) => this.transport.tile!(tile) } : {}),
+      cursor: distance => this.markerLayer?.setFocus({ cursor: distance }),
     });
     this.cardHost = host;
     this.cardHistory.opened++;
@@ -518,11 +612,16 @@ export class PresenceView {
     }
   }
 
-  /** The user dismissed the card: the presentation ends everywhere (the body returns too). */
+  /**
+   * The user dismissed the card: the presentation ends everywhere (the body returns too). v0.6: a route's card closes and
+   * the route goes, but the terrain it was drawn on stays formed (the hub keeps it), so the body does not leave it.
+   */
   private dismiss() {
+    const presentation = this.snapshot?.presentation;
+    const keepTerrain = presentation?.kind === "interactive" && !!presentation.terrain && this.transport.kind === "companion";
     this.closeWorkspace();
     this.closeCard();
-    void this.visual.submit(null);
+    if (keepTerrain) this.markerLayer?.setRoute(null); else this.formBody({ type: "none" }, 0);
     void this.transport.dismiss?.().catch(() => {});
   }
 

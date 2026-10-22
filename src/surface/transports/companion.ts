@@ -1,6 +1,7 @@
 import type { HubSnapshot, SurfaceAudio } from "../../host/hub/protocol";
 import type { ConnectionState, PresenceTransport } from "./types";
 import type { CardReport } from "../../cards/state";
+import type { MapTile } from "../../cards/protocol";
 
 /**
  * The companion window: a page served by the local presence hub. Snapshots arrive over server-sent events;
@@ -76,10 +77,25 @@ export class CompanionTransport implements PresenceTransport {
     return response.blob();
   }
 
+  /** v0.6: closing a route's card keeps the terrain it was drawn on (the hub decides; other cards simply close). */
   async dismiss() {
     await fetch(new URL("api/command", this.base), {
-      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify({ type: "clear" }),
+      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify({ type: "clear", keep: "terrain" }),
     });
+  }
+
+  /** v0.6: a map tile the Route Explorer shows, through the hub (which fetches and caches it); never from the internet here. */
+  async tile({ z, x, y }: MapTile) {
+    const response = await fetch(new URL(`tile/${z}/${x}/${y}?token=${encodeURIComponent(this.token)}`, this.base));
+    if (!response.ok) throw new Error("tile-unavailable");
+    return response.blob();
+  }
+
+  /** v0.6: the welcome was seen (or is wanted again). */
+  async welcome(done: boolean) {
+    await fetch(new URL("api/command", this.base), {
+      method: "POST", headers: { "content-type": "application/json", "x-aion-token": this.token }, body: JSON.stringify(done ? { type: "welcome", done: true } : { type: "welcome", show: true }), keepalive: true,
+    }).catch(() => {});
   }
 
   fullscreen() {

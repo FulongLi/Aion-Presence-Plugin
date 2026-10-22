@@ -4,37 +4,40 @@ import { getUiCapability, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-a
 import type { ClientCapabilities } from "@modelcontextprotocol/server";
 
 /**
- * Presentation modes, chosen from what the host actually declares:
+ * Presentation modes (v0.6: Aion's own window by default):
  *
- *   embedded   the host renders MCP Apps (it advertises the io.modelcontextprotocol/ui extension with the
- *              text/html;profile=mcp-app type): Aion is rendered inside the host, in the display modes the
- *              host offers.
- *   companion  otherwise: Aion opens as a local Presence window driven by the same state.
+ *   companion  Aion's independent companion window — a quiet app window driven by the local hub. The default on every
+ *              host, so "Open Aion" always gives Aion its own space beside the conversation.
+ *   embedded   inside the host's conversation, rendered by a host that declares MCP Apps support (the
+ *              io.modelcontextprotocol/ui extension with the text/html;profile=mcp-app type) — only when asked for
+ *              (`surface: "embedded"`, or AION_PRESENCE_SURFACE=embedded for the v0.5 behaviour).
  *
- * No host API is assumed or emulated. A host that does not declare MCP Apps support never gets the
- * embedded path, even when it is asked for.
+ * No host API is assumed or emulated. A host that does not declare MCP Apps support never gets the embedded path, even
+ * when it is asked for: Aion then opens its own window and says why.
  */
 export type SurfaceMode = "embedded" | "companion";
+export type SurfaceRequest = "auto" | "companion" | "embedded";
 
 export interface SurfaceDecision {
   mode: SurfaceMode;
   /** Whether the host declared MCP Apps support. */
   embeddedSupported: boolean;
-  reason: "host-renders-mcp-apps" | "host-without-mcp-apps" | "companion-requested";
+  reason: "companion-default" | "companion-requested" | "embedded-requested" | "embedded-unsupported";
 }
 
 export function hostSupportsMcpApps(capabilities: ClientCapabilities | null | undefined): boolean {
   return getUiCapability(capabilities)?.mimeTypes?.includes(RESOURCE_MIME_TYPE) ?? false;
 }
 
-export function decideSurface(capabilities: ClientCapabilities | null | undefined, request: "auto" | "companion" = "auto",
+export function decideSurface(capabilities: ClientCapabilities | null | undefined, request: SurfaceRequest = "auto",
   env: NodeJS.ProcessEnv = process.env): SurfaceDecision {
   const embeddedSupported = hostSupportsMcpApps(capabilities);
-  const preference = env.AION_PRESENCE_SURFACE === "companion" ? "companion" : request;
-  if (preference === "companion") return { mode: "companion", embeddedSupported, reason: "companion-requested" };
-  return embeddedSupported
-    ? { mode: "embedded", embeddedSupported, reason: "host-renders-mcp-apps" }
-    : { mode: "companion", embeddedSupported, reason: "host-without-mcp-apps" };
+  const forced = env.AION_PRESENCE_SURFACE === "companion" || env.AION_PRESENCE_SURFACE === "embedded" ? env.AION_PRESENCE_SURFACE : null;
+  const preference = forced ?? request;
+  if (preference === "embedded") {
+    return embeddedSupported ? { mode: "embedded", embeddedSupported, reason: "embedded-requested" } : { mode: "companion", embeddedSupported, reason: "embedded-unsupported" };
+  }
+  return { mode: "companion", embeddedSupported, reason: preference === "companion" ? "companion-requested" : "companion-default" };
 }
 
 export interface BrowserLaunch { command: string; args: string[] }

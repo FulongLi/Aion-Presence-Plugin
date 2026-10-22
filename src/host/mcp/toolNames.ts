@@ -7,7 +7,7 @@
  */
 export const TOOL_NAMES = [
   "open_presence", "set_presence_state", "set_body_form", "express",
-  "show_image", "show_portrait", "show_terrain", "show_map", "mark_map", "set_colors", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji", "show_scene", "set_scene_view",
+  "show_image", "show_portrait", "show_terrain", "show_map", "mark_map", "plan_route", "set_colors", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji", "show_scene", "set_scene_view",
   "show_music", "play_music", "music_lesson", "set_audio_visualizer",
   "show_stroke_animation", "play_animation", "control_animation",
   "show_interactive_card", "control_interactive_card", "inspect_interactive_card",
