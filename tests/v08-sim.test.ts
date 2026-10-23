@@ -16,7 +16,7 @@ import { setupBundle } from "../src/sim/bundle";
 import { checkSimArguments, SIM_ACTIONS, toSelector } from "../src/host/sim/commands";
 import { SimulationService, type CadBridge } from "../src/host/sim/service";
 import { elmerCandidates, gmshCandidates } from "../src/host/sim/tools";
-import { colorAt, lookupTable, niceTicks } from "../src/cards/apps/simulation/colormaps";
+import { colorAt, isUniform, lookupTable, niceTicks, tickLabel } from "../src/cards/apps/simulation/colormaps";
 import { SIMULATION_MANIFEST } from "../src/cards/apps/simulation.manifest";
 import { defaultCardRegistry, OPENABLE_CARD_APP_IDS } from "../src/cards/registry";
 import { checkCommand, checkState, validateManifest } from "../src/cards/manifest";
@@ -410,6 +410,15 @@ test("v0.8 Simulation Card: a valid manifest for field assets, registered but op
   assert.deepEqual(niceTicks(0, 1, 6), [0, 0.2, 0.4, 0.6000000000000001, 0.8, 1]);
   assert.deepEqual(niceTicks(293.1, 313.4, 5), [300, 310]);
   assert.deepEqual(niceTicks(-1, 1, 5), [-1, -0.5, 0, 0.5, 1]);
+  // Narrow ranges keep their ticks distinct (the real run's 39.93–40.00 °C legend read "40, 40, 40, 39.9" before).
+  const narrow = niceTicks(39.93, 40.0, 6);
+  assert.deepEqual(narrow.map(t => tickLabel(t, narrow)), ["39.94", "39.96", "39.98", "40.00"]);
+  const quarter = niceTicks(0, 1, 5);
+  assert.deepEqual(quarter.map(t => tickLabel(t, quarter)), ["0.00", "0.25", "0.50", "0.75", "1.00"]);
+  const big = niceTicks(0, 100, 5);
+  assert.deepEqual(big.map(t => tickLabel(t, big)), ["0", "25", "50", "75", "100"]);
+  assert.equal(isUniform(2e6, 2e6 * (1 + 1e-8)), true);
+  assert.equal(isUniform(39.93, 40), false);
 });
 
 // ── The service and the tool (stand-in CAD, no solver) ──────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@ import { button, el, toggle, type CardApp, type CardContext, type CommandResult 
 import type { CardValue } from "../../values";
 import { decodeFieldBundle, type BundleField, type FieldBundle } from "../../../sim/field";
 import { locate, sliceTets, type Section } from "../../../sim/slice";
-import { COLORMAPS, colorAt, lookupTable, niceTicks, type ColormapId } from "./colormaps";
+import { COLORMAPS, colorAt, isUniform, lookupTable, niceTicks, tickLabel, type ColormapId } from "./colormaps";
 
 /**
  * The Simulation Card (v0.8): numerical FEM fields, shown as an engineer expects them — and nothing else.
@@ -367,7 +367,7 @@ export function createSimulationCard(ctx: CardContext): CardApp {
     const scale = el("div", { className: "sim-scale" }, [canvas]);
     const labels = el("div", { className: "sim-ticks" });
     for (const tick of ticks) {
-      const label = el("span", { text: fmt(tick, 3) });
+      const label = el("span", { text: tickLabel(tick, ticks) });
       label.style.top = `${(1 - (tick - lo) / (hi - lo || 1)) * 100}%`;
       labels.append(label);
     }
@@ -375,6 +375,7 @@ export function createSimulationCard(ctx: CardContext): CardApp {
     legend.append(
       el("div", { className: "title", text: field.name }), el("div", { className: "kind", text: d.unit ? `[${d.unit}]` : "" }), scale,
       el("dl", {}, [el("dt", { text: "Max" }), el("dd", { text: `${fmt(shown(field.max))} ${d.unit}` }), el("dt", { text: "Min" }), el("dd", { text: `${fmt(shown(field.min))} ${d.unit}` })]),
+      ...(isUniform(field.min, field.max) ? [el("p", { className: "note", text: `Uniform: ${fmt(shown(field.max))} ${d.unit} at every node (it varies by less than one part in a million).` })] : []),
       el("div", { className: "kind", text: `${autoRange ? "Automatic range" : "Manual range"} · nodal values` }),
       el("div", { className: "kind", text: field.source }),
       ...(field.mask ? [el("div", { className: "kind", text: "Grey: not computed (electrical insulator)." })] : []),

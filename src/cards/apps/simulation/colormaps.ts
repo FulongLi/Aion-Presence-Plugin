@@ -44,6 +44,20 @@ export function lookupTable(map: ColormapId): Uint8Array {
   return out;
 }
 
+/** A tick label with as many decimals as the tick step needs (39.94, 39.96 … not "40, 40"). */
+export function tickLabel(value: number, ticks: number[]): string {
+  const step = ticks.length > 1 ? Math.abs(ticks[1] - ticks[0]) : Math.abs(value) || 1;
+  if (step >= 1e4 || step < 1e-4) return Number(value.toPrecision(3)).toExponential(2);
+  // Steps are 1, 2, 2.5 or 5 × 10^e (niceTicks): 10^e needs −e decimals, and a 2.5 step one more below 10.
+  const exponent = Math.floor(Math.log10(step) + 1e-9);
+  const mantissa = step / 10 ** exponent;
+  const decimals = Math.max(0, -exponent) + (Math.abs(mantissa - 2.5) < 1e-6 && exponent <= 0 ? 1 : 0);
+  return (Math.abs(value) < step * 1e-9 ? 0 : value).toFixed(decimals);
+}
+
+/** Whether a field's range is too small to show variation (uniform within 1 part in 10⁶). */
+export const isUniform = (min: number, max: number) => Math.abs(max - min) <= 1e-6 * Math.max(Math.abs(max), Math.abs(min), 1e-300);
+
 /** About `count` round tick values covering [min, max]. */
 export function niceTicks(min: number, max: number, count = 6): number[] {
   if (!(max > min)) return [min];
