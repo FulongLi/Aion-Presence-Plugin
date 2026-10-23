@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { CAD_ACTIONS } from "../src/host/cad/commands";
+import { SIM_ACTIONS } from "../src/host/sim/commands";
 import { test } from "node:test";
 import { discoverSkills } from "../scripts/lib/pluginPackage";
 import { greetingLine, greetingLineChinese, ONBOARDING_EXAMPLES, onboardingGuidance, onboardingLine } from "../src/core/guidance";
@@ -75,9 +76,9 @@ test("the skill states the canonical identity facts exactly", () => {
 });
 
 test("the skill only names tools and states that exist, and teaches every tool", () => {
-  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|plan|music|control|inspect|cad)_|^express$/.test(name)));
-  // v0.7: cad_model's actions (open_document, set_parameter…) look like tool names; they are real actions.
-  for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name) || (CAD_ACTIONS as readonly string[]).includes(name), `${name} is a real tool or cad_model action`);
+  const named = new Set([...skill.body.matchAll(/`([a-z]+(?:_[a-z_]+)?)`/g)].map(match => match[1]).filter(name => /^(?:show|set|open|clear|mark|play|plan|music|control|inspect|cad)_|^express$|^simulate$/.test(name)));
+  // v0.7: cad_model's actions (open_document, set_parameter…) look like tool names; they are real actions. v0.8: so do simulate's (set_material…).
+  for (const name of named) assert.ok((TOOL_NAMES as readonly string[]).includes(name) || (CAD_ACTIONS as readonly string[]).includes(name) || (SIM_ACTIONS as readonly string[]).includes(name), `${name} is a real tool, cad_model or simulate action`);
   for (const name of TOOL_NAMES.filter(name => name !== "show_visual_form")) assert.ok(named.has(name), `${name} is taught`);
   const states = [...skill.body.matchAll(/`(idle|listening|thinking|working|reading|editing|testing|building|responding|presenting|complete|error)`/g)].map(match => match[1]);
   for (const state of states) assert.ok((ACTIVITY_STATES as readonly string[]).includes(state), `${state} is a real state`);

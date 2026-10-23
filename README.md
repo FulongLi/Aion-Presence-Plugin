@@ -7,7 +7,7 @@ or as interactive 3D scenes generated from what you describe.
 
 Aion is not another AI model. It makes **no model API calls and needs no API key**; everything Aion says, Codex says.
 
-*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.6.0** (in review) ·
+*Aion Presence — Intelligent Presence, created by Spirit Connect.* Current version: **0.8.0** (in review) ·
 [Changelog](CHANGELOG.md)
 
 ```text
@@ -29,11 +29,15 @@ to you:   one presence, speaking in the first person — "Here's Nikola Tesla."
 - **Real CAD in FreeCAD** — with FreeCAD installed, Codex creates and changes parametric `.FCStd` models ("a 120 × 80 ×
   40 mm enclosure", "20 mm longer", "four 6 mm holes near the corners", "move this hole 5 mm inward", "undo") and Aion
   shows each revision FreeCAD recomputed.
+- **Engineering simulation** — with Gmsh and Elmer FEM installed, Codex runs real finite-element analyses of those parts
+  (DC current density, resistance, Joule losses, steady-state temperature, electro-thermal) and Aion shows the computed
+  fields: legends, sections, vectors, probes. Change the part and run it again.
 - **Interactive 3D cards** — an Earth–Moon system, a glTF/GLB CAD viewer, and **generated scenes**: describe a solar
   system, a gear train or a converter and Codex writes it as validated Scene IR; you turn it, select parts, move them by
   hand, and change it by asking — every change a revision you can undo.
 - **Moves with sound** — your voice, the music you play and, on macOS with permission, Codex's own voice.
-- **Honest** — illustrations say they are illustrations; requests that need a numerical solver are refused plainly.
+- **Honest** — illustrations say they are illustrations; fields come only from a solver's results; analyses Aion does
+  not support (transient, AC, stress…) are refused plainly, never estimated.
 
 More, with things to say: [docs/FEATURES.md](docs/FEATURES.md).
 
@@ -63,7 +67,8 @@ codex plugin add aion-presence@spirit-connect
 
 Then **restart Codex once** and **trust the hooks** when asked. Aion opens by itself on the first session, in its own
 window, and speaks a short welcome; afterwards say **"Open Aion"**. Optional: [FreeCAD](https://www.freecad.org/) 1.0+
-for parametric CAD. Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
+for parametric CAD, and Gmsh (FreeCAD includes it) with [Elmer FEM](https://www.elmerfem.org) for simulation
+([how](docs/SIMULATION.md#installation)). Requirements: Node 22+ on the PATH, a Codex with plugins (CLI, IDE extension or the desktop app),
 and for the full body a browser with WebGPU (others get a canvas fallback). Fallback from a clone:
 `node scripts/install.mjs`.
 
@@ -77,6 +82,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 "Teach me how to write 永."
 "Create a 3D solar system with the Sun and eight planets."  →  "Make Earth three times larger."  →  "Undo that."
 "Create a 120 by 80 by 40 mm enclosure in FreeCAD."  →  "Add four 6 mm mounting holes near the corners."
+"Create a copper busbar, 100 by 10 by 5 mm."  →  "Run a DC current-density analysis with 100 A."  →  "Now the temperature."
 ```
 
 ## Documentation
@@ -88,6 +94,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 | [Generative Visual Engine](docs/GENERATIVE-VISUAL-ENGINE.md) | Generated scenes: [Scene IR](docs/SCENE-IR.md), [animation](docs/SCENE-ANIMATION.md), [interaction](docs/SCENE-INTERACTION.md), [Router 2.0](docs/PRESENTATION-ROUTER-V2.md), [real-Codex tests](docs/SCENE-GENERATION-TESTS.md) |
 | [Interactive cards](docs/CARDS.md) | Card 2.0, [bridge](docs/CARD-BRIDGE.md), [security](docs/CARD-SECURITY.md), [Earth–Moon](docs/EARTH-MOON.md), [CAD viewer](docs/CAD-VIEWER.md) |
 | [FreeCAD](docs/FREECAD.md) | Parametric CAD in the user's FreeCAD: the backend, operations, revisions, the hand-off, limits |
+| [Simulation](docs/SIMULATION.md) | FEM with Gmsh and Elmer on the FreeCAD model: studies, faces, validation, results, verification · [Simulation Card](docs/SIMULATION-CARD.md) |
 | [Route Explorer](docs/ROUTE-EXPLORER.md) | Routes on the terrain and in their card: providers, elevation, tiles, limits |
 | [Architecture](docs/architecture.md) | How Codex, the hub, the surface and the renderer fit together |
 | [MCP tools](docs/MCP-TOOLS.md) · [Host](docs/HOST.md) | Tool reference and discovery · what each host and browser allows, lifecycle hooks |
@@ -122,7 +129,8 @@ Arphic Public License; dictionary LGPL-3.0-or-later); simplified ↔ traditional
 [VexFlow](https://www.vexflow.com) with the Bravura font (SIL OFL). Maps: [Natural Earth](https://www.naturalearthdata.com)
 (public domain) and © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors via Nominatim, Photon and
 OpenStreetMap's tiles. Routes: [Valhalla](https://github.com/valhalla/valhalla) on FOSSGIS e.V.'s public server.
-Elevation: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/).
+Elevation: [AWS Terrain Tiles](https://registry.opendata.aws/terrain-tiles/). Simulation, when installed by the user (not
+bundled): [Gmsh](https://gmsh.info) and [Elmer FEM](https://www.elmerfem.org) (CSC – IT Center for Science).
 
 ## Support the project
 

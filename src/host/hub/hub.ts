@@ -8,6 +8,7 @@ import { PresenceStore, systemClock, type StoreClock } from "../../core/store";
 import { interpretHook, isWorkState, type HookEvent } from "../hooks/mapping";
 import { MediaStore, sniffMedia } from "../media";
 import { GLB_MIME } from "../../cards/assets/gltf";
+import { FIELD_MIME } from "../../sim/field";
 import { APPEARANCE_FILE, AUDIO_FILE, DEFAULT_PORT, HOOK_HEARTBEAT_FILE, HOOKS_ACTIVE_MS, HUB_FILE, presenceHome, TOKEN_FILE, WELCOME_FILE } from "../paths";
 import { DEFAULT_APPEARANCE, isHexColor, type Appearance } from "../../core/colors";
 import { diagnosticsSchema, hookEventSchema, hubCommandSchema, mediaUploadSchema, surfaceReportSchema, type DisplayPreference, type HubCommand, type HubSnapshot, type SurfaceReport } from "./protocol";
@@ -476,7 +477,7 @@ export class PresenceHub {
         if (!upload.success) return send(res, 400, { error: "invalid-media" });
         const data = Buffer.from(upload.data.data, "base64");
         const mime = sniffMedia(data);
-        if (!mime || data.length > (mime === GLB_MIME ? MODEL_BYTES : IMAGE_BYTES)) return send(res, 400, { error: "invalid-media" });
+        if (!mime || data.length > (mime === GLB_MIME || mime === FIELD_MIME ? MODEL_BYTES : IMAGE_BYTES)) return send(res, 400, { error: "invalid-media" });
         return send(res, 200, this.addMedia(data, mime));
       }
       if (req.method === "POST" && url.pathname === "/api/diagnostics") {

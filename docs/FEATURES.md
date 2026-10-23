@@ -92,6 +92,18 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 "Save the model." → a native, editable .FCStd
 ```
 
+- **Engineering simulation** (v0.8, with Gmsh and Elmer FEM installed): Codex sets up and runs real finite-element
+  studies on the FreeCAD model — DC current conduction, steady heat conduction, electro-thermal — and the Simulation
+  Card shows the computed fields with a legend, sections, vectors and probes. Change the part and run it again;
+  unsupported analyses are refused, never estimated. [SIMULATION.md](SIMULATION.md), [SIMULATION-CARD.md](SIMULATION-CARD.md)
+
+```text
+"Create a copper busbar, 100 by 10 by 5 mm." → "Run a DC current-density analysis with 100 A." → R, losses, |J| shown
+"Use the losses to calculate the steady-state temperature; the ends are held at 40 °C." → temperature, heat balance
+"Show me the temperature inside the conductor." → a section · "Make it 8 mm thick and run it again." → compared
+(click a face) "Apply 10 volts to this face." → that face becomes a terminal
+```
+
 ## Sound
 
 - One analyser for every source — the microphone, a shared tab, the Music Library, other apps and (on macOS, with

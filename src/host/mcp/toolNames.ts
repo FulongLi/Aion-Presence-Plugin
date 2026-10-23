@@ -10,7 +10,7 @@ export const TOOL_NAMES = [
   "show_image", "show_portrait", "show_terrain", "show_map", "mark_map", "plan_route", "set_colors", "show_form", "show_clock", "show_number", "show_text", "show_symbol", "show_emoji", "show_scene", "set_scene_view",
   "show_music", "play_music", "music_lesson", "set_audio_visualizer",
   "show_stroke_animation", "play_animation", "control_animation",
-  "show_interactive_card", "control_interactive_card", "inspect_interactive_card", "cad_model",
+  "show_interactive_card", "control_interactive_card", "inspect_interactive_card", "cad_model", "simulate",
   "show_result", "show_artifact", "clear_presentation", "show_visual_form",
 ] as const;
 export type ToolName = typeof TOOL_NAMES[number];

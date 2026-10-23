@@ -4,7 +4,7 @@ An **interactive card** is a small, registered application that runs beside Aion
 frame: the user turns, zooms and clicks it directly; Codex opens, controls and inspects it through three MCP tools.
 Aion stays present the whole time — the body steps aside, turns toward the card, and returns when it closes.
 
-Four applications ship (two since v0.4.5, one since v0.5, one since v0.6):
+Five applications ship (two since v0.4.5, one each since v0.5, v0.6 and v0.8):
 
 | Application | What it is | Docs |
 | --- | --- | --- |
@@ -12,6 +12,7 @@ Four applications ship (two since v0.4.5, one since v0.5, one since v0.6):
 | `cad-viewer` | A glTF/GLB engineering model viewer: orbit, select, metadata, hide, isolate, fit | [CAD-VIEWER.md](CAD-VIEWER.md) |
 | `generative-scene` (v0.5) | Any validated Scene IR document as an interactive 3D scene: built, animated, patched in place, selected and inspected | [GENERATIVE-VISUAL-ENGINE.md](GENERATIVE-VISUAL-ENGINE.md) |
 | `route-explorer` (v0.6) | A planned route's exact map (OpenStreetMap tiles handed over as bytes), elevation profile and figures, linked to the particle terrain; opened by `plan_route` only, not `show_interactive_card` | [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md) |
+| `simulation` (v0.8) | A study's setup (faces coloured by their conditions, a face picked for `"$selected"`) and the fields Elmer computed: legend, colour maps, sections, vectors, probes; a validated `field` asset; opened by `simulate` only | [SIMULATION-CARD.md](SIMULATION-CARD.md) |
 
 v0.6 adds two capabilities: `route-documents` (`LOAD_ROUTE`, `CURSOR`; the hub keeps the route on the card, `card.route`,
 with revisions) and `map-tiles` (`TILE_REQUEST`, `LOAD_TILE`; the card still has no network).

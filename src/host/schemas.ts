@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CAD_ACTIONS } from "./cad/commands";
+import { SIM_ACTIONS } from "./sim/commands";
 import { OPENABLE_CARD_APP_IDS } from "../cards/registry";
 import { CARD_LAYOUTS } from "../cards/manifest";
 import { AION_BODIES } from "../core/body";
@@ -483,6 +484,13 @@ export const cadModelInput = z.object({
   args: z.record(z.string(), z.unknown()).optional().describe("mm, degrees; \"$selected\": the viewer's selection"),
   document: z.string().max(40).optional(),
   revision: z.number().int().min(1).optional(),
+}).strict();
+
+/** v0.8: one simulation action (args validated per action in src/host/sim/commands.ts). */
+export const simulateInput = z.object({
+  action: z.enum(SIM_ACTIONS),
+  args: z.record(z.string(), z.unknown()).optional().describe("SI units or \"value unit\"; mm for lengths"),
+  study: z.string().max(24).optional(),
 }).strict();
 
 /** The embedded view's report about its interactive card (app-only; validated again by the hub). */

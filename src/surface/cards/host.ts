@@ -5,6 +5,7 @@ import { CARD_PROTOCOL_VERSION, type CardSelection, type FromCardMessage, type M
 import type { CardAck, CardReport, CardSnapshot } from "../../cards/state";
 import type { CardValue } from "../../cards/values";
 import type { Presentation } from "../../core/presentation";
+import { FIELD_MIME } from "../../sim/field";
 import { ParentBridge } from "./bridge";
 
 /**
@@ -312,7 +313,7 @@ export class InteractiveCardHost {
     const asset = this.presentation.asset;
     if (!asset || !this.bridge) return;
     this.assetId = asset.id;
-    this.elements.loadingText.textContent = "Loading the model…";
+    this.elements.loadingText.textContent = asset.mime === FIELD_MIME ? "Loading the result…" : "Loading the model…";
     if (this.lifecycle.state === "active" || this.lifecycle.state === "paused") this.lifecycle.send("reload");
     try {
       const data = await (await this.options.media(asset.id)).arrayBuffer();
@@ -323,7 +324,8 @@ export class InteractiveCardHost {
         if (digest !== asset.sha256) throw new Error("integrity");
       }
       if (this.disposed || this.assetId !== asset.id) return;
-      const result = await this.bridge.request("LOAD_ASSET", { asset: { id: asset.id, name: asset.name, kind: "model", bytes: asset.bytes, sha256: asset.sha256 }, data }, { transfer: [data], seconds: this.options.manifest.resources.maxLoadSeconds + 5 });
+      const kind = asset.mime === FIELD_MIME ? "field" : "model";
+      const result = await this.bridge.request("LOAD_ASSET", { asset: { id: asset.id, name: asset.name, kind, bytes: asset.bytes, sha256: asset.sha256 }, data }, { transfer: [data], seconds: this.options.manifest.resources.maxLoadSeconds + 5 });
       if (!result.ok) { this.flash("The model could not be loaded"); this.pending.error = { code: /^model-[a-z-]+$/.test(result.problem) ? result.problem : "model-load-failed", message: "The model could not be loaded." }; this.scheduleReport(); }
     } catch (error) {
       const integrity = error instanceof Error && (error.message === "integrity" || error.message === "size");

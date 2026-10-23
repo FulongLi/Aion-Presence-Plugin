@@ -34,6 +34,8 @@ real MCP tools (`patch`, `undo`, `inspect`, … as well).
 | `npm run audio-bridge:install` | Builds the macOS Aion Audio Bridge into `~/.aion-presence/audio-bridge` |
 | `npm run audio:verify -- --play-loops` / `-- --codex` | Real-device check of the bridge |
 | `npm run geo:coverage` · `npm run geo:build -- <dir>` | Geography against live services · rebuild the bundled world from Natural Earth ([MAPS.md](MAPS.md)) |
+| `npm run sim:verify` | v0.8: the simulation benchmarks against the installed FreeCAD, Gmsh and Elmer — analytic references at every mesh size, timings, a large mesh ([SIMULATION.md](SIMULATION.md)); `npm run smoke -- --only=sim` shows them in the real renderer |
+| `sh scripts/sim/build-elmer.sh` | Builds Elmer FEM into `~/.aion-sim/elmer` without sudo (micromamba + conda-forge toolchain, official source) |
 | `npm run route:verify` | v0.6: the acceptance routes against the real routing service and elevation model; evidence in `docs/media/v0.6.0/routes.json` ([ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)) |
 | `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild, export and re-verify the Chinese Writing Pack |
 | `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol |

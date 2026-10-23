@@ -1,4 +1,4 @@
-# Aion Presence — FreeCAD worker (v0.7).
+# Aion Presence — FreeCAD worker (v0.7; simulation geometry since v0.8).
 #
 # Run by FreeCAD's own interpreter (`freecadcmd aion_freecad_worker.py`), started and owned by Aion's MCP server. It
 # reads one JSON request per line on stdin and writes one JSON response per line on file descriptor 3 (FreeCAD prints
@@ -1370,6 +1370,37 @@ def pack(values, fmt):
     return base64.b64encode(struct.pack("<%d%s" % (len(values), fmt), *values)).decode("ascii")
 
 
+def face_owners(top):
+    """A function giving, for a face of `top`'s shape, the feature that produced it (by geometry, so it survives
+    recomputes): a face on a hole's or pocket's tool surface belongs to that hole or pocket, a face on a primitive's
+    surface to the primitive, anything else (a fillet's rounds) to the fillet."""
+    diag = top.Shape.BoundBox.DiagonalLength or 1.0
+    tools, bodies, modifiers = [], [], []
+    leaves(top, tools, bodies, modifiers)
+    surfaces = {}
+    tol = max(1e-5, diag * 1e-6)
+
+    def surface(o):
+        if o.Name not in surfaces:
+            surfaces[o.Name] = Part.Compound(o.Shape.Faces)
+        return surfaces[o.Name]
+
+    def owner_of(face, point):
+        try:
+            u, v = face.Surface.parameter(point)
+            probe = Part.Vertex(face.Surface.value(u, v))
+        except Exception:  # noqa: BLE001
+            probe = Part.Vertex(point)
+        for t in reversed(tools):
+            if surface(t).distToShape(probe)[0] < tol:
+                return t
+        for o in bodies:
+            if surface(o).distToShape(probe)[0] < tol:
+                return o
+        return modifiers[0] if modifiers else top
+    return owner_of
+
+
 def preview(doc):
     """Per visible solid: its faces, each tessellated and assigned to the feature that made it (by geometry)."""
     nodes = []
@@ -1382,15 +1413,7 @@ def preview(doc):
             continue
         diag = shape.BoundBox.DiagonalLength or 1.0
         deflection = max(0.005, diag * 0.0008)
-        tools, bodies, modifiers = [], [], []
-        leaves(top, tools, bodies, modifiers)
-        surfaces = {}
-
-        def surface(o):
-            if o.Name not in surfaces:
-                surfaces[o.Name] = Part.Compound(o.Shape.Faces)
-            return surfaces[o.Name]
-        tol = max(1e-5, diag * 1e-6)
+        owner_of = face_owners(top)
         groups = {}
         for face in shape.Faces:
             pts, tris = face.tessellate(deflection)
@@ -1398,23 +1421,11 @@ def preview(doc):
                 continue
             a, b, c = (pts[i] for i in tris[0])
             centroid = (a + b + c) * (1.0 / 3)
+            owner = owner_of(face, centroid)
             try:
                 u, v = face.Surface.parameter(centroid)
-                probe = Part.Vertex(face.Surface.value(u, v))
             except Exception:  # noqa: BLE001
-                probe = Part.Vertex(centroid)
-            owner = None
-            for t in reversed(tools):
-                if surface(t).distToShape(probe)[0] < tol:
-                    owner = t
-                    break
-            if owner is None:
-                for o in bodies:
-                    if surface(o).distToShape(probe)[0] < tol:
-                        owner = o
-                        break
-            if owner is None:
-                owner = modifiers[0] if modifiers else top
+                u = v = None  # normalAt below fails too: the triangles keep their order, as before
             # Triangles face outward (the face's own normal), whatever the face's orientation.
             normal = (b - a).cross(c - a)
             try:
@@ -1458,6 +1469,149 @@ def metadata(obj):
     return dict(list(out.items())[:20])
 
 
+# ── Simulation geometry (v0.8) ────────────────────────────────────────────────────────────────────────────────────
+# What a simulation analyses: the visible solids (or the bodies named), made conformal (touching bodies share their
+# interface faces, so the mesh is continuous across them), exported as a BREP for the mesher, with a table of every
+# solid and face as the mesher will number them (OpenCASCADE's order) and a tessellation for picking. Files are written
+# only inside Aion's simulation workspace.
+SIM_WORKSPACE = os.environ.get("AION_SIM_WORKSPACE") or os.path.join(os.path.expanduser("~"), ".aion-presence", "sim")
+SURFACE_KIND = {"Plane": "plane", "Cylinder": "cylinder", "Cone": "cone", "Sphere": "sphere", "Toroid": "torus", "BSplineSurface": "bspline", "BezierSurface": "bspline"}
+
+
+def vec3(v, digits=6):
+    return [round(v.x, digits), round(v.y, digits), round(v.z, digits)]
+
+
+def box(bb):
+    return {"min": [round(bb.XMin, 6), round(bb.YMin, 6), round(bb.ZMin, 6)], "max": [round(bb.XMax, 6), round(bb.YMax, 6), round(bb.ZMax, 6)]}
+
+
+def op_sim_geometry(args):
+    doc = get_doc(args)
+    out_dir = args.get("out_dir")
+    if not isinstance(out_dir, str) or not os.path.isabs(out_dir):
+        fail("invalid-parameter", "out_dir must be an absolute path.")
+    root = os.path.realpath(SIM_WORKSPACE)
+    target = os.path.realpath(out_dir)
+    if target != root and not target.startswith(root + os.sep):
+        fail("invalid-parameter", "Simulation geometry is written only inside Aion's simulation workspace.")
+    os.makedirs(target, mode=0o700, exist_ok=True)
+    refs = args.get("bodies")
+    tops = [o for o in top_objects(doc) if not getattr(o, "AionHidden", False)]
+    if refs not in (None, "visible"):
+        if not isinstance(refs, list) or not refs or len(refs) > 64:
+            fail("invalid-parameter", "bodies must be a list of component ids or labels.")
+        chosen = []
+        for ref in refs:
+            obj = surface_of(doc, find(doc, ref, "body"))
+            if obj not in top_objects(doc):
+                fail("invalid-parameter", "%s is not a solid body of the model." % ref)
+            if obj not in chosen:
+                chosen.append(obj)
+        tops = chosen
+    if not tops:
+        fail("missing-geometry", "The model has no visible solid to analyse.")
+    pieces = []
+    for top in tops:
+        shape = top.Shape
+        if shape.isNull() or not shape.Solids:
+            fail("invalid-geometry", "%s has no solid." % top.Label)
+        if not shape.isValid():
+            fail("invalid-geometry", "%s is not a valid solid." % top.Label)
+        for solid in shape.Solids:
+            if solid.Volume <= 0:
+                fail("invalid-geometry", "%s has a solid without volume." % top.Label)
+            pieces.append((top, solid))
+    for i in range(len(pieces)):
+        for j in range(i + 1, len(pieces)):
+            a, b = pieces[i][1], pieces[j][1]
+            if not a.BoundBox.intersect(b.BoundBox):
+                continue
+            common = a.common(b).Volume
+            if common > 1e-6 * min(a.Volume, b.Volume):
+                fail("overlapping-bodies", "%s and %s overlap (%.4g mm³ in common): the material of the overlap would be ambiguous. Separate them, or join them with a boolean union." % (pieces[i][0].Label, pieces[j][0].Label, common))
+    if len(pieces) == 1:
+        analysis = Part.Compound([pieces[0][1]])
+    else:
+        analysis = pieces[0][1].generalFuse([p[1] for p in pieces[1:]], 1e-7)[0]
+    solids = analysis.Solids
+    if len(solids) != len(pieces):
+        fail("invalid-geometry", "Making the bodies conformal produced %d solids from %d; check for slivers or near-touching bodies." % (len(solids), len(pieces)))
+
+    def source_of(solid):
+        # Bodies do not overlap, so each conformal solid is one body's solid: the one it shares (almost all) its volume with.
+        best, shared = None, -1.0
+        for top, original in pieces:
+            if not original.BoundBox.intersect(solid.BoundBox):
+                continue
+            common = original.common(solid).Volume
+            if common > shared:
+                best, shared = top, common
+        if best is None or shared < 0.99 * solid.Volume:
+            fail("invalid-geometry", "A solid of the analysis could not be matched to its body.")
+        return best
+    solid_tops = [source_of(sol) for sol in solids]
+    owners = {top.Name: face_owners(top) for top in tops}
+    faces_of_solid = [sol.Faces for sol in solids]
+    diag = analysis.BoundBox.DiagonalLength or 1.0
+    deflection = max(0.005, diag * 0.0008)
+    faces = []
+    surface = []
+    for index, face in enumerate(analysis.Faces, 1):
+        bound = [k + 1 for k, fs in enumerate(faces_of_solid) if any(face.isSame(f) for f in fs)]
+        if not bound:
+            fail("invalid-geometry", "Face %d belongs to no solid." % index)
+        top = solid_tops[bound[0] - 1]
+        center = face.CenterOfMass
+        owner = owners[top.Name](face, center)
+        kind = SURFACE_KIND.get(face.Surface.__class__.__name__, "other")
+        entry = {"index": index, "solids": bound, "body": top.Name, "bodyLabel": top.Label, "feature": owner.Name, "featureLabel": owner.Label,
+                 "surface": kind, "area_mm2": round(face.Area, 6), "center": vec3(center), "bbox": box(face.BoundBox)}
+        outward = None
+        try:
+            u, v = face.Surface.parameter(center)
+            n = face.normalAt(u, v)
+            probe = face.Surface.value(u, v)
+            step = max(1e-4, diag * 1e-5)
+            inside = solids[bound[0] - 1].isInside(probe + n * step, step * 0.1, False)
+            outward = n * (-1 if inside else 1)
+        except Exception:  # noqa: BLE001
+            outward = None
+        if kind == "plane" and outward is not None:
+            entry["normal"] = vec3(outward)
+        if kind in ("cylinder", "cone"):
+            try:
+                entry["axis"] = vec3(face.Surface.Axis)
+                entry["radius"] = round(float(getattr(face.Surface, "Radius", 0.0)), 6)
+            except Exception:  # noqa: BLE001
+                pass
+        faces.append(entry)
+        pts, tris = face.tessellate(deflection)
+        positions = []
+        for p in pts:
+            positions.extend((round(p.x, 5), round(p.y, 5), round(p.z, 5)))
+        indices = []
+        for t in tris:
+            a, b, c = pts[t[0]], pts[t[1]], pts[t[2]]
+            flip = outward is not None and (b - a).cross(c - a).dot(outward) < 0
+            indices.extend((t[0], t[2], t[1]) if flip else (t[0], t[1], t[2]))
+        surface.append({"index": index, "positions": positions, "indices": indices})
+    bodies = []
+    for top in tops:
+        members = [k + 1 for k, t in enumerate(solid_tops) if t is top]
+        bodies.append({"id": top.Name, "label": top.Label, "solids": members, "bbox": box(top.Shape.BoundBox)})
+    geometry = {
+        "format": "aion.sim.geometry/1", "backend": "FreeCAD %s" % ".".join(App.Version()[:3]), "document": doc.id, "documentName": doc.fc.Label,
+        "revision": doc.revision, "units": "mm", "bodies": bodies,
+        "solids": [{"index": k + 1, "body": solid_tops[k].Name, "bodyLabel": solid_tops[k].Label, "volume_mm3": round(sol.Volume, 6), "bbox": box(sol.BoundBox), "center": vec3(sol.CenterOfMass)} for k, sol in enumerate(solids)],
+        "faces": faces, "bbox": box(analysis.BoundBox), "surface": {"faces": surface},
+    }
+    analysis.exportBrep(os.path.join(target, "geometry.brep"))
+    with open(os.path.join(target, "geometry.json"), "w") as f:
+        json.dump(geometry, f, separators=(",", ":"))
+    return {"document": doc.id, "revision": doc.revision, "solids": len(solids), "faces": len(faces), "dir": target}
+
+
 # ── Dispatch ──────────────────────────────────────────────────────────────────────────────────────────────────────
 OPS = {
     "status": op_status, "create_document": op_create, "open_document": op_open, "reload": op_reload,
@@ -1466,7 +1620,7 @@ OPS = {
     "boolean": op_boolean, "fillet": lambda a: op_edge_feature(a, "fillet"), "chamfer": lambda a: op_edge_feature(a, "chamfer"),
     "set_parameter": op_set_parameter, "transform": op_transform, "set_visibility": op_set_visibility, "set_appearance": op_set_appearance,
     "delete": op_delete, "undo": lambda a: op_undo(a), "redo": lambda a: op_undo(a, True),
-    "save": op_save, "export": op_export, "handoff": op_handoff, "close": op_close,
+    "save": op_save, "export": op_export, "handoff": op_handoff, "close": op_close, "sim_geometry": op_sim_geometry,
 }
 # What changes the geometry (the response carries a new preview).
 GEOMETRY = {"create_document", "open_document", "reload", "add_primitive", "add_holes", "add_sketch", "pad", "pocket", "set_constraint", "boolean", "fillet",

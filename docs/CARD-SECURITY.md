@@ -64,6 +64,18 @@ id; a card message cannot name a file, an operation or code for FreeCAD. The one
 of text the card shows as text. The backend itself runs in the host (a `freecadcmd` child process over pipes, no
 port, a fixed set of validated operations): [FREECAD.md](FREECAD.md#security).
 
+## v0.8: simulation field results
+
+The Simulation Card receives a **field bundle** (`application/vnd.aion.field`, `src/sim/field.ts`) instead of a model:
+nodes, triangles, tetrahedra and float32 fields behind a JSON header. `decodeFieldBundle` checks the magic, the header
+(closed set of keys and types, text without control characters, counts within limits), every block's type, size, offset
+and alignment, every index against the node count, every face and solid id against the header, and that every value is
+finite; the hub's media sniffer accepts the bytes only when it passes, and the card runs it again before drawing. A field
+asset is accepted only by an application whose manifest lists the `field` asset kind (a model only by one that lists
+`model`), decided by the asset's validated type. The card never reaches the simulation backend: it reports a face id
+(`F12`) and Codex resolves `"$selected"` through the MCP server. The solver input is never sent by anyone: it is
+generated from the validated study (see [SIMULATION.md](SIMULATION.md#security-and-resources)).
+
 ## Rendering what a card says
 
 Names, metadata and properties from a model or a card are data. Every surface renders them with `textContent`

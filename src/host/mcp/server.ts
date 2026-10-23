@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { registerAppResource, registerAppTool, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { CLIENT_CAPABILITIES_META_KEY, McpServer, type CallToolResult, type ClientCapabilities, type ServerContext } from "@modelcontextprotocol/server";
@@ -36,7 +37,7 @@ import {
   showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
-  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput, cadModelInput,
+  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput, cadModelInput, simulateInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
@@ -65,6 +66,10 @@ import { FreecadBackend, type CadDocumentReport, type WorkerResponse } from "../
 import { previewGlb } from "../cad/preview";
 import { CHANGES_MODEL, checkCadArguments, COMPONENT_FIELDS, NEEDS_DOCUMENT, WORKER_OP } from "../cad/commands";
 import { openInFreecad } from "../cad/desktop";
+import { checkSimArguments } from "../sim/commands";
+import { SimulationService } from "../sim/service";
+import { freecadBridge } from "../sim/freecadBridge";
+import { FIELD_MIME } from "../../sim/field";
 import { prepareSceneInput, validateScene, type SceneIssue } from "../../scene/validate";
 import { applyPatch, type PatchIssue } from "../../scene/patch";
 import { routeScene, type RouteMode, type SceneRoute } from "../../scene/router";
@@ -104,6 +109,10 @@ export interface AionServerOptions {
   cad?: FreecadBackend;
   /** v0.7: opens a saved document in the FreeCAD application (injectable for tests). */
   openFreecad?: (path: string, command: string | null) => Promise<boolean>;
+  /** v0.8: the simulation job runner (runtime/aion-sim.mjs); absent, jobs run inside this process. */
+  simRunner?: string;
+  /** v0.8: the simulation service (injectable for tests). */
+  sim?: SimulationService;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -224,6 +233,8 @@ export const TOOL_DESCRIPTIONS = {
     + "Use before answering about it; never guess what it does not report.",
   cad_model: "Parametric CAD in the user's FreeCAD, shown in Aion's CAD viewer: .FCStd documents, primitives, holes, sketches, pads, pockets, "
     + "booleans, fillets, parameters, undo, save. args: the skill's FreeCAD reference.",
+  simulate: "Real FEM on the FreeCAD model (Gmsh mesh, Elmer solve): DC current conduction, steady heat, electro-thermal; fields in "
+    + "Aion's simulation card. args: the skill's simulation reference.",
   show_image: `Form a picture of almost anything with Aion's particle body (a person, object, animal, building, place, artwork, logo, map or `
     + `idea). query: Aion's curated assets first (such as the ${AION_IDENTITY.creatorCompany} logo), then open image sources (Wikipedia, Commons, `
     + "Openverse); source: an image on this machine, shown as it is (intent portrait if the user says it is one). Use when seeing it helps. "
@@ -1622,7 +1633,7 @@ export function createAionServer(options: AionServerOptions): McpServer {
 
   // ── v0.7: FreeCAD, the parametric CAD backend (FreeCAD owns the model; the CAD viewer shows its preview) ──────────
   // Documents and their revisions persist in the plugin data directory (a new MCP server per turn carries on).
-  const cad = options.cad ?? (options.cadScript ? new FreecadBackend({ script: options.cadScript, env: { ...env, AION_CAD_WORKSPACE: env.AION_CAD_WORKSPACE ?? join(link.home, "cad") } }) : null);
+  const cad = options.cad ?? (options.cadScript ? new FreecadBackend({ script: options.cadScript, env: { ...env, AION_CAD_WORKSPACE: env.AION_CAD_WORKSPACE ?? join(link.home, "cad"), AION_SIM_WORKSPACE: env.AION_SIM_WORKSPACE ?? join(link.home, "sim") } }) : null);
   /** Which CAD viewer card shows which FreeCAD document (by card instance). */
   const cadCards = new Map<string, string>();
   const cadSummary = (doc: CadDocumentReport | undefined, detail: boolean) => doc && ({
@@ -1727,6 +1738,64 @@ export function createAionServer(options: AionServerOptions): McpServer {
         : `${doc.name}, revision ${doc.revision}.`;
     const output = summarize(snapshot, modeFor(ctx), `${head}${notes.length ? ` ${notes.join(" ")}` : ""} Report only what this result says.`);
     return { content: [cadText(output.message, summary)], structuredContent: { ...output, cad: summary } };
+  });
+
+  // ── v0.8: engineering simulation (Gmsh meshes, Elmer solves, on the FreeCAD geometry; the Simulation Card shows it) ──
+  const simRoot = env.AION_SIM_WORKSPACE ?? join(link.home, "sim");
+  const sim = options.sim ?? new SimulationService({
+    root: simRoot, env, runner: options.simRunner,
+    cad: cad ? freecadBridge(cad) : null,
+  });
+  const simText = (message: string, extra: object) => ({ type: "text" as const, text: `${message}\n${JSON.stringify(extra)}` });
+
+  server.registerTool("simulate", {
+    title: "Simulate in Elmer",
+    description: TOOL_DESCRIPTIONS.simulate,
+    inputSchema: simulateInput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const checked = checkSimArguments(args.action, args.args);
+    if (!checked.ok) return failure(`invalid-arguments: ${args.action}: ${checked.problem}. Nothing was changed (args are listed in the skill's simulation reference).`);
+    const before = await link.run(backend => backend.state());
+    const card = before.card?.app === "simulation" ? before.card : null;
+    // "this face": the face selected in the Simulation Card (its id is "F<number>").
+    const selectedFace = card?.selection?.objectId && /^F\d+$/.test(card.selection.objectId) ? Number(card.selection.objectId.slice(1)) : undefined;
+    const viewer = before.card?.app === "cad-viewer" ? before.card : null;
+    const document = viewer && typeof viewer.state.document === "string" ? viewer.state.document : undefined;
+    const study = args.study ?? (card && typeof card.state.study === "string" ? card.state.study : undefined);
+    const live = watched(before, ctx);
+    const progress = async (text: string) => { if (card && live) await link.run(backend => backend.apply({ type: "card", command: "status", value: text.slice(0, 80) })).catch(() => {}); };
+    const reply = await sim.handle(args.action, checked.args, { study, selectedFace, document, onProgress: status => { void progress(status.message); } });
+    if (card && live && ["run", "mesh"].includes(args.action)) await progress("ready");
+    const notes: string[] = [];
+    let snapshot = before;
+    // Show it: results always (when Aion is open); the setup when asked for or when the card is already open.
+    const showSetup = reply.show?.mode === "setup" && (card !== null || ["create", "open", "inspect", "show", "set_boundary", "sync"].includes(args.action));
+    if (reply.show && (reply.show.mode === "results" || showSetup)) {
+      const bytes = Buffer.from(reply.show.bytes.buffer, reply.show.bytes.byteOffset, reply.show.bytes.byteLength);
+      const ref = await link.run(backend => backend.addMedia(bytes, FIELD_MIME));
+      const manifest = cardRegistry.get("simulation")!;
+      const instance = card ? card.instance : newInstanceId();
+      const key = `${reply.show.mode}:${reply.study?.id ?? ""}:${reply.show.revision}:${reply.show.run ?? 0}`;
+      const content: PresentationContent = {
+        kind: "interactive", app: "simulation", instance, title: reply.show.title.slice(0, LIMITS.title) || "Simulation",
+        layout: card?.layout ?? manifest.display.defaultLayout, config: {},
+        asset: { id: ref.id, name: `${key.replace(/[^a-z0-9-]+/gi, "-")}.afr`.slice(0, 120), bytes: bytes.byteLength, sha256: createHash("sha256").update(bytes).digest("hex"), mime: FIELD_MIME },
+      };
+      await link.run(backend => backend.apply({ type: "present", content, hold: 0 }));
+      const shown = await link.run(backend => backend.state());
+      if (watched(shown, ctx)) {
+        snapshot = await waitForCard(c => c.instance !== instance || c.lifecycle === "error" || c.state.loaded === key, 15_000);
+        for (const step of reply.card ?? []) await link.run(backend => backend.apply({ type: "card", command: step.command, value: step.value }));
+        const c = snapshot.card;
+        if (c?.instance === instance && c.state.loaded === key) notes.push(`The Simulation Card shows the ${reply.show.mode === "results" ? `result of run ${reply.show.run}` : "setup"}.`);
+        else notes.push(c?.lifecycle === "error" ? `The Simulation Card could not show it: ${c.error?.message ?? "error"}.` : "The Simulation Card has not confirmed it yet.");
+      } else { snapshot = shown; notes.push("Aion is not open, so nothing is on screen (open_presence shows it)."); }
+    }
+    const output = summarize(snapshot, modeFor(ctx), `${reply.message}${notes.length ? ` ${notes.join(" ")}` : ""}`);
+    const data = { ...reply.data, ...(selectedFace ? { selected_face: selectedFace } : {}) };
+    if (!reply.ok) return { isError: true, content: [simText(`${reply.message} Tell the user plainly; never say it worked.`, data)] };
+    return { content: [simText(output.message, data)], structuredContent: { ...output, simulation: data } };
   });
 
   server.registerTool("show_form", {

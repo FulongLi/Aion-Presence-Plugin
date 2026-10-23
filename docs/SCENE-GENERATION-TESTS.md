@@ -179,6 +179,39 @@ covered by the tests, smoke and `cad:verify`), and the FreeCAD application hand-
 | --- | --- |
 | ![Four holes](media/v0.7.0/codex-freecad-3.jpg) | ![Hole 2 moved inward](media/v0.7.0/codex-freecad-4.jpg) |
 
+## Results — 2026-10-23: engineering simulation (scenario L, v0.8)
+
+`npm run scene:eval -- --only simulation`, Codex 0.163.0-alpha.11.2, gpt-6.1-sol, effort low; FreeCAD 1.1.4, Gmsh 4.15.0
+(FreeCAD's), Elmer 26.2 on this Mac; a fresh plugin data directory. Outcomes are read from the hub and from the tool
+results: a run counts only once the Simulation Card confirmed it loaded that run's result. The geometry, the study and
+every number come from this conversation (nothing prebuilt). Full record:
+[media/v0.8.0/codex-simulation.json](media/v0.8.0/codex-simulation.json).
+
+| Request | Codex called | Outcome (confirmed by the card) | Visible | Turn |
+| --- | --- | --- | --- | --- |
+| "Open Aion." | `open_presence` | first run: the welcome shown | — | 13.5 s |
+| "Create a copper busbar in FreeCAD, 100 by 10 by 5 millimeters." | `cad_model` ×3 | revision 3: 100 × 10 × 5 mm, 5,000 mm³ | 15.2 s | 22.5 s |
+| "Run a DC current-density analysis of it with 100 amps flowing from one end to the other." | `simulate` create (electric), set_material copper, set_boundary left current 100 A, right ground, run, show current_density | run 1: R = 34.48 µΩ (L/(σA) = 34.48 µΩ), 3.448 mV, 0.3448 W; 1,992 tetrahedra | 15.0 s | 21.3 s |
+| "What is its resistance, and where is the current density highest?" | (none: answered from the result) | "34.48 µΩ … uniform at 2 A/mm² … no distinct hotspot. The solver lists (0, 0, 5) mm as a maximum location, but all nodes have the same value." | — | 7.1 s |
+| "Use the electrical losses to calculate the steady-state temperature, with natural convection to 25 °C air and both ends held at 40 °C." | `simulate` set_physics electrothermal, two fixed temperatures, convection on the remaining faces (h = 10 W/(m²·K), stated as its assumption), run, show temperature | run 2: 39.93–40.00 °C (the 1-D fin solution: 39.93 °C mid-length), heat balance 4.6e-7; "convection removes 0.4397 W; the warm ends supply the remaining 0.0949 W" | 12.2 s | 18.9 s |
+| "Show me the temperature distribution inside the conductor." | `control_interactive_card` set-field temperature, section y 5 | a lengthwise section through the interior | — | 12.5 s |
+| "Increase the conductor thickness to 8 millimeters and run the analysis again." | `cad_model` set_parameter Height 8, `simulate` sync, run, section | run 3: R = 21.55 µΩ (× 5/8 exactly), 0.2155 W, 39.87–40.00 °C; a comparison table in its answer | 8.3 s | 15.0 s |
+| "Now run a transient thermal analysis of the first 10 seconds after switch-on." | `simulate` status | declined: "transient analysis is explicitly unsupported, so I haven't run a 10-second simulation"; no run | — | 9.7 s |
+
+Every call succeeded on its first attempt (no refusal, no repair); Codex chose the actions, the faces (`left`, `right`,
+`remaining`) and the units itself from the skill's reference. Elmer's own time per run was 0.1 s; the 8–15 s are Codex's
+turns. The run found one presentation defect, fixed afterwards: on a narrow range the legend's ticks collapsed
+("40, 40, 40, 39.9" for 39.93–40.00 °C; now 39.94 … 40.00, checked on this run's stored result), and a uniform field now
+says so in its legend. Not covered: a face picked with the mouse for `"$selected"` (covered by the smoke test and unit
+tests), a refused setup reaching Elmer, and runs longer than one tool call (covered by the real-toolchain tests). One
+run; no person watched it.
+
+| Run 1: current density (uniform) | Run 2: temperature (ends at 40 °C, cooled sides) |
+| --- | --- |
+| ![Uniform current density](media/v0.8.0/codex-simulation-2.jpg) | ![Temperature, legend after the fix](media/v0.8.0/codex-simulation-legend.jpg) |
+| **The section Codex opened ("inside the conductor")** | **Run 3 after "Increase the thickness to 8 mm"** |
+| ![Interior section](media/v0.8.0/codex-simulation-5.jpg) | ![Thicker busbar](media/v0.8.0/codex-simulation-6.jpg) |
+
 ## Level 4: manual procedure (for a person)
 
 1. Install this branch: `codex plugin marketplace add <path to this checkout>` then

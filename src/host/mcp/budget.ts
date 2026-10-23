@@ -11,7 +11,7 @@ export const TOOL_METADATA_BUDGET = { total: 64_000, perTool: 5_000 } as const;
  * The bounds Aion's own tests hold it to: 10 % inside the budget until v0.6; v0.7 spends about 1.4 KB of that margin on
  * one compact `cad_model` tool (the FreeCAD backend; its details live in the Skill, not the metadata), leaving ≈ 8 %.
  */
-export const TOOL_METADATA_TARGET = { total: 59_000, perTool: 4_500 } as const;
+export const TOOL_METADATA_TARGET = { total: 60_000, perTool: 4_500 } as const;
 
 interface ListedTool { name: string; description?: string; inputSchema?: unknown; outputSchema?: unknown; [key: string]: unknown }
 
@@ -42,9 +42,10 @@ export function toolMetadataReport(tools: readonly ListedTool[], budget: { total
 export const CODEX_PLUGIN_BUDGET = { total: 64_000, perTool: 8_000, description: 1_000, instructions: 1_000 } as const;
 /**
  * What Aion's tests hold it to: 10 % inside Codex's budget, as v0.4.4 chose, for Codex's representation to change a
- * little; v0.7: ≈ 8 % (59,000 B), after one compact `cad_model` tool (docs/MCP-TOOLS.md).
+ * little; v0.7: ≈ 8 % (59,000 B), after one compact `cad_model` tool; v0.8: ≈ 6 % (60,000 B), after one compact `simulate`
+ * tool (docs/MCP-TOOLS.md). The owner reviews any further rise.
  */
-export const CODEX_PLUGIN_TARGET = { total: 59_000 } as const;
+export const CODEX_PLUGIN_TARGET = { total: 60_000 } as const;
 
 /** The keywords Codex keeps in a tool's input schema (codex-rs/tools/src/json_schema/types.rs); it drops the rest. */
 const CODEX_SCHEMA_KEYS = new Set(["$ref", "type", "description", "enum", "items", "minItems", "properties", "required", "additionalProperties", "anyOf", "oneOf", "allOf", "$defs", "definitions"]);
