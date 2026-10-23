@@ -6,6 +6,7 @@ import type { MediaRef } from "../core/presentation";
 import { HEIGHTFIELD_MIME, isHeightField } from "../visual/heightfield";
 import { isMapMedia, MAP_MIME } from "../visual/geo/map";
 import { GLB_MIME, validateGlb } from "../cards/assets/gltf";
+import { decodeFieldBundle, FIELD_MIME, isFieldBundle } from "../sim/field";
 
 /**
  * Images the host hands to Aion. Only local content is accepted (an absolute file path, a file:// URL or a
@@ -76,10 +77,18 @@ function checked(data: Buffer, declared: string) {
 
 /**
  * What a media buffer actually is, from its bytes: one of the image types, a height field (terrain the resolver
- * built), a map (outlines the geography module projected) or a validated 3D model (v0.4.5). Anything else is refused.
+ * built), a map (outlines the geography module projected), a validated 3D model (v0.4.5) or a validated simulation
+ * field result (v0.8). Anything else is refused.
  */
 export function sniffMedia(data: Buffer): string | null {
-  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : isMapMedia(data) ? MAP_MIME : isModel(data) ? GLB_MIME : null);
+  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : isMapMedia(data) ? MAP_MIME : isModel(data) ? GLB_MIME : isField(data) ? FIELD_MIME : null);
+}
+
+/** A simulation result or setup for the Simulation Card that passes its validation (v0.8, src/sim/field.ts). */
+function isField(data: Buffer): boolean {
+  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (!isFieldBundle(bytes)) return false;
+  try { decodeFieldBundle(bytes); return true; } catch { return false; }
 }
 
 /** A self-contained GLB that passes the card asset policy (v0.4.5, src/cards/assets/gltf.ts). */

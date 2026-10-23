@@ -13,6 +13,7 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                   carries the interactive card runtime (v0.4.5) as a string: a separate bundle that only ever runs inside
  *                   a sandboxed frame (src/cards/runtime), never in the page itself.
  *   aion-mcp.mjs    the MCP server and presence hub (Node, every dependency bundled)
+ *   aion-sim.mjs    v0.8: the simulation job runner (started detached by the MCP server for each run)
  *   aion-hook.mjs   the lifecycle hook command (Node builtins only)
  *
  * `--watch` rebuilds on change (npm run dev).
@@ -87,6 +88,10 @@ const targets: BuildOptions[] = [
     ...common, entryPoints: [src("host/hooks/main.ts")], outfile: join(RUNTIME, "aion-hook.mjs"),
     platform: "node", format: "esm", target: "node22",
   },
+  {
+    ...common, entryPoints: [src("host/sim/main.ts")], outfile: join(RUNTIME, "aion-sim.mjs"),
+    platform: "node", format: "esm", target: "node22",
+  },
 ];
 
 if (!watch) rmSync(RUNTIME, { recursive: true, force: true });
@@ -99,4 +104,5 @@ if (watch) {
   await Promise.all(targets.map(target => build(target)));
   report("aion-mcp.mjs");
   report("aion-hook.mjs");
+  report("aion-sim.mjs");
 }

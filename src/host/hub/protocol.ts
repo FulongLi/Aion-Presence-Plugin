@@ -34,6 +34,7 @@ import { CARD_INSTANCE } from "../../cards/protocol";
 import { CARD_APP_IDS } from "../../cards/registry";
 import { cardRegistry } from "../../core/cards";
 import { GLB_MIME } from "../../cards/assets/gltf";
+import { FIELD_MIME } from "../../sim/field";
 import type { CardValue } from "../../cards/values";
 import type { SceneDocument } from "../../scene/ir";
 import { validateScene } from "../../scene/validate";
@@ -167,9 +168,9 @@ const writingSource = z.object({
   ])).min(1).max(STROKE_LIMITS.items * 2),
 }).strict().refine(source => { try { writingSequence(source as WritingSource); return true; } catch { return false; } }, "a writing that can be composed");
 
-/** A validated model asset (v0.4.5): its media id, file name, size and SHA-256 (checked by the page before the card sees it). */
+/** A validated asset (v0.4.5 a model; v0.8 a simulation field result): its media id, file name, size and SHA-256 (checked by the page before the card sees it). */
 const cardAsset = z.object({
-  id: z.string().regex(/^m[a-f0-9]{18}$/), name: clean(cleanLine, 120), bytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/), mime: z.literal(GLB_MIME),
+  id: z.string().regex(/^m[a-f0-9]{18}$/), name: clean(cleanLine, 120), bytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/), mime: z.enum([GLB_MIME, FIELD_MIME]),
 }).strict();
 const cardValue: z.ZodType<CardValue> = z.lazy(() => z.union([z.string().max(400), z.number().finite(), z.boolean(), z.null(), z.array(z.union([z.string().max(120), z.record(z.string(), z.unknown())])).max(500)])) as z.ZodType<CardValue>;
 
@@ -240,8 +241,10 @@ const presentationSchema = z.discriminatedUnion("kind", [
   }).strict().refine(value => {
     const manifest = cardRegistry.get(value.app);
     if (!manifest || !manifest.display.layouts.includes(value.layout) || !checkConfig(manifest, value.config).ok) return false;
-    // Only a model-assets application takes a model, and its particle form is only ever its manifest's own.
-    if (value.asset && (!manifest.resources.assets.includes("model") || value.asset.bytes > manifest.resources.maxAssetBytes)) return false;
+    // An application takes only the asset kinds its manifest lists (v0.4.5 a model; v0.8 a simulation field result, by
+    // its validated type), and its particle form is only ever its manifest's own.
+    const kind = value.asset ? (value.asset.mime === FIELD_MIME ? "field" : "model") : null;
+    if (value.asset && (!kind || !(manifest.resources.assets as readonly string[]).includes(kind) || value.asset.bytes > manifest.resources.maxAssetBytes)) return false;
     // v0.5: only a scene-documents application takes a scene, and its particle form is that scene's own (the adapter's).
     if (value.scene !== undefined && !manifest.capabilities.includes("scene-documents")) return false;
     // v0.6: only a route-documents application takes a route, and only it forms terrain beside the card.

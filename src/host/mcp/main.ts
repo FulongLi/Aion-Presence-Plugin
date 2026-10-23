@@ -23,6 +23,8 @@ const link = new PresenceLink({ page: readPage });
 const assetsDir = [join(here, "..", "assets"), join(here, "../../../plugins/aion-presence/assets")].find(path => existsSync(path));
 // v0.7: the FreeCAD worker script ships with the plugin (cad/); FreeCAD itself is the user's own installation.
 const cadScript = [join(here, "..", "cad", "aion_freecad_worker.py"), join(here, "../../../plugins/aion-presence/cad/aion_freecad_worker.py")].find(path => existsSync(path));
+// v0.8: the simulation job runner sits beside this bundle (a solve runs in its own process and may outlive a turn).
+const simRunner = [join(here, "aion-sim.mjs"), join(here, "../../../plugins/aion-presence/runtime/aion-sim.mjs")].find(path => existsSync(path));
 
 /**
  * First run (see firstRun.ts): the first session after installation opens Aion's companion window once, with
@@ -45,7 +47,7 @@ async function firstRun(host: { embedded: boolean }) {
 }
 
 const server = createAionServer({
-  link, page: readPage, version: manifest.version, assetsDir, cadScript,
+  link, page: readPage, version: manifest.version, assetsDir, cadScript, simRunner,
   onReady: host => { firstRun(host).catch(() => { /* Aion still opens when asked */ }); },
 });
 
