@@ -26,6 +26,7 @@
 | `show_result` · `show_artifact` | A concise outcome, or a code excerpt, list, file changes, SVG or local image, in a card beside the body. |
 | `show_interactive_card` · `control_interactive_card` · `inspect_interactive_card` | An interactive 3D application beside the body (`earth-moon`, `cad-viewer` with a bundled or local glTF/GLB model, v0.5's `generative-scene` with a Scene IR `scene`, routed to body, card or hybrid), kept until closed; universal actions (pause, resume, reset, expand, collapse, fullscreen, close), the app's commands, and for scenes `patch` (with `revision`), `undo`, `redo` and `revert`, each confirmed by the card; its state, selection, metadata and scene (with `full`, the whole document) as the user sees it. |
 | `cad_model` | v0.7: one operation in the user's FreeCAD (create/open/save `.FCStd`, primitives, holes, sketches, pad, pocket, booleans, fillets, parameters, transform, undo/redo, export, hand-off); each confirmed revision is shown in the CAD viewer. `"$selected"` is the viewer's selection. Arguments: the Skill's FreeCAD reference. [FREECAD.md](FREECAD.md) |
+| `simulate` | v0.8: one step of a finite-element study on the FreeCAD geometry (create, materials, boundary conditions, sources, mesh, validate, run, results and probes, show, sync, compare); Gmsh meshes, Elmer solves, the Simulation Card shows the fields. `"$selected"` is the face picked in the card. Arguments: the Skill's simulation reference. [SIMULATION.md](SIMULATION.md) |
 | `clear_presentation` | Return to the persistent body now (also closes an interactive card). |
 
 `show_image`, `show_portrait`, `show_terrain`, `show_map`, `show_text`, `show_result` and `show_artifact` accept `presentation`
@@ -235,3 +236,22 @@ risks how Codex picks tools that work today, so v0.7 spends part of the margin i
 counts in is by name: `cad_model` sorts early, so a future tool that does not fit hides tools *after* it in name order
 (`tests/v052.test.ts` checks the exposure). The v0.5.1 reproduction leaves `cad_model` out, as it leaves `plan_route`.
 
+
+## v0.8: one compact tool for simulation
+
+Simulation follows the same pattern: `simulate` takes an `action` (an enum of 18) and an `args` object validated per
+action in the MCP server (`src/host/sim/commands.ts`), documented in the Skill's `references/simulation.md`; card
+commands (field, section, probe…) go through the existing `control_interactive_card`, and the Simulation Card is not
+offered by `show_interactive_card` (it only shows what `simulate` produced), so neither tool grew.
+
+| | v0.7 | v0.8 |
+| --- | --- | --- |
+| Tools | 34 | **35** (`simulate`: 919 B by Codex's measure) |
+| Codex's measure | 58,636 B | **59,555 B** — all 35 exposed, 6.9 % inside 64,000 B |
+| tools/list | 58,257 B | 59,105 B |
+| Internal target | 59,000 B (≈ 8 %) | **60,000 B (≈ 6 %)** — for the owner's review |
+
+Any new tool would have crossed 59,000 B (a minimal one costs about 700 B); shortening tuned descriptions elsewhere was
+again judged riskier than spending margin. The description was tightened to what the tool is and where its arguments
+are. `simulate` sorts after `show_*` by name, so a future tool that does not fit hides tools after it in name order
+(`set_*` and later); `tests/v052.test.ts` checks the exposure.

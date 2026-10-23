@@ -103,7 +103,9 @@ its modification time. Verified with a second FreeCAD process standing in for th
 **Not supported** (refused or simply not offered): PartDesign bodies and its feature tree (Pad/Pocket/Hole as PartDesign
 features), arbitrary sketch geometry (lines, arcs, polylines), sketch constraints other than the named dimensions, fillets
 on individually picked edges, face selection (a click selects a *feature*), patterns and mirrors, threads, assemblies and
-constraints between parts, drawings, FEM, arbitrary Python. Units other than millimetres in the document.
+constraints between parts, drawings, arbitrary Python. Units other than millimetres in the document. (Finite-element
+analysis of the model: `simulate`, v0.8 — the worker's `sim_geometry` exports its conformal geometry and face table;
+see [SIMULATION.md](SIMULATION.md).)
 
 ## Geometry in Aion
 

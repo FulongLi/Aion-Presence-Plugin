@@ -4,6 +4,48 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
+## [0.8.0] — Unreleased (in review)
+
+Engineering Simulation Foundation: real finite-element analysis of the FreeCAD model, operated by Codex, shown in an
+interactive Simulation Card. Branch `feat/v0.8-engineering-simulation`. Details: [docs/SIMULATION.md](docs/SIMULATION.md),
+[docs/SIMULATION-CARD.md](docs/SIMULATION-CARD.md).
+
+### Added
+- **`simulate`** (one compact, action-based tool, 35th): studies on the FreeCAD geometry — create, inspect, physics,
+  materials, boundary conditions, sources, mesh, validate, run, results (with probes), show, sync, compare. Analyses:
+  stationary current conduction (DC), steady-state heat conduction, and sequential electro-thermal coupling (Joule heat
+  from the electrical solution as the thermal source). Unsupported analyses (transient, AC, temperature-dependent
+  properties, radiation, flow, stress…) are refused, never estimated.
+- **Simulation Core** (`src/sim/`, no Aion dependency): the versioned study schema (`aion.sim.study/1`), explicit SI unit
+  conversion, a nominal material library with its basis, face selectors (sides, features, picks, points, "remaining"),
+  binding with stale-reference detection after CAD changes, pre-solve validation (errors, warnings, defaults; floating
+  conductors and thermally isolated bodies caught), Gmsh and Elmer input generation, VTU reading, results (terminal
+  currents, resistance, losses, extrema, heat balance, probes), the field bundle for the card, sections.
+- **Adapters** (`src/host/sim/`): Gmsh and Elmer discovery and version checks (FreeCAD's bundled gmsh; `~/.aion-sim/elmer`;
+  Homebrew; PATH; `AION_GMSH`, `AION_ELMER`), a detached job runner (`runtime/aion-sim.mjs`: mesh → ElmerGrid →
+  ElmerSolver → results, stages in `status.json`; long runs outlive a tool call), persistent studies in the plugin data
+  directory, the service behind the tool. A zero exit code is never trusted: logs, face numbering and result files are
+  checked.
+- **FreeCAD worker** `sim_geometry`: the visible solids made conformal (touching bodies share faces; overlaps refused), a
+  BREP and a face table (solids, body, feature, surface, area, centroid, outward normal) written inside the simulation
+  workspace only. The preview's face → feature attribution is shared (unchanged behaviour).
+- **Simulation Card** (`simulation` 1.0.0, Card 2.0): the setup (faces coloured by their conditions, a face picked for
+  `"$selected"`) and results — colour-mapped fields with a legend (units, range, source), six colour maps, bands, mesh and
+  edges, vectors, sections through the tetrahedra, probes that state their method; a new asset kind `field`
+  (`application/vnd.aion.field`), validated by the hub and the card.
+- `scripts/sim/build-elmer.sh`: builds Elmer 26.2.1 from its official source into `~/.aion-sim/elmer` without sudo (macOS;
+  micromamba + conda-forge toolchain). `npm run sim:verify`: the analytic benchmarks with timings.
+- Tests: `tests/v08-sim.test.ts` (22 unit), `tests/v08-sim-real.test.ts` (7, real FreeCAD + Gmsh + Elmer against
+  analytic references), `npm run smoke -- --only=sim` (real renderer), scenario L in `npm run scene:eval` (real Codex).
+
+### Changed
+- The hub accepts an interactive card's asset only of a kind its manifest lists (`model` for GLB, `field` for field
+  results), by the asset's validated type.
+- Tool-metadata target raised from 59,000 B to **60,000 B** (Codex's measure with `simulate`: 59,555 B of 64,000 B; all
+  35 tools exposed) — for the owner's review ([MCP-TOOLS.md](docs/MCP-TOOLS.md#v08-one-compact-tool-for-simulation)).
+- Skill: an "Engineering simulation (FEM)" section and `references/simulation.md`; the skill's description mentions FEM.
+- README: the simulation line, optional tools, the documentation row; the stale version line corrected.
+
 ## [0.7.0] — Unreleased (in review)
 
 A spoken first-run welcome, and FreeCAD as a real parametric CAD backend. Branch `feat/v0.7-spoken-welcome-freecad`.
