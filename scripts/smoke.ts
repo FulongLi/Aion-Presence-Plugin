@@ -9,6 +9,9 @@ import { chromium, type Browser, type Page } from "playwright-core";
 import { connectAion, MCP_APPS_CAPABILITIES } from "../tests/helpers";
 import { PresenceHub } from "../src/host/hub/hub";
 import { findFreecad, FreecadBackend } from "../src/host/cad/freecad";
+import { freecadBridge } from "../src/host/sim/freecadBridge";
+import { SimulationService } from "../src/host/sim/service";
+import { findSimTools } from "../src/host/sim/tools";
 import type { PresentationContent } from "../src/core/presentation";
 import { VisualResolver } from "../src/host/resolver";
 import { visualForms } from "../src/visual/forms";
@@ -58,6 +61,10 @@ import { PLUGIN_ROOT, REPO_ROOT } from "./lib/pluginPackage";
  *                 autoplay refused → Listen; no voice → text; a visual or closing the window stops it; remembered
  *   cad           v0.7: real FreeCAD → the CAD viewer: box, longer (view kept), holes, the selected hole moved (selection
  *                 kept), undo, a refusal that changes nothing, a lost selection, a fillet; timings (skipped without FreeCAD)
+ *   sim           v0.8: real FreeCAD + Gmsh + Elmer → the Simulation Card: the setup (a face picked with the mouse for
+ *                 "$selected"), conditions coloured, an electro-thermal run, temperature and current density with their
+ *                 legends, vectors, a section through the interior, the maximum probed (the solver's value), colour maps
+ *                 and bands, a missing field refused, the result reopened by a new service (skipped without the tools)
  *   v06           v0.6 through the real MCP tools and real routing: Scotland's terrain → a cycling route on it (kept, not
  *                 re-formed) with the Route Explorer card (tiles, route, profile), the highest point on both, the profile's
  *                 pointer on the terrain, reversed, a waypoint, a marker, removed (terrain kept), a hike and a walk on
@@ -167,6 +174,7 @@ try {
   if (section("terrain") && !offline) for (const renderer of ["auto", "canvas"] as const) await terrain(renderer);
   if (section("welcome")) await welcome();
   if (section("cad")) await cad();
+  if (section("sim")) await sim();
   if (section("v06") && !offline) for (const renderer of ["auto", "canvas"] as const) await v06(renderer);
 } finally {
   await browser.close();
@@ -1853,6 +1861,106 @@ async function cad() {
     timings.push(r.structuredContent!.cad!.timing);
     const keys = ["freecad_ms", "tessellation_ms", "preview_build_ms", "asset_transfer_ms", "card_render_ms", "total_ms"];
     console.log(`  timings (ms): ${keys.map(k => `${k} ${timings.map(t => Math.round(t[k] ?? 0)).join("/")}`).join("; ")}`);
+    check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { backend.stop(); await aion.call("clear_presentation", {}).catch(() => {}); await aion.close(); await page.close(); }
+}
+
+async function sim() {
+  console.log("v0.8: FreeCAD + Gmsh + Elmer → Simulation Card (real tools, real renderer)");
+  const tools = await findSimTools();
+  if (!findFreecad() || !tools.gmsh || !tools.elmerSolver) { console.log("  – FreeCAD, Gmsh or Elmer is not installed: skipped (not evidence either way)"); return; }
+  const { page, errors } = await open(browser, "&mic=0", { width: 1440, height: 900 });
+  await page.addStyleTag({ content: "#debug { display: none !important; }" });
+  const backend = new FreecadBackend({ script: join(PLUGIN_ROOT, "cad", "aion_freecad_worker.py"), env: { AION_CAD_WORKSPACE: join(home, "cad-sim"), AION_SIM_WORKSPACE: join(home, "sim") } });
+  const service = new SimulationService({ root: join(home, "sim"), cad: freecadBridge(backend) });
+  const aion = await connectAion({ home, cad: backend, sim: service });
+  type Result = { isError?: boolean; content: { text: string }[]; structuredContent?: { simulation?: Record<string, unknown> } };
+  const simulate = (action: string, args: Record<string, unknown> = {}) => aion.call("simulate", { action, args }) as Promise<Result>;
+  const control = (action: string, value?: unknown) => aion.call("control_interactive_card", { action, ...(value !== undefined ? { value } : {}) }) as Promise<Result>;
+  const card = () => hub.snapshot().card;
+  const shot = (moment: string) => page.screenshot({ path: join(OUT, `v08-sim-${moment}.png`) });
+  const frame = page.frameLocator("#workspace iframe");
+  try {
+    await aion.call("cad_model", { action: "create_document", args: { name: "Busbar" } });
+    await aion.call("cad_model", { action: "add_primitive", args: { kind: "box", length: 100, width: 10, height: 5, name: "Busbar" } });
+    await aion.call("cad_model", { action: "add_holes", args: { target: "Busbar", diameter: 4, positions: [[30, 5]] } });
+    await aion.call("cad_model", { action: "add_primitive", args: { kind: "box", length: 25, width: 10, height: 5, at: [100, 0, 0], name: "Tab" } });
+    let r = await simulate("create", { analysis: "electrothermal", name: "Busbar with tab" });
+    check(!r.isError && card()?.app === "simulation" && card()?.state.mode === "setup", `the setup is shown in the Simulation Card (${String(card()?.state.mode)})`);
+    await pause(1_500);
+    await shot("1-setup");
+    // The user clicks the model: a face is picked (and reported as F<number>).
+    // (The bar is thin on screen: try points along a line across the view until one lands on it.)
+    const box = await page.locator("#workspace iframe").boundingBox();
+    for (let t = 0; box && t <= 1 && !card()?.selection?.objectId; t += 0.05) {
+      await page.mouse.click(box.x + box.width * (0.3 + 0.45 * t), box.y + box.height * (0.38 + 0.3 * t));
+      await pause(250);
+    }
+    const picked = card()?.selection?.objectId ?? "";
+    check(/^F\d+$/.test(picked), `a mouse click on the model picks a face (${picked || "none"})`);
+    for (const [action, args] of [
+      ["set_material", { bodies: "Busbar", material: "copper" }], ["set_material", { bodies: "Tab", material: "aluminium" }],
+      ["set_boundary", { faces: "left", type: "current", current: "200 A", name: "Terminal +" }], ["set_boundary", { faces: "right", type: "ground" }],
+      ["set_boundary", { faces: "remaining", type: "convection", h: "10 W/(m2*K)", ambient: "25 °C", name: "Natural convection" }],
+      ["set_boundary", { faces: "left", type: "temperature", temperature: "40 °C", name: "Clamp +" }], ["set_boundary", { faces: "right", type: "temperature", temperature: "40 °C", name: "Clamp −" }],
+    ] as [string, Record<string, unknown>][]) {
+      r = await simulate(action, args);
+      if (r.isError) check(false, `${action}: ${r.content[0].text}`);
+    }
+    await pause(1_200);
+    await shot("2-conditions");
+    const legendSetup = await frame.locator(".sim-legend").innerText().catch(() => "");
+    check(/Terminal \+/.test(legendSetup) && /Natural convection/.test(legendSetup), "the setup legend names the conditions by their colours");
+    r = await simulate("run", { wait_s: 50 });
+    const result = r.structuredContent?.simulation as { run: number; electric: { current_A: number; resistance_ohm: number; joule_W: number }; thermal: { max_K: number; balance: { relativeError: number } }; fields: { id: string; max: number; min: number }[]; seconds?: Record<string, number> } | undefined;
+    check(!r.isError && card()?.state.mode === "results" && card()?.state.run === result?.run, `Elmer solved run ${result?.run} and the card shows it (${result?.electric.current_A.toFixed(3)} A, R ${result?.electric.resistance_ohm.toExponential(4)} Ω, ${result?.electric.joule_W.toFixed(3)} W)`);
+    check(Boolean(result) && Math.abs(result!.electric.current_A - 200) < 1e-3 && result!.thermal.balance.relativeError < 1e-3, "the requested current flows and the heat balance closes");
+    console.log(`  seconds: ${JSON.stringify(result?.seconds)}`);
+    await control("set-field", "temperature");
+    await pause(1_200);
+    const temp = result?.fields.find(f => f.id === "temperature");
+    const legend = await frame.locator(".sim-legend").innerText().catch(() => "");
+    check(card()?.state.field === "temperature" && /Temperature/.test(legend) && /°C/.test(legend), "the temperature field with its labelled legend (°C)");
+    check(String(card()?.state.range).startsWith((temp!.min - 273.15).toPrecision(4).replace(/\.?0+$/, "")), `the colour range is the solver's own minimum and maximum (${String(card()?.state.range)})`);
+    await shot("3-temperature");
+    await control("set-field", "current_density");
+    await control("show-vectors", true);
+    await pause(1_200);
+    check(card()?.state.vectors === true && card()?.state.field === "current_density", "current density with its vectors");
+    await shot("4-current-density-vectors");
+    const section = await control("section", "y 5");
+    await pause(1_200);
+    check(!section.isError && String(card()?.state.section).startsWith("y 5"), `a section through the interior (${String(card()?.state.section)})`);
+    await shot("5-section");
+    await control("set-view", "front");
+    await pause(1_400);
+    await shot("5b-section-front");
+    await control("set-view", "iso");
+    await control("probe", "max");
+    await pause(800);
+    const jmax = result?.fields.find(f => f.id === "current_density")!.max ?? 0;
+    const probeText = String(card()?.state.probe ?? "");
+    check(probeText.includes((jmax / 1e6).toPrecision(4).replace(/\.?0+$/, "")) && /nodal maximum/.test(probeText), `the probe reads the solver's maximum (${probeText})`);
+    await shot("6-probe-max");
+    await control("show-vectors", false);
+    await control("section", "off");
+    await control("set-field", "temperature");
+    await control("set-colormap", "viridis");
+    await control("bands", true);
+    await control("show-mesh", true);
+    await pause(1_200);
+    check(card()?.state.colormap === "viridis" && card()?.state.bands === true && card()?.state.mesh === true, "another colour map, banded contours and the mesh");
+    await shot("7-viridis-bands-mesh");
+    const missing = await control("set-field", "magnetic_flux_density");
+    check(!!missing.isError && /has no field/.test(missing.content[0].text), "a field the result does not carry is refused, never substituted");
+    // A new service (as a new MCP server would be) shows the stored result without solving.
+    const fresh = new SimulationService({ root: join(home, "sim"), cad: null });
+    const aion2 = await connectAion({ home, sim: fresh });
+    const reopened = await aion2.call("simulate", { action: "show", args: { run: result?.run, field: "joule_heating" } }) as Result;
+    await pause(1_200);
+    check(!reopened.isError && card()?.state.field === "joule_heating", "the stored result reopens in the card without a solve");
+    await shot("8-reopened-joule");
+    await aion2.close();
     check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   } finally { backend.stop(); await aion.call("clear_presentation", {}).catch(() => {}); await aion.close(); await page.close(); }
 }
