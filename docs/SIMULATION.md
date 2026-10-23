@@ -263,7 +263,7 @@ Kept apart, as for scenes and CAD ([SCENE-GENERATION-TESTS.md](SCENE-GENERATION-
 | Unit | `tests/v08-sim.test.ts` (22) | units, materials, face selectors (sides, features, picks, fill, edges refused), binding and stale picks, validation, the Gmsh and Elmer inputs, log parsing (an exit 0 with errors), VTU reading, probes, sections, the field bundle, the card's manifest and colour maps, the service and the tool with stand-ins |
 | Real tools | `tests/v08-sim-real.test.ts` (7, skipped without the tools), `npm run sim:verify` | models generated through the public interfaces, against analytic references (below) |
 | Real renderer | `npm run smoke -- --only=sim` | setup, a face picked with the mouse, conditions, an electro-thermal run, fields with legends, vectors, a section, the maximum probed (the solver's value), colour maps and bands, a missing field refused, the result reopened without a solve |
-| Real Codex | `npm run scene:eval -- --only simulation` (scenario L) | natural language → `simulate` → Elmer → card ([results](SCENE-GENERATION-TESTS.md)) |
+| Real Codex | `npm run scene:eval -- --only simulation` (scenario L) | natural language → `simulate` → Elmer → card: a busbar created, a 100 A DC analysis (R = 34.48 µΩ, as L/(σA)), the temperature from its losses (39.93–40.00 °C, as the fin solution), a section "inside the conductor", thicker and re-run (R × 5/8), a transient analysis declined — every call first time ([results](SCENE-GENERATION-TESTS.md#results--2026-10-23-engineering-simulation-scenario-l-v08)) |
 
 Measured (`npm run sim:verify`, this Mac):
 
