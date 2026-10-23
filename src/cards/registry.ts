@@ -3,6 +3,7 @@ import { EARTH_MOON_MANIFEST } from "./apps/earthMoon.manifest";
 import { CAD_VIEWER_MANIFEST } from "./apps/cadViewer.manifest";
 import { GENERATIVE_SCENE_MANIFEST } from "./apps/generativeScene.manifest";
 import { ROUTE_EXPLORER_MANIFEST } from "./apps/routeExplorer.manifest";
+import { SIMULATION_MANIFEST } from "./apps/simulation.manifest";
 
 /**
  * The Application Registry (v0.4.5): the only applications an interactive card may run. Registering validates the
@@ -32,13 +33,15 @@ export class CardRegistry {
 }
 
 /** The applications Aion ships with. */
-export const BUILTIN_CARD_APPS: readonly CardAppManifest[] = [EARTH_MOON_MANIFEST, CAD_VIEWER_MANIFEST, GENERATIVE_SCENE_MANIFEST, ROUTE_EXPLORER_MANIFEST];
+export const BUILTIN_CARD_APPS: readonly CardAppManifest[] = [EARTH_MOON_MANIFEST, CAD_VIEWER_MANIFEST, GENERATIVE_SCENE_MANIFEST, ROUTE_EXPLORER_MANIFEST, SIMULATION_MANIFEST];
 export const CARD_APP_IDS = BUILTIN_CARD_APPS.map(app => app.id) as [string, ...string[]];
 /**
  * The applications `show_interactive_card` opens. A route-documents application (v0.6, the Route Explorer) only ever
- * shows a route `plan_route` planned, so it is not offered there.
+ * shows a route `plan_route` planned, and a field application (v0.8, the Simulation Card) only a result or setup
+ * `simulate` produced, so neither is offered there.
  */
-export const OPENABLE_CARD_APP_IDS = BUILTIN_CARD_APPS.filter(app => !(app.capabilities as readonly string[]).includes("route-documents")).map(app => app.id) as [string, ...string[]];
+export const OPENABLE_CARD_APP_IDS = BUILTIN_CARD_APPS.filter(app => !(app.capabilities as readonly string[]).includes("route-documents")
+  && !(app.resources.assets as readonly string[]).includes("field")).map(app => app.id) as [string, ...string[]];
 
 /** A registry with the built-in applications (the host passes the 3D scene validator for their body forms). */
 export function defaultCardRegistry(checkHybrid?: (scene: unknown) => boolean): CardRegistry {
