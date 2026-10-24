@@ -26,7 +26,7 @@ import { REPO_ROOT } from "./lib/pluginPackage";
  * Usage: `npm run scene:eval` (all), `-- --only gears,dab`, `-- --list`, `-- --out <dir>`. It uses your Codex account's
  * usage: about 20 turns for the full run. Results: <out>/results.json, <out>/*.png (default .e2e/scene-eval/<time>/).
  */
-interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map" | "route" | "highlight" | "reversed" | "cleared" | "route-refusal" | "answer" | "welcome" | "cad" | "cad-saved" | "cad-refusal"; select?: "largest" | "hole" }
+interface Step { prompt: string; expect: "scene" | "patch" | "undo" | "body" | "refusal" | "terrain" | "map" | "route" | "highlight" | "reversed" | "cleared" | "route-refusal" | "answer" | "welcome" | "cad" | "cad-saved" | "cad-refusal" | "sim-run" | "sim-view" | "sim-refusal" | "sim-answer"; select?: "largest" | "hole" }
 interface Scenario { id: string; title: string; steps: Step[] }
 
 export const SCENARIOS: Scenario[] = [
@@ -89,6 +89,19 @@ export const SCENARIOS: Scenario[] = [
       { prompt: "Undo the last change.", expect: "cad" },
       { prompt: "Add a mounting hole 500 millimeters from the corner.", expect: "cad-refusal" },
       { prompt: "Save the model as {out}/Enclosure.FCStd.", expect: "cad-saved" },
+    ],
+  },
+  {
+    // v0.8: engineering simulation driven only by natural language — real FreeCAD, Gmsh and Elmer; the geometry, the
+    // study and every number come from this conversation's requests (nothing prebuilt). Needs FreeCAD, Gmsh and Elmer.
+    id: "simulation", title: "L. Engineering simulation (FEM)", steps: [
+      { prompt: "Create a copper busbar in FreeCAD, 100 by 10 by 5 millimeters.", expect: "cad" },
+      { prompt: "Run a DC current-density analysis of it with 100 amps flowing from one end to the other.", expect: "sim-run" },
+      { prompt: "What is its resistance, and where is the current density highest?", expect: "sim-answer" },
+      { prompt: "Use the electrical losses to calculate the steady-state temperature, with natural convection to 25 °C air and both ends held at 40 °C.", expect: "sim-run" },
+      { prompt: "Show me the temperature distribution inside the conductor.", expect: "sim-view" },
+      { prompt: "Increase the conductor thickness to 8 millimeters and run the analysis again.", expect: "sim-run" },
+      { prompt: "Now run a transient thermal analysis of the first 10 seconds after switch-on.", expect: "sim-refusal" },
     ],
   },
 ];
@@ -155,6 +168,7 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
   const routeBefore = snapshot().card?.route?.document.id ?? null;
   const cadRevision = () => snapshot().card?.app === "cad-viewer" ? Number(snapshot().card?.state.revision ?? 0) : 0;
   const cadBefore = cadRevision();
+  const simBefore = snapshot().card?.app === "simulation" ? String(snapshot().card?.state.loaded ?? "") : "";
   let renderedSeconds: number | null = null;
   const kinds = new Set<string>();
   const watch = setInterval(() => {
@@ -169,7 +183,10 @@ function turn(prompt: string, resume: boolean): Promise<{ events: Record<string,
     const drawn = route && route.document.id !== routeBefore && route.rendered?.ok && route.rendered.revision >= route.revision;
     // v0.7: a FreeCAD revision counts once the CAD viewer has loaded it.
     const cad = cadRevision() > cadBefore;
-    if (card || body || drawn || cad) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
+    // v0.8: a simulation result counts once the Simulation Card has loaded it.
+    const loaded = snapshot().card?.app === "simulation" ? String(snapshot().card?.state.loaded ?? "") : "";
+    const sim = loaded.startsWith("results:") && loaded !== simBefore;
+    if (card || body || drawn || cad || sim) renderedSeconds = Math.round((performance.now() - started) / 100) / 10;
   }, 100);
   return new Promise((resolve, reject) => {
     const child = spawn(codex!, args, { env, cwd: workdir, stdio: ["ignore", "pipe", "pipe"] });
@@ -245,6 +262,7 @@ try {
         if (target) { hub.apply({ type: "card", command: "select", value: target }); selected = target; await page.waitForTimeout(1500); }
       }
       const cadBefore = snapshot().card?.app === "cad-viewer" ? Number(snapshot().card?.state.revision ?? 0) : 0;
+      const simRunBefore = snapshot().card?.app === "simulation" ? Number(snapshot().card?.state.run ?? 0) : 0;
       const revisionBefore = revisionOf();
       const originBefore = snapshot().card?.route?.document.origin.name ?? null;
       const ran = await turn(step.prompt.replace("{out}", out), true);
@@ -266,7 +284,23 @@ try {
       const cadCalls = calls.filter(c => c.tool === "cad_model"), cadAfter = card?.app === "cad-viewer" ? Number(card.state.revision ?? 0) : 0;
       const cadState = (() => { const last = cadCalls.filter(c => c.ok).at(-1); try { return last ? JSON.parse(last.text.split("\n").slice(1).join("\n")) as { revision?: number; solids?: { size_mm: number[]; volume_mm3: number }[]; file?: string } : null; } catch { return null; } })();
       const cadWords = cadState?.solids?.[0] ? `${cadState.solids[0].size_mm.join(" × ")} mm, ${Math.round(cadState.solids[0].volume_mm3)} mm³` : "";
-      const outcome = step.expect === "cad" ? (cadCalls.some(c => c.ok) && cadAfter > cadBefore ? `FreeCAD revision ${cadAfter} shown: ${cadWords}` : `NO CAD CHANGE SHOWN (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+      // v0.8: what the simulation calls really produced (the last solved run's numbers, from the tool's own result).
+      const simCalls = calls.filter(c => c.tool === "simulate");
+      const simRun = (() => {
+        for (const c of [...simCalls].reverse()) {
+          if (!c.ok || !/Run \d+ solved/.test(c.text)) continue;
+          try { return JSON.parse(c.text.split("\n").slice(1).join("\n")) as { run: number; electric?: { resistance_ohm?: number; current_A?: number; joule_W: number }; thermal?: { max_K: number; min_K: number; balance: { relativeError: number } }; mesh: { tetrahedra: number } }; } catch { /* next */ }
+        }
+        return null;
+      })();
+      const simWords = simRun ? [`run ${simRun.run}`, simRun.electric?.resistance_ohm !== undefined ? `R ${simRun.electric.resistance_ohm.toExponential(4)} Ω` : "", simRun.electric ? `P ${simRun.electric.joule_W.toPrecision(4)} W` : "",
+        simRun.thermal ? `T ${(simRun.thermal.min_K - 273.15).toFixed(2)}–${(simRun.thermal.max_K - 273.15).toFixed(2)} °C (balance ${(simRun.thermal.balance.relativeError * 100).toPrecision(2)} %)` : "", `${simRun.mesh.tetrahedra} tetrahedra`].filter(Boolean).join(", ") : "";
+      const simRunAfter = card?.app === "simulation" ? Number(card.state.run ?? 0) : 0;
+      const outcome = step.expect === "sim-run" ? (simRun && card?.app === "simulation" && card.state.mode === "results" && simRunAfter > simRunBefore ? `solved and shown: ${simWords}` : `NO RESULT SHOWN (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+        : step.expect === "sim-view" ? (card?.app === "simulation" && card.state.field === "temperature" ? `the card shows temperature${card.state.section && card.state.section !== "off" ? ` with a section (${card.state.section})` : ""}` : `NOT SHOWN (field ${String(card?.state.field)}; tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
+        : step.expect === "sim-refusal" ? (simRunAfter === simRunBefore && !simRun ? `no result fabricated (${simCalls.length ? `simulate: ${simCalls.map(c => c.text.split(/[:.]/)[0]).join("; ")}` : "declined by Codex without solving"})` : "A RESULT WAS PRODUCED")
+        : step.expect === "sim-answer" ? (answerOf(ran.events) ? "answered" : "no answer")
+        : step.expect === "cad" ? (cadCalls.some(c => c.ok) && cadAfter > cadBefore ? `FreeCAD revision ${cadAfter} shown: ${cadWords}` : `NO CAD CHANGE SHOWN (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
         : step.expect === "cad-saved" ? (existsSync(join(out, "Enclosure.FCStd")) ? `saved: ${join(out, "Enclosure.FCStd")}` : `NOT SAVED (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)
         : step.expect === "cad-refusal" ? (cadAfter === cadBefore && (cadCalls.some(c => !c.ok) || cadCalls.length === 0) ? `${cadCalls.length ? `refused by FreeCAD/Aion: ${cadCalls.find(c => !c.ok)?.text.split(":")[0]}` : "declined by Codex without calling Aion"}; the model unchanged` : "THE MODEL CHANGED")
         : step.expect === "route" ? (routeCalls.some(c => c.ok) && drawnRoute ? `route drawn: ${journey}` : `NO ROUTE (tools: ${calls.map(c => `${c.tool}${c.ok ? "" : "✗"}`).join(", ") || "none"})`)

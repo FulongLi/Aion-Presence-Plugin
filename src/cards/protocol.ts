@@ -56,7 +56,7 @@ export const INTERACTION_KINDS = ["pointer-down", "pointer-up", "wheel", "key", 
 export const PAUSE_REASONS = ["user", "codex", "hidden"] as const;
 
 export interface CardTheme { base: string; accent: string }
-export interface CardAssetInfo { id: string; name: string; kind: "model"; bytes: number; sha256: string }
+export interface CardAssetInfo { id: string; name: string; kind: "model" | "field"; bytes: number; sha256: string }
 
 export interface ToCardPayloads {
   INITIALIZE: { app: string; config: Record<string, CardValue>; state?: Record<string, CardValue>; layout: CardLayout; reducedMotion: boolean; theme: CardTheme; limits: CardResources };
@@ -281,7 +281,7 @@ export function parseToCard(raw: unknown, instance: string, manifest: CardAppMan
     }
     case "LOAD_ASSET": {
       const asset = p.asset as Record<string, unknown>;
-      if (!isRecord(asset) || typeof asset.id !== "string" || cleanCardText(asset.name, 120) !== asset.name || asset.kind !== "model"
+      if (!isRecord(asset) || typeof asset.id !== "string" || cleanCardText(asset.name, 120) !== asset.name || !(manifest.resources.assets as readonly unknown[]).includes(asset.kind)
         || !finite(asset.bytes, 1, manifest.resources.maxAssetBytes) || typeof asset.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(asset.sha256)) return bad("invalid asset");
       if (!(p.data instanceof ArrayBuffer) || p.data.byteLength !== asset.bytes) return bad("asset bytes do not match");
       break;

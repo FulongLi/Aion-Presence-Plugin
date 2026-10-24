@@ -26,7 +26,7 @@ export const CARD_PERMISSIONS = ["pointer", "keyboard"] as const;
 export type CardPermission = typeof CARD_PERMISSIONS[number];
 
 /** Asset kinds an application may be handed (by the parent, as bytes: never a URL). */
-export const CARD_ASSET_KINDS = ["model"] as const;
+export const CARD_ASSET_KINDS = ["model", "field"] as const;
 export type CardAssetKind = typeof CARD_ASSET_KINDS[number];
 
 /** Aion's ceilings: no manifest may ask for more. */

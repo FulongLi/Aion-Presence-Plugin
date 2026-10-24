@@ -142,6 +142,11 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   terrain tiles (`elevation.ts`), the planner that turns places into one validated GeoRoute (`planner.ts`,
   `src/visual/geo/route.ts`), and OpenStreetMap map tiles for the card, fetched only as viewed and cached by OSM's policy
   (`tiles.ts`, served by the hub at `GET /tile/z/x/y` only around the open route). [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
+- **Simulation** (`sim/`, v0.8): `tools.ts` finds Gmsh and Elmer; `service.ts` keeps studies (`store.ts`: the plugin
+  data directory's `sim/`), binds them to the FreeCAD geometry (`freecadBridge.ts` → the worker's `sim_geometry`) and
+  launches jobs; `job.ts` runs one job (Gmsh → ElmerGrid → ElmerSolver → results) — in its own detached process
+  (`main.ts`, built as `runtime/aion-sim.mjs`) so a solve outlives a tool call; `commands.ts` is `simulate`'s schema.
+  The numerics and formats live in the Simulation Core below. [SIMULATION.md](SIMULATION.md)
 - **FreeCAD** (`cad/`, v0.7): `freecad.ts` finds FreeCAD's `freecadcmd` and supervises one worker process per MCP server
   (`plugins/aion-presence/cad/aion_freecad_worker.py`: requests on stdin, responses on fd 3, FreeCAD transactions);
   `commands.ts` is the strict schema of `cad_model`'s actions; `preview.ts` turns the worker's per-feature tessellation
@@ -221,6 +226,16 @@ it: the particle adapter (`particleAdapter.ts`, into the body's own 3D scenes) a
 (`src/cards/apps/generativeScene`: a reconciling Scene Compiler on the v0.4.5 ViewerEngine). The card receives
 revisions over the Card Bridge (`LOAD_SCENE`, gated by the `scene-documents` capability) and confirms what it built.
 See [GENERATIVE-VISUAL-ENGINE.md](GENERATIVE-VISUAL-ENGINE.md).
+
+## The Simulation Core (`src/sim`, v0.8)
+
+Engineering simulation without any dependency on Aion (another host — AIPE — can use it as it is): `study.ts` (the
+versioned, schema-checked study), `units.ts` (explicit SI conversion), `materials.ts` (nominal library), `geometry.ts`
+(the analysis geometry and face selectors), `setup.ts` (binding, stale references, pre-solve validation), `gmsh.ts`
+(mesh input, MSH reading, quality, the face check), `elmer.ts` (SIF generation, log and scalars reading), `results.ts`
+(VTU reading, engineering numbers, probes), `field.ts` + `bundle.ts` (the Simulation Card's validated data), `slice.ts`
+(sections). External programs are never started here: `src/host/sim` does that. The Simulation Card
+(`src/cards/apps/simulation/`) displays a bundle. [SIMULATION.md](SIMULATION.md) · [SIMULATION-CARD.md](SIMULATION-CARD.md)
 
 ## Plugin package and distribution (`plugins/aion-presence`)
 

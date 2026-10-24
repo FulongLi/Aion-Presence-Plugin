@@ -49,6 +49,20 @@ list, verbatim, into `plugins/aion-presence/THIRD-PARTY-NOTICES.md`, which is in
 | OpenStreetMap (via Nominatim, Photon), AWS Terrain Tiles, Wikimedia, Wikidata, Openverse | fetched at run time, not bundled | ODbL / per-source terms | credited in README and on the cards that show them |
 | v0.6 routes: OpenStreetMap map tiles, Valhalla routing on FOSSGIS e.V.'s server (or the user's own), OpenRouteService (the user's key) | fetched at run time, not bundled | OSM data ODbL; each service's usage policy | "© OpenStreetMap contributors" and the routing service always visible on the Route Explorer map ([ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)) |
 
+| v0.7–v0.8 programs the user installs: FreeCAD (LGPL-2.0-or-later), Gmsh (GPL-2.0-or-later), Elmer FEM (GPL / LGPL) | run as separate programs, never bundled | their own | "not bundled" entries in THIRD-PARTY-NOTICES; [FREECAD.md](FREECAD.md), [SIMULATION.md](SIMULATION.md#licences) |
+
+**Programs Aion runs but does not distribute (v0.7, v0.8).** FreeCAD, Gmsh and Elmer are installed by the user and run
+as independent processes: Aion writes input files (a worker script FreeCAD's own interpreter runs; generated `.geo` and
+`.sif` files), starts the programs with fixed arguments and reads their output files. Aion's code is not linked with
+them and contains none of their code; the plugin ships none of their files. On that reading, distributing Aion does
+not distribute them, and the GPL's obligations (source, licence text, the terms for combined works) attach to whoever
+distributes those programs — for the user's own build, nobody. `scripts/sim/build-elmer.sh` (repository only) fetches
+Elmer's public source and builds it on the user's machine for their own use. Two points to confirm with the lawyer
+reviewing LICENSE: that this arms-length use is compatible with Aion's restrictive licence (the GPL places no limits on
+*running* a program, and its authors' policy says so for Elmer), and what would change if a future Aion distribution
+ever **bundled** Gmsh or Elmer binaries (GPL redistribution terms would then apply to those binaries, and whether the
+combination is one "work" would need review).
+
 The Chinese Writing Pack is "mere aggregation": a separate directory read at run time, never mixed into Aion's code.
 Its LGPL and Arphic terms let anyone copy and redistribute **those files** under those licenses, commercially or not;
 Aion's license cannot and does not restrict that.

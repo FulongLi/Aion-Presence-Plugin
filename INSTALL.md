@@ -87,6 +87,16 @@ For parametric CAD ("Create a 120 by 80 by 40 mm enclosure in FreeCAD"), install
 set `AION_FREECAD` to its `freecadcmd` (or the FreeCAD.app bundle). Nothing else is needed — no Python setup, no add-on,
 no port. Without FreeCAD, everything else works. [docs/FREECAD.md](docs/FREECAD.md)
 
+## Simulation: Gmsh and Elmer FEM (optional, v0.8)
+
+For finite-element analyses of FreeCAD parts ("Run a DC current-density analysis with 100 A"), Aion needs **Gmsh** and
+**Elmer FEM** besides FreeCAD. Gmsh: FreeCAD 1.x already includes it (nothing to do); otherwise <https://gmsh.info>
+(macOS: `brew install gmsh`) or set `AION_GMSH`. Elmer: macOS has no binary release — from a clone of this repository,
+`sh scripts/sim/build-elmer.sh` builds it into `~/.aion-sim/elmer` without sudo (about 2 GB, 10–20 minutes), or
+`brew tap elmercsc/elmerfem && brew install elmer`; Linux: the distribution's package or the ElmerCSC PPA; Windows: the
+installer from <https://www.elmerfem.org>. Or set `AION_ELMER` to Elmer's bin directory. Codex can check with
+"simulate status". Without them, everything else works. [docs/SIMULATION.md](docs/SIMULATION.md)
+
 ## Offline teaching (v0.4.4)
 
 The Chinese Writing Pack (9,574 characters, 7.5 MB, `packs/chinese-writing`) installs with the plugin — nothing is
