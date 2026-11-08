@@ -84,18 +84,41 @@ other too.
   the target's w (one vec4 per grain), which freed the buffer the previous target needs; the look (colour + tone) is a
   vertex attribute.
 
-## Animation (first version)
+## Animation
 
-A model's **own** clips only. When a rigged glTF has animation clips, `bakeAnimation` evaluates the clip through the
-skeleton (sampled TRS channels — step, linear, slerp, cubic spline — and linear blend skinning) at up to 15 frames a
-second, and re-places every particle on *its own spot* of the moving surface (the triangle and barycentric weights it was
-sampled at), with the rest pose's placement so the character keeps its size. The frames travel in the bundle (at most
-6 MB of them); `ModelPlayback` loops them, interpolating between frames, in both renderers. The Fox's Survey, Walk and Run
-work this way.
+A model's **own** clips only, for any body plan — quadrupeds (the Fox), soft-bodied characters (Lumen's bounce), bipeds
+with tails — because nothing assumes a humanoid skeleton:
 
-Not done (on purpose): no motion is invented. A model without clips has no animation — Aion says so and offers to turn
-it (`set_scene_view`). `express` gestures belong to Aion's own bodies and are never applied to a model. Morph targets
-(blend shapes) are not evaluated yet; a clip is baked once per request (cached), not streamed.
+```text
+animated GLB  →  deforming mesh  →  surface-attached particles  →  Aion's renderer
+(skins, morph    (GltfModel: TRS channels with step/linear/      (each particle sampled once on the rest pose: a
+ targets, clips)  slerp/cubic spline, morph weights, linear        triangle + barycentric weights; re-placed on that
+                  blend skinning, at any time)                     spot in every frame — never resampled)
+```
+
+`bakeAnimation` evaluates the clip at up to 15 frames a second and places every frame with the rest pose's matrix, so
+the character keeps its size; the frames travel in the bundle (at most 6 MB of them), **quantized over the extent of every
+frame** (v0.9.1: v0.9.0 clamped frames to the rest pose's range, which flattened the running Fox's nose —
+[report](v0.9.1/REPORT.md#1-the-foxs-clipped-nose--root-cause)). `ModelPlayback` loops them, interpolating between frames,
+at the clip's speed, in both renderers. Morph targets (v0.9.1) are evaluated before skinning, as glTF specifies.
+
+Control: `show_model {animation: "<clip>"}` starts one of the clips the result lists (`"stop"` ends it); while it plays,
+`control_animation` pauses, resumes, replays it or changes its speed (slow, normal, fast, slower, faster; 0.25–2.5×), in
+place. Not done (on purpose): no motion is invented. A model without clips has no animation — Aion says so and offers to
+turn it (`set_scene_view`); `express` gestures belong to Aion's own bodies. No retargeting between skeletons, no motion
+capture, one clip at a time.
+
+**Making an animated model** (v0.9.1): any tool that exports glTF 2.0 with a skin and/or morph targets and named clips
+(Blender: File → Export → glTF 2.0, "Animation" on). For Aion's own fixtures, `scripts/lib/rig.ts` builds one in code:
+bones with rest positions, skinned parts with soft joints (`segmentSkin`, `blend`), morph targets, looping clips sampled
+from a function of time, two-bone leg IK (`legIk`) for planted feet, a reusable soft-body bounce (`softBounce`). Lumen's
+"Bounce" is built this way. Check a model in Aion's renderer, not just a GLB viewer:
+`npx tsx scripts/models/playback.ts --out <dir> --model <file.glb>=<Name>` (frames, a GIF, frame-time percentiles per
+detail level and render tier, load times, and the viewport checks).
+
+**Characters with third-party rights** (a franchise's characters) are evaluated in the git-ignored `local-models/`
+folder and imported into the user's own library; they are never committed or bundled. v0.9.1's Koromon and Agumon
+evaluation is described in the [report](v0.9.1/REPORT.md#3-koromon-and-agumon-local-only).
 
 ## The tool
 
@@ -161,7 +184,7 @@ they were not scraped. The readable catalogue — available, catalogued and rest
 | `src/render/` | `ParticleSystem.ts` (target, look and previous buffers), `rendering/material.ts`, `physics/morph.ts` (`crossWeight`, `crossTarget`), `modelPlayback.ts`, `fallback/canvasRuntime.ts` |
 | `src/visual/controller.ts` | Model → model cross-morph |
 | `plugins/aion-presence/assets/models/` | `library.json` (bundled models), `originals/lumen.glb`, `khronos/fox.glb`, `catalogue/pokemon.json` |
-| `scripts/models/` | `make-originals.ts`, `discover.ts` (+ `pokemon.ts`), `import.ts`, `build-catalogue.ts`, `measure.ts`, `demo-gif.ts` |
+| `scripts/models/` · `scripts/lib/rig.ts` | `make-originals.ts`, `discover.ts` (+ `pokemon.ts`), `import.ts`, `build-catalogue.ts`, `measure.ts`, `demo-gif.ts`, `playback.ts` (v0.9.1) · the rig builder |
 
 Commands: `npm run models:originals` · `models:discover` · `models:import -- --file <path> [--catalogue <id>]` ·
 `models:catalogue` · `models:measure [-- --file <path>]` · `models:demo` · `npm run smoke -- --only=models`.
@@ -216,4 +239,5 @@ bundle, validated again on decode (header, counts, exact length). Catalogue JSON
 - Base colour only (no lighting from the model's normal maps or PBR); vertex colours, textures and material colours mix.
 - Up to 50,000 particles (the renderer's top tier); devices on lower tiers show a uniform subset. The canvas fallback shows
   4,000 particles, with colours batched to 4 bits a channel.
-- Animation: skinned clips only, baked at ≤ 15 fps, ≤ 6 MB per clip; no morph targets; colours do not animate.
+- Animation: skinned and morph-target clips, baked at ≤ 15 fps, ≤ 6 MB per clip; colours do not animate; visibility is
+  decided on the rest pose.

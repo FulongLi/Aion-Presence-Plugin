@@ -18,7 +18,7 @@
 | `show_form` | Aion's own forms: Tao, trigrams, bagua, constellations, zodiac and planetary signs. (`show_visual_form`: the v0.1 name.) |
 | `show_scene` | A genuine 3D object: a `preset` (pyramid, saturn, dna) or a validated `scene` of primitives (box, sphere, pyramid, cylinder, cone, torus, ring, line, tube, curve, helix). |
 | `set_scene_view` | Turn, tilt or zoom the 3D object or model on show, stop its turn, or reset the view. |
-| `show_model` | v0.9: Aion becomes a model from its library, in particles: `model` (name or id; "another one"), `colors` original/silver (in place), `animation` (its own clip, or stop); `action` find, import (a file the user downloaded), remove. [MODEL-LIBRARY.md](MODEL-LIBRARY.md) |
+| `show_model` | v0.9: Aion becomes a model from its library, in particles: `model` (name or id; "another one"), `colors` original/silver (in place), `animation` (its own clip, or stop); `action` find, import (a file the user downloaded), remove. v0.9.1: `control_animation` pauses or changes the speed of the clip. [MODEL-LIBRARY.md](MODEL-LIBRARY.md) |
 | `show_stroke_animation` | Handwriting: a Chinese character or word (true outlines, `form` simplified/traditional, `highlight: "radical"`, `practice`), English letters, words and names, digits, music and maths symbols — written stroke by stroke beside a synchronized reference card. Never a guessed order. |
 | `play_animation` · `control_animation` | Short scenes of Aion's flexible figure (walk, think, notice, examine, touch, jump, point …; demos `thinking`, `exploring` …) and control of any animation: pause, resume, replay, speed, next/previous stroke, repeat a stroke or a character, complete. |
 | `show_music` · `play_music` · `music_lesson` | Engraved notation (clefs incl. alto, keys, ties, slurs, dynamics, bar lines; a glossary of 40 concepts), playback that lights each note, lessons in English and Chinese. |
@@ -275,3 +275,6 @@ stay inside it without dropping anything users rely on: `show_model` keeps only 
 manifest setting; models hold 60 s and end with `clear_presentation`); the legacy alias `show_visual_form` keeps
 `show_form`'s validation but no longer repeats its parameter descriptions (it is never the tool Codex should choose:
 −323 B); the shared `hold_seconds` hint no longer repeats the range its schema's minimum and maximum already state.
+
+v0.9.1: a model's clip is paused, resumed, replayed and slowed or sped up through the existing `control_animation`
+(its description now names "a model's own clip" and is 6 B shorter): **59,986 B**, 36 tools.
