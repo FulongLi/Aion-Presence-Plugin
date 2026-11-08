@@ -2,7 +2,7 @@ import { subjectMap } from "./image";
 import { HERITAGE_OVAL, ovalMask } from "./oval";
 import { sceneParticles } from "./scene3d/sample";
 import { validScene } from "./scene3d/validate";
-import type { HeightFieldTarget, MapTarget, PointLayoutTarget, Raster, Raster2DTarget, StrokesTarget, VisualTarget } from "./types";
+import type { HeightFieldTarget, MapTarget, ModelTarget, PointLayoutTarget, Raster, Raster2DTarget, StrokesTarget, VisualTarget } from "./types";
 import { frameBounds, mapWorldPoint } from "./geo/map";
 import { rasterizePolygon } from "./heightfield";
 
@@ -19,6 +19,11 @@ export interface TargetPoints {
    * a grain that is always shown (a guide), −2 for the pen's own cluster (its position is an offset from the pen tip).
    */
   keys?: Float32Array;
+  /**
+   * Model targets only (v0.9): each grain's own colour, linear RGB (3 floats), already lit by its baked light — shown when
+   * the model is in its original colours; in Aion's silver the grain's tone is used as for every other visual.
+   */
+  colors?: Float32Array;
 }
 
 export function createTargetPoints(target: VisualTarget, count: number): TargetPoints {
@@ -30,6 +35,7 @@ export function createTargetPoints(target: VisualTarget, count: number): TargetP
     case "mesh3d": return sceneParticles(validScene(target.scene), count);
     case "map": return mapPoints(target, count);
     case "strokes": return strokePoints(target, count);
+    case "model": return modelPoints(target, count);
     default: throw new Error("invalid-target");
   }
 }
@@ -749,4 +755,34 @@ function strokePoints(target: StrokesTarget, count: number): TargetPoints {
     }
   }
   return { positions, tones, keys };
+}
+
+const srgbLinear = (value: number) => { const v = value / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+
+/**
+ * A converted model (v0.9): its particles as they are (already area-sampled and ordered to match the sphere's grains, so
+ * grain i forms point i). Silver tone: the baked light, darkened where the model itself is dark (eyes, markings, a
+ * mouth), so the character reads without colour. Original colour: the model's own colour under the same light. A body
+ * with more grains than the model has particles doubles them up with a little jitter rather than inventing shape.
+ */
+export function modelPoints(target: ModelTarget, count: number, frame?: Float32Array): TargetPoints {
+  const source = target.particles, n = source.count, from = frame ?? source.positions;
+  if (!(n > 0) || from.length < n * 3 || source.colors.length < n * 3 || source.shade.length < n) throw new Error("invalid-model");
+  const positions = new Float32Array(count * 3), tones = new Float32Array(count), colors = new Float32Array(count * 3);
+  const next = random(0x6d0de1);
+  for (let i = 0; i < count; i++) {
+    const j = i < n ? i : Math.floor(next() * n), jitter = i < n ? 0 : 0.008;
+    for (let k = 0; k < 3; k++) positions[i * 3 + k] = from[j * 3 + k] + (jitter ? (next() - 0.5) * jitter : 0);
+    const r = source.colors[j * 3], g = source.colors[j * 3 + 1], b = source.colors[j * 3 + 2];
+    const light = source.shade[j] / 255;
+    const value = (r * 0.2126 + g * 0.7152 + b * 0.0722) / 255;
+    tones[i] = Math.min(1, light * (0.3 + 0.7 * Math.pow(value, 0.75)) * 1.05);
+    // A little more saturation (the renderer's tone mapping and bloom wash bright colours out) and a little lift, so
+    // dark-but-not-black colours stay visible on Aion's dark stage.
+    const lr = srgbLinear(r), lg = srgbLinear(g), lb = srgbLinear(b), luma = lr * 0.2126 + lg * 0.7152 + lb * 0.0722;
+    colors[i * 3] = Math.max(0, luma + (lr - luma) * 1.3) * light + 0.01;
+    colors[i * 3 + 1] = Math.max(0, luma + (lg - luma) * 1.3) * light + 0.01;
+    colors[i * 3 + 2] = Math.max(0, luma + (lb - luma) * 1.3) * light + 0.01;
+  }
+  return { positions, tones, colors };
 }

@@ -40,6 +40,8 @@ real MCP tools (`patch`, `undo`, `inspect`, … as well).
 | `npm run chinese:build` · `chinese:export` · `chinese:coverage` | Rebuild, export and re-verify the Chinese Writing Pack |
 | `npm run writing:sheet` | Contact sheets of every curated letter, digit and symbol |
 | `npm run cards:models` · `cards:earth-mask` | Regenerate the CAD viewer's transformer · the Earth–Moon land mask |
+| `npm run models:originals` · `models:discover` · `models:catalogue` | v0.9: rebuild Aion's own test models · refresh the catalogue references from Sketchfab's public search (no downloads) · validate every catalogue and write [MODEL-CATALOGUE.md](MODEL-CATALOGUE.md) |
+| `npm run models:import -- --file <path>` · `models:measure` · `models:demo` | Import a downloaded model into your own library · conversion timings and sizes · the demonstration GIF from `npm run smoke -- --only=models` ([MODEL-LIBRARY.md](MODEL-LIBRARY.md)) |
 | `npm run notices` | Regenerate `plugins/aion-presence/THIRD-PARTY-NOTICES.md` |
 | `npm run release` | The reproducible installable archive in `dist/` |
 

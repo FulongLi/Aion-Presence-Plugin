@@ -9,7 +9,7 @@ import { createSphere } from "./sphere/createSphere";
 import { createUniforms } from "./physics/uniforms";
 import { createFigureLayout } from "../core/figure/layout";
 import { createEyesLayout } from "../core/eyes/layout";
-import { bodyWeight, eyesWeight, formedTarget, morphWeight } from "./physics/morph";
+import { bodyWeight, crossTarget, crossWeight, eyesWeight, formedTarget, morphWeight } from "./physics/morph";
 import { figureRest } from "./physics/figure";
 import { eyesRest } from "./physics/eyes";
 import { pusherForce } from "./physics/pusherPhysics";
@@ -26,14 +26,18 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   const seed = storage(new StorageInstancedBufferAttribute(sphere.seeds, 3), "vec3", capacity).toReadOnly();
   const offsets = storage(new StorageInstancedBufferAttribute(capacity, 3), "vec3", capacity);
   const velocities = storage(new StorageInstancedBufferAttribute(capacity, 3), "vec3", capacity);
-  // The morph target is the rest shape of a Visual Action; the sphere remains the default rest.
-  const targetPositions = new StorageInstancedBufferAttribute(new Float32Array(sphere.positions), 3);
-  const targetTones = new StorageInstancedBufferAttribute(new Float32Array(capacity).fill(1), 1);
-  const target = storage(targetPositions, "vec3", capacity).toReadOnly();
-  const tones = storage(targetTones, "float", capacity).toReadOnly();
-  // Each grain's reveal key for writing targets (v0.4.3, see render/writing.ts); −1 (shown as sampled) for every other.
-  const targetKeys = new StorageInstancedBufferAttribute(new Float32Array(capacity).fill(-1), 1);
-  const keys = storage(targetKeys, "float", capacity).toReadOnly();
+  // The morph target is the rest shape of a Visual Action; the sphere remains the default rest. v0.9: one vec4 per grain —
+  // its place and, in w, its writing reveal key (v0.4.3, see render/writing.ts; −1, shown as sampled, for every other
+  // target) — and its look: a colour of its own (a model's, v0.9; white otherwise) and its tone.
+  const initial = new Float32Array(capacity * 4);
+  for (let i = 0; i < capacity; i++) initial.set([sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2], -1], i * 4);
+  const targetPositions = new StorageInstancedBufferAttribute(initial, 4);
+  const targetLooks = new StorageInstancedBufferAttribute(new Float32Array(capacity * 4).fill(1), 4);
+  const target = storage(targetPositions, "vec4", capacity).toReadOnly();
+  const looks = storage(targetLooks, "vec4", capacity).toReadOnly();
+  // v0.9: the target a formed model is morphing away from (place, and its look packed into w: 6 bits each of r, g, b, tone).
+  const previousPositions = new StorageInstancedBufferAttribute(new Float32Array(initial), 4);
+  const previous = storage(previousPositions, "vec4", capacity).toReadOnly();
   // Aion's other bodies: every grain bound to the figure's skeleton (core/figure/layout.ts) and to an eye
   // (core/eyes/layout.ts). One buffer, four vec4 per particle (figure bind, local; eyes bind, local), so the
   // compute stage stays within WebGPU's default of eight storage buffers.
@@ -62,7 +66,9 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
     // The circular audio spectrum (v0.4.2) is a layer over the persistent body: the same grains re-form as the ring.
     const w = ringWeight(r, u);
     const bodyRest = mix(persistent, ringRest(r, u).position, w);
-    const base = mix(bodyRest, formedTarget(writingTarget(target.element(instanceIndex), keys.element(instanceIndex), u), u), m);
+    const t = target.element(instanceIndex);
+    const crossed = crossTarget(previous.element(instanceIndex).xyz, t.xyz, crossWeight(r, u));
+    const base = mix(bodyRest, formedTarget(writingTarget(crossed, t.w, u), u), m);
     // The sphere's own field (breathing, listening, thinking, speech tufts) is shaped for a sphere. The figure
     // takes none of it (its strokes stay precise) and gets its body language from the pose instead.
     const sphereForce = presenceForce(r, s, u).add(sphereAudioField(r, u).mul(u.stiffness).mul(u.motion))
@@ -89,7 +95,7 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   // with six vertices per particle instead of a full polyhedron.
   const geometry = new PlaneGeometry(1, 1);
   // Read per instance from storage in the vertex stage: the material already uses every vertex buffer slot.
-  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), tones.toAttribute(), u, bodyInputs(), keys.element(instanceIndex));
+  const material = createMaterial(rest.toAttribute(), offsets.toAttribute(), target.toAttribute(), looks.toAttribute(), u, bodyInputs(), previous.element(instanceIndex));
   const mesh = new InstancedMesh(geometry, material, capacity);
   mesh.frustumCulled = false;
   // Targets sampled ahead of time (a director that knows its visuals); anything else is sampled on upload.
@@ -97,12 +103,39 @@ export function createParticleSystem(capacity: number, config: ParticleConfig) {
   return {
     mesh, compute, uniforms: u, capacity,
     prepare(value: MorphTarget) { if (!prepared.has(value.visual)) prepared.set(value.visual, createTargetPoints(value.visual, capacity)); },
-    setTarget(value: MorphTarget) {
+    /**
+     * Uploads a target. `cross` (v0.9): the current target becomes the previous one first, so the body morphs from one
+     * formed model straight into the next (targetBlend 0 → 1) instead of through the sphere.
+     */
+    setTarget(value: MorphTarget, cross = false) {
       const points = prepared.get(value.visual) ?? createTargetPoints(value.visual, capacity);
-      targetPositions.array.set(points.positions); targetPositions.needsUpdate = true;
-      targetTones.array.set(points.tones); targetTones.needsUpdate = true;
-      if (points.keys) targetKeys.array.set(points.keys); else (targetKeys.array as Float32Array).fill(-1);
-      targetKeys.needsUpdate = true;
+      const place = targetPositions.array as Float32Array, look = targetLooks.array as Float32Array;
+      if (cross) {
+        const before = previousPositions.array as Float32Array;
+        const q = (v: number) => Math.max(0, Math.min(63, Math.round(v * 63)));
+        for (let i = 0; i < capacity; i++) {
+          before[i * 4] = place[i * 4]; before[i * 4 + 1] = place[i * 4 + 1]; before[i * 4 + 2] = place[i * 4 + 2];
+          before[i * 4 + 3] = q(look[i * 4]) * 262144 + q(look[i * 4 + 1]) * 4096 + q(look[i * 4 + 2]) * 64 + q(look[i * 4 + 3]);
+        }
+        previousPositions.needsUpdate = true;
+      }
+      for (let i = 0; i < capacity; i++) {
+        place[i * 4] = points.positions[i * 3]; place[i * 4 + 1] = points.positions[i * 3 + 1]; place[i * 4 + 2] = points.positions[i * 3 + 2];
+        place[i * 4 + 3] = points.keys ? points.keys[i] : -1;
+        if (points.colors) { look[i * 4] = points.colors[i * 3]; look[i * 4 + 1] = points.colors[i * 3 + 1]; look[i * 4 + 2] = points.colors[i * 3 + 2]; }
+        else look[i * 4] = look[i * 4 + 1] = look[i * 4 + 2] = 1;
+        look[i * 4 + 3] = points.tones[i];
+      }
+      targetPositions.needsUpdate = true; targetLooks.needsUpdate = true;
+    },
+    /** v0.9: new places for the current target's grains (a model's animation frame), its looks unchanged. */
+    setPlaces(positions: Float32Array, count: number) {
+      const place = targetPositions.array as Float32Array;
+      for (let i = 0; i < capacity; i++) {
+        const j = i < count ? i : i % count;
+        place[i * 4] = positions[j * 3]; place[i * 4 + 1] = positions[j * 3 + 1]; place[i * 4 + 2] = positions[j * 3 + 2];
+      }
+      targetPositions.needsUpdate = true;
     },
     setCount(count: number) { mesh.count = count; compute.count = count; },
     dispose() { compute.dispose(); geometry.dispose(); material.dispose(); mesh.dispose(); },

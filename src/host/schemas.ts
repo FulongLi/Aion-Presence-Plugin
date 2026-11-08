@@ -41,8 +41,9 @@ const text = (max: number, what: string) => z.string().max(max * 2).transform((v
   if (clean === null) { ctx.addIssue({ code: "custom", message: `${what}: 1–${max} characters of plain text` }); return z.NEVER; }
   return clean;
 });
+// v0.9: the range is the schema's own minimum and maximum, so the description no longer repeats it.
 const hold = z.number().min(0).max(LIMITS.hold.max)
-  .describe(`Seconds (${LIMITS.hold.min}–${LIMITS.hold.max}; 0: until cleared). Usually omit.`);
+  .describe("Seconds (0: until cleared). Usually omit.");
 
 /** How the user should see it (the Presentation Router decides by default; see core/presentationRouter.ts). */
 const presentation = z.enum(PRESENTATION_PREFERENCES).describe("auto (default): Aion decides; body: particles; card: exact card; hybrid: both.");
@@ -84,8 +85,13 @@ export const showFormInput = z.object({
   hold_seconds: hold.optional(),
 }).strict();
 
-/** The v0.1 name of show_form's input, kept for older clients. */
-export const showVisualFormInput = showFormInput;
+/**
+ * The v0.1 name of show_form's input, kept for older clients: the same validation without the descriptions (v0.9 — the
+ * alias is never the tool Codex should choose, so it does not repeat show_form's teaching in the tool budget).
+ */
+export const showVisualFormInput = z.object({
+  form: z.string().min(1).max(60), variant: z.string().min(1).max(40).optional(), hold_seconds: z.number().min(0).max(LIMITS.hold.max).optional(),
+}).strict();
 
 export const showTextInput = z.object({
   text: text(LIMITS.text, "text").describe(`Concise text (≤ ${LIMITS.text} characters). Up to 16 plain characters become the particle body itself; longer text is shown beside it.`),
@@ -487,6 +493,15 @@ export const cadModelInput = z.object({
 }).strict();
 
 /** v0.8: one simulation action (args validated per action in src/host/sim/commands.ts). */
+/** v0.9: the model library (one tool for every model; the library is data, never a tool per character). */
+export const showModelInput = z.object({
+  model: z.string().trim().min(1).max(80).optional(),
+  action: z.enum(["show", "find", "import", "remove"]).optional(),
+  file: z.string().trim().min(1).max(1024).optional().describe("import: absolute path"),
+  colors: z.enum(["original", "silver"]).optional(),
+  animation: z.string().trim().min(1).max(60).optional().describe("Its own clip, or stop"),
+}).strict();
+
 export const simulateInput = z.object({
   action: z.enum(SIM_ACTIONS),
   args: z.record(z.string(), z.unknown()).optional().describe("SI units or \"value unit\"; mm for lengths"),

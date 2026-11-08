@@ -1,8 +1,8 @@
 import type { Node } from "three/webgpu";
 import { MeshBasicNodeMaterial } from "three/webgpu";
-import { float, mix, normalize, positionLocal, sin, smoothstep, uv, vec3 } from "three/tsl";
+import { float, floor, mix, mod, normalize, positionLocal, sin, smoothstep, uv, vec3, vec4 } from "three/tsl";
 import type { PhysicsUniforms } from "../physics/uniforms";
-import { bodyWeight, eyesWeight, formedTarget, morphWeight } from "../physics/morph";
+import { bodyWeight, crossTarget, crossWeight, eyesWeight, formedTarget, morphWeight } from "../physics/morph";
 import { figureRest } from "../physics/figure";
 import { eyesRest } from "../physics/eyes";
 import { ringRest, ringWeight } from "../physics/ring";
@@ -12,9 +12,19 @@ type VectorNode = Node;
 /** Aion's other bodies: each particle's skeleton binding (core/figure/layout.ts) and eye binding (core/eyes/layout.ts). */
 export interface FigureInputs { bind: VectorNode; local: VectorNode; eyesBind?: VectorNode; eyesLocal?: VectorNode }
 
-export function createMaterial(rest: VectorNode, offset: VectorNode, target: VectorNode, tone: VectorNode, u: PhysicsUniforms,
-  figure?: FigureInputs, writingKey: VectorNode = float(-1)) {
+/**
+ * `target`: the formed visual's place (xyz) and writing key (w); `look`: its own colour (rgb, a model's; white otherwise)
+ * and tone (w); `previous` (v0.9): the target a formed model is morphing away from, its look packed into w.
+ */
+export function createMaterial(rest: VectorNode, offset: VectorNode, target: VectorNode, look: VectorNode, u: PhysicsUniforms,
+  figure?: FigureInputs, previous?: VectorNode) {
   const material = new MeshBasicNodeMaterial();
+  const writingKey = target.w;
+  const cross = crossWeight(rest, u);
+  const packed = previous ? floor(previous.w) : float(0);
+  const previousLook = previous ? vec4(floor(packed.div(262144)), mod(floor(packed.div(4096)), 64), mod(floor(packed.div(64)), 64), mod(packed, 64)).div(63) : look;
+  const seen = mix(previousLook, look, cross);
+  const tone = seen.w;
   const m = morphWeight(rest, u);
   // The persistent body under every visual: the sphere, the figure or the eyes (weights 0 leave the sphere unchanged).
   const figured = figure ? figureRest(figure.bind, figure.local, u) : null;
@@ -41,7 +51,7 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   // Stable size variation keeps individual grains legible without frame-to-frame flicker.
   const grainSize = sin(rest.dot(vec3(127.1, 311.7, 74.7))).mul(0.3).add(1);
   // A writing target (v0.4.3): the pen's grains ride the tip; strokes are lit as they are written (render/writing.ts).
-  const formed = formedTarget(writingTarget(target, writingKey, u), u);
+  const formed = formedTarget(writingTarget(previous ? crossTarget(previous.xyz, target.xyz, cross) : target.xyz, writingKey, u), u);
   const base = mix(bodyRest, formed, m);
   const depthSway = sin(u.clock.mul(0.5)).mul(0.07).mul(m).mul(float(1).sub(u.formedDepth));
   const relief = vec3(base.x.add(base.z.mul(depthSway)), base.y, base.z);
@@ -65,7 +75,9 @@ export function createMaterial(rest: VectorNode, offset: VectorNode, target: Vec
   const restColor = mix(bodyRestColor, color.mul(ringLight).add(disturbance.mul(0.4)), w);
   // A 3D object is lit by depth: what is nearer is brighter, so its structure reads as it turns.
   const nearness = mix(float(1), smoothstep(-1.9, 1.9, formed.z).mul(0.62).add(0.5), u.formedDepth);
-  const bodyColor = mix(restColor, u.formedColor.mul(tone).mul(formedLight).mul(nearness).mul(writingLight(writingKey, u)), m);
+  // v0.9: a model in its original colours shows its own (already lit) colour instead of Aion's formed tint.
+  const formedTint = mix(u.formedColor.mul(tone), seen.xyz, u.formedOwn);
+  const bodyColor = mix(restColor, formedTint.mul(formedLight).mul(nearness).mul(writingLight(writingKey, u)), m);
   material.colorNode = bodyColor;
   material.opacityNode = float(1).sub(smoothstep(0.24, 0.5, uv().sub(0.5).length()));
   material.alphaTest = 0.12;

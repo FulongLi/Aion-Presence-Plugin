@@ -7,6 +7,7 @@ import { HEIGHTFIELD_MIME, isHeightField } from "../visual/heightfield";
 import { isMapMedia, MAP_MIME } from "../visual/geo/map";
 import { GLB_MIME, validateGlb } from "../cards/assets/gltf";
 import { decodeFieldBundle, FIELD_MIME, isFieldBundle } from "../sim/field";
+import { decodeBundle, isParticleBundle, PARTICLES_MIME } from "../visual/models/bundle";
 
 /**
  * Images the host hands to Aion. Only local content is accepted (an absolute file path, a file:// URL or a
@@ -81,7 +82,15 @@ function checked(data: Buffer, declared: string) {
  * field result (v0.8). Anything else is refused.
  */
 export function sniffMedia(data: Buffer): string | null {
-  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : isMapMedia(data) ? MAP_MIME : isModel(data) ? GLB_MIME : isField(data) ? FIELD_MIME : null);
+  return sniffImage(data) ?? (isHeightField(data) ? HEIGHTFIELD_MIME : isMapMedia(data) ? MAP_MIME : isModel(data) ? GLB_MIME : isField(data) ? FIELD_MIME
+    : isParticles(data) ? PARTICLES_MIME : null);
+}
+
+/** A converted model's particle bundle that passes its validation (v0.9, src/visual/models/bundle.ts). */
+function isParticles(data: Buffer): boolean {
+  const bytes = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+  if (!isParticleBundle(bytes)) return false;
+  try { decodeBundle(bytes); return true; } catch { return false; }
 }
 
 /** A simulation result or setup for the Simulation Card that passes its validation (v0.8, src/sim/field.ts). */

@@ -223,7 +223,7 @@ export async function buildCard(presentation: Presentation, sources: CardSources
       root.append(writing.root);
       break;
     }
-    case "form": case "symbol": case "emoji": case "scene": case "animation":
+    case "form": case "symbol": case "emoji": case "scene": case "model": case "animation":
       break;
   }
   return { root, wide, images, ...(music ? { music } : {}), ...(play ? { play } : {}), ...(writing ? { writing } : {}) };

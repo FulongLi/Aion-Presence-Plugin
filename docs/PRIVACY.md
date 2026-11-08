@@ -40,6 +40,11 @@ welcome, four sentences spoken by the system's own on-device voice (below).
   (three per request).
 - **3D objects in the body** are validated strictly (known fields and names, bounded numbers, at most 24 objects, 256
   after repeats, 80,000 triangles, 16 KB). No 3D asset is ever fetched.
+- **Models** (v0.9): Aion never downloads a model. An imported model is a file you name; it is validated, converted on
+  this device and kept in the plugin data directory (`models/`), never uploaded; `show_model action remove` deletes it
+  and its cached particles. Only the converted particles reach the Presence window. The Pokémon catalogue's references
+  were gathered by a development script from Sketchfab's public search API; the plugin itself never contacts Sketchfab.
+  [MODEL-LIBRARY.md](MODEL-LIBRARY.md)
 - **Microphone**: analysed in the Presence window only, as loudness and voice activity. Never recorded, stored,
   uploaded or transcribed; refusing it is fine. [MICROPHONE.md](MICROPHONE.md)
 - **Sound**: every source is reduced to loudness and frequency bands on this device; nothing is recorded, stored, sent

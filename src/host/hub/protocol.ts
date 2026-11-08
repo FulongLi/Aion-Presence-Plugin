@@ -139,6 +139,7 @@ const clean = (fn: (value: unknown, max: number) => string | null, max: number) 
   z.string().refine(value => fn(value, max) === value, `at most ${max} characters of clean text`);
 const mediaRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.string().regex(/^image\/(?:png|jpeg|webp|gif|svg\+xml)$/), bytes: z.number().int().positive() }).strict();
 const heightFieldRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.literal("application/vnd.aion.heightfield"), bytes: z.number().int().positive() }).strict();
+const particlesRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.literal("application/vnd.aion.particles"), bytes: z.number().int().positive() }).strict();
 const mapRef = z.object({ id: z.string().regex(/^m[a-f0-9]{18}$/), mime: z.literal("application/vnd.aion.map"), bytes: z.number().int().positive() }).strict();
 const hex = z.string().refine(isHexColor, "a #rrggbb colour");
 export const markerSchema = z.object({
@@ -205,6 +206,10 @@ const presentationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("scene"), scene: z.custom<Scene3D>(value => checkScene(value).ok, "a valid 3D scene"), label: clean(cleanLine, LIMITS.title),
     preset: z.string().regex(/^[a-z][a-z0-9-]{0,30}$/).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal("model"), media: particlesRef, model: z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/), label: clean(cleanLine, LIMITS.title),
+    colors: z.enum(["original", "silver"]), credit: clean(cleanLine, 240).optional(), animation: clean(cleanLine, 60).optional(), playing: z.boolean().optional(),
   }).strict(),
   z.object({
     kind: z.literal("music"), title: clean(cleanLine, LIMITS.title), score: z.custom<MusicScore>(value => checkScore(value).ok, "a valid score"),

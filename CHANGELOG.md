@@ -4,7 +4,49 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
-## [0.8.0] — Unreleased (in review)
+## [0.9.0] — Unreleased (in review)
+
+The 3D Particle Model Library: Aion converts external 3D models into its own particles and becomes them — formed out of
+the sphere, in the model's colours or Aion's silver, morphing from one model straight into the next, with the model's own
+animation. Branch `feat/v0.9-particle-model-library`. Details: [docs/MODEL-LIBRARY.md](docs/MODEL-LIBRARY.md),
+[docs/MODEL-CATALOGUE.md](docs/MODEL-CATALOGUE.md).
+
+### Added
+- **`show_model`** (one action-based tool for every model, 36th): show a model by name or id ("another one": the next
+  character), `colors` original/silver (in place), `animation` (one of the model's own clips, or stop), `action` find,
+  import (a file the user downloaded: .glb, .gltf, .obj + .mtl, .stl) and remove. A model that is only catalogued or
+  unknown is refused with its references and the import path; nothing else is shown instead. `set_scene_view` turns
+  models too.
+- **Model core** (`src/visual/models/`, pure): a glTF 2.0 reader (accessors with strides, normalization and sparse
+  values, strips and fans, node TRS, skins evaluated in any pose, animation channels with step/linear/slerp/cubic spline,
+  materials incl. spec-gloss and texture transforms), OBJ/MTL and STL readers, a GLB writer, a strict JPEG decoder
+  (baseline and progressive, restart intervals, scaled decoding), normalization, a triangle BVH, the area-weighted sampler
+  (seeded, colour-detail share, hidden-surface removal by ray escape, alpha cut-outs, baked light), point correspondence
+  with the sphere, animation baking, the particle bundle (`application/vnd.aion.particles`), the versioned manifest
+  (`aion.model/1`) with its rights rules, and the registry (names, aliases in other languages, Pokédex numbers, typos).
+- **Model library** (`src/host/models/`): bundled models from the plugin, the user's imports in the plugin data
+  directory (validated and converted once at import; duplicates detected), a particle cache keyed by file hash, detail,
+  clip and converter version; removal of imports.
+- **Bundled models**: Lumen, an original test character (`scripts/models/make-originals.ts`), and the Khronos Fox
+  (CC0 model, CC BY 4.0 rigging and animation; Survey, Walk, Run), credited while formed and in THIRD-PARTY-NOTICES.
+- **Pokémon catalogue** (`assets/models/catalogue/pokemon.json`): fan-made models found through Sketchfab's public search
+  API — references only (author, URL, licence and what it permits, the design's owner, size, date), never bundled or
+  downloaded; suspected game rips marked restricted. `npm run models:discover`, `models:catalogue`.
+- Scripts: `models:originals`, `models:import`, `models:measure`, `models:demo`; smoke section `models` (both renderers);
+  `tests/v09-models.test.ts` (24 tests).
+
+### Changed
+- **Renderer**: each grain's target is one vec4 (place + writing key) and a look vec4 (own colour + tone); a third buffer
+  holds the previous target for model → model morphs (`crossWeight`/`crossTarget`), mirrored in the canvas fallback, which
+  also draws a model's colours. Compute stays at 7 of WebGPU's 8 storage buffers.
+- **Visual Action controller**: a formed model is replaced by the next model while formed (`crossing`, 2.2 s); anything
+  else still returns through the sphere.
+- `src/host/resolver/png.ts` takes its limits as a parameter (textures may be larger than map tiles).
+- Tool metadata: the legacy alias `show_visual_form` no longer repeats `show_form`'s parameter descriptions, and the
+  shared `hold_seconds` hint no longer repeats the range its schema states — 36 tools, **59,992 B** by Codex's measure,
+  inside the 60,000 B target.
+
+## [0.8.0] — 2026-10-23
 
 Engineering Simulation Foundation: real finite-element analysis of the FreeCAD model, operated by Codex, shown in an
 interactive Simulation Card. Branch `feat/v0.8-engineering-simulation`. Details: [docs/SIMULATION.md](docs/SIMULATION.md),
@@ -46,7 +88,7 @@ interactive Simulation Card. Branch `feat/v0.8-engineering-simulation`. Details:
 - Skill: an "Engineering simulation (FEM)" section and `references/simulation.md`; the skill's description mentions FEM.
 - README: the simulation line, optional tools, the documentation row; the stale version line corrected.
 
-## [0.7.0] — Unreleased (in review)
+## [0.7.0] — 2026-10-22
 
 A spoken first-run welcome, and FreeCAD as a real parametric CAD backend. Branch `feat/v0.7-spoken-welcome-freecad`.
 Details: [docs/FREECAD.md](docs/FREECAD.md), [docs/HOST.md](docs/HOST.md#v07-the-spoken-welcome).
