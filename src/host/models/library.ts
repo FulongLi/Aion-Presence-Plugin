@@ -34,7 +34,8 @@ import { colourImages, decodeTextures } from "./textures";
  * malformed model fails at import with a readable reason instead of reaching the renderer.
  */
 export const LIBRARY_SCHEMA = "aion.model-library/1";
-export const CONVERTER_VERSION = 1;
+/** v2 (0.9.1): bundles are quantized over the extent of every frame (v1 clamped animated frames to the rest pose's). */
+export const CONVERTER_VERSION = 2;
 export const MODEL_LIBRARY_LIMITS = { ...GLTF_LIMITS, bytes: 96 * 1024 * 1024, textureSize: 8192, triangles: 3_000_000 };
 /** A baked clip may add at most this much to a bundle (the hub's media store keeps items under 8 MB). */
 const CLIP_BYTES = 6 * 1024 * 1024;
@@ -46,7 +47,7 @@ export class ModelLibraryError extends Error {
 const fail = (code: string, detail: string): never => { throw new ModelLibraryError(code, detail); };
 
 interface LibraryRecord { manifest: ModelManifest; file: string; sha256: string; bytes: number; imported: string; info: ModelInfo }
-export interface ModelInfo { triangles: number; meshes: number; textures: number; animations: string[]; warnings: string[] }
+export interface ModelInfo { triangles: number; meshes: number; textures: number; animations: string[]; warnings: string[]; joints?: number; morphTargets?: number }
 interface LibraryFile { schema: typeof LIBRARY_SCHEMA; entries: LibraryRecord[] }
 
 export interface Provenance {
@@ -54,6 +55,9 @@ export interface Provenance {
   catalogue?: string;
   name?: string;
   source?: { url?: string; author?: string; licence?: string };
+  /** v0.9.1: who owns the depicted design, when the user knows (a franchise character is third-party). */
+  rights?: { underlyingIp: "original" | "third-party" | "public-domain" | "unknown"; ipOwner?: string; notes?: string };
+  category?: ModelManifest["category"];
 }
 
 export interface ConvertedModel {
@@ -211,7 +215,7 @@ export class ModelLibrary {
     const manifest: ModelManifest = catalogued
       ? { ...catalogued, id, availability: "local", download: { ...catalogued.download, status: "downloaded" }, checked: today(), file: undefined }
       : {
-        schema: MODEL_SCHEMA, id, name, category: "other",
+        schema: MODEL_SCHEMA, id, name, category: provenance.category ?? "other",
         source: {
           site: "local file", ...(provenance.source?.url && /^https:\/\//.test(provenance.source.url) ? { url: provenance.source.url.slice(0, 400) } : {}),
           title: name, author: provenance.source?.author?.slice(0, 80) || "unknown", formats: [ext.slice(1)],
@@ -220,7 +224,10 @@ export class ModelLibrary {
           id: /^[A-Za-z0-9.+-]{2,40}$/.test(provenance.source?.licence ?? "") ? provenance.source!.licence! : "unknown", label: provenance.source?.licence?.slice(0, 80) || "unknown (the user's own file)",
           modification: "unknown", redistribution: "unknown", commercial: "unknown",
         },
-        rights: { underlyingIp: "unknown", redistributionVerified: false, notes: "Imported by the user from a local file; kept on this machine only." },
+        rights: {
+          underlyingIp: provenance.rights?.underlyingIp ?? "unknown", ...(provenance.rights?.ipOwner ? { ipOwner: provenance.rights.ipOwner.slice(0, 120) } : {}),
+          redistributionVerified: false, notes: (provenance.rights?.notes ?? "Imported by the user from a local file; kept on this machine only.").slice(0, 400),
+        },
         availability: "local", download: { available: false, method: "manual", requiresAccount: false, status: "downloaded" }, checked: today(),
       };
     delete (manifest as { file?: string }).file;
@@ -269,7 +276,10 @@ export class ModelLibrary {
     const known = key ? this.described.get(key) : undefined;
     if (known) return known;
     const geometry = gltf.model.geometry();
-    const info = { triangles: gltf.info.triangles, meshes: gltf.info.meshes, textures: gltf.info.images, animations: gltf.animations, warnings: geometry.warnings.slice(0, 8) };
+    const info = {
+      triangles: gltf.info.triangles, meshes: gltf.info.meshes, textures: gltf.info.images, animations: gltf.animations, warnings: geometry.warnings.slice(0, 8),
+      joints: gltf.model.joints, morphTargets: gltf.model.morphTargets,
+    };
     if (key) this.described.set(key, info);
     return info;
   }
