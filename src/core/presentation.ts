@@ -61,7 +61,7 @@ export const LIMITS = {
  * artifacts, which only the plugin presents, are held longer.
  */
 export const HOLD_SECONDS = {
-  form: 10, scene: 30, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
+  form: 10, scene: 30, model: 60, music: 10, text: 6, panelText: 9, result: 16, image: 12, portrait: 14, terrain: 14, clock: 7, number: 7, symbol: 5, emoji: 4, artifact: 45,
   /** Writing stays until cleared or replaced (something the user studies, like notation); an action sequence, as long as it plays. */
   writing: 0, animation: 10,
   /** v0.4.5: an interactive card's body form (hybrid) is a moment; the card itself stays until closed or replaced. */
@@ -113,6 +113,13 @@ export type PresentationContent =
   | { kind: "emoji"; emoji: string }
   /** A 3D object built from a validated scene of primitives (see visual/scene3d); `preset` names a curated one. */
   | { kind: "scene"; scene: Scene3D; label: string; preset?: string }
+  /**
+   * v0.9: a model from the model library, converted into particles on the host (media of type
+   * application/vnd.aion.particles; see visual/models). `model`: its library id; `colors`: Aion's silver or the model's
+   * original colours; `credit`: its author and licence, shown while it is formed; `animation`/`playing`: the clip baked into
+   * the media, and whether it plays. Showing the same media again with other colours or playback changes them in place.
+   */
+  | { kind: "model"; media: MediaRef; model: string; label: string; colors: "original" | "silver"; credit?: string; animation?: string; playing?: boolean }
   /**
    * Music notation (v0.4.2): a validated score drawn exactly on a card (the notation engine), with what to highlight.
    * `symbol`: a music form the body may become beside it (the clef being explained). `lesson`: where in a Music
@@ -260,6 +267,8 @@ export type BodyVisual =
   | { type: "map"; media: MediaRef }
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
+  /** v0.9: a model's particles (the media), in its colours, its clip playing or not. */
+  | { type: "model"; media: MediaRef; model: string; colors: "original" | "silver"; playing?: boolean }
   /** v0.4.3: the body writes a symbol (a writing target revealed stroke by stroke); v0.4.4: from its source. */
   | { type: "writing"; stroke: string; source: WritingSource; highlight?: "radical" }
   /** v0.4.3: the body itself (as the figure) performs an action sequence; nothing is formed. */
@@ -286,6 +295,7 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
     case "scene": return { type: "scene", scene: presentation.scene };
+    case "model": return { type: "model", media: presentation.media, model: presentation.model, colors: presentation.colors, ...(presentation.playing ? { playing: true } : {}) };
     case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
     case "writing": return { type: "writing", stroke: presentation.stroke, source: presentation.source, ...(presentation.highlight ? { highlight: presentation.highlight } : {}) };
@@ -318,6 +328,7 @@ export function describePresentation(presentation: PresentationContent): string 
     case "symbol": return `symbol: ${presentation.symbol}`;
     case "emoji": return `emoji: ${presentation.emoji}`;
     case "scene": return `3D: ${presentation.label}`;
+    case "model": return `model: ${presentation.label} (${presentation.colors === "original" ? "original colours" : "Aion silver"}${presentation.playing && presentation.animation ? `, ${presentation.animation}` : ""})`;
     case "music": return `music: ${presentation.title}${presentation.lesson ? ` (lesson ${presentation.lesson.id}, step ${presentation.lesson.step}/${presentation.lesson.steps})` : ""}`;
     case "artifact": return `${presentation.type} artifact: ${presentation.title}`;
     case "writing": return `writing: ${presentation.label}`;

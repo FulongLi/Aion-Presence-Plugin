@@ -37,13 +37,17 @@ import {
   showMusicInput, playMusicInput, musicLessonInput, setAudioVisualizerInput, showStrokeAnimationInput, playAnimationInput, controlAnimationInput,
   type markerInput,
   showTextInput, showVisualFormInput, svgSource, syncInput,
-  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput, cadModelInput, simulateInput,
+  showInteractiveCardInput, controlInteractiveCardInput, inspectInteractiveCardInput, cardReportInput, planRouteInput, cadModelInput, simulateInput, showModelInput,
 } from "../schemas";
 import { decideSurface, hostSupportsMcpApps, openBrowser, type SurfaceMode } from "../surface";
 import { answerStep, buildScore, defaultTempo, events, highlights, moveLesson, noteFacts, type LessonPosition } from "../music";
 import { checkScore, type CheckedScore, type MusicHighlight } from "../../music/notation/score";
 import { lessonById, LESSONS, type Language } from "../../music/lessons/lessons";
-import type { MusicLessonRef } from "../../core/presentation";
+import type { MediaRef, MusicLessonRef } from "../../core/presentation";
+import { ModelLibrary } from "../models/library";
+import { ModelService } from "../models/service";
+import { PARTICLES_MIME } from "../../visual/models/bundle";
+import { creditLine } from "../../visual/models/manifest";
 import type { AudioSettings } from "../../audio/settings";
 import { packSymbol, strokeCatalogText } from "../../animation/stroke/registry";
 import { lookupConcept, MUSIC_CONCEPTS } from "../../music/glossary";
@@ -113,10 +117,12 @@ export interface AionServerOptions {
   simRunner?: string;
   /** v0.8: the simulation service (injectable for tests). */
   sim?: SimulationService;
+  /** v0.9: the model library service (injectable for tests). */
+  models?: ModelService;
   env?: NodeJS.ProcessEnv;
 }
 
-const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "music", "artifact", "writing", "animation", "interactive"] as const;
+const PRESENTATION_KINDS = ["form", "text", "result", "image", "terrain", "map", "clock", "number", "symbol", "emoji", "scene", "model", "music", "artifact", "writing", "animation", "interactive"] as const;
 
 /** The structured result every Aion tool returns. */
 export const presenceOutput = z.object({
@@ -290,7 +296,9 @@ export const TOOL_DESCRIPTIONS = {
     + "pictures, people or terrain.",
   set_scene_view: "Change how the 3D object on show is viewed: \"rotate it\" (rotate left or right), \"show it from above\" (rotate up), "
     + "\"from below\" (rotate down), \"zoom in\", \"stop rotating\" (spin false), \"back to the default view\" (reset). Only while a "
-    + "show_scene object is on show; to leave it, use clear_presentation.",
+    + "show_scene object or show_model model is on show; to leave it, use clear_presentation.",
+  show_model: "Aion becomes a 3D model from its library, in particles (\"Show me Pikachu\", \"another one\", \"in your silver\", \"make it walk\": "
+    + "one of its own clips). find searches the library; import adds a file the user downloaded (never download one).",
   show_music: "Show music notation exactly, engraved on a staff beside Aion (VexFlow, Bravura): notes, a scale, a melody or rhythm, an empty staff "
     + "(staff: true), or a glossary concept with its example (concept: \"alto clef\", \"half rest\", \"tie\", \"repeat sign\", \"6/8\"). Use it whenever "
     + "the user learns notes, clefs, rhythms or symbols (\"Show me a 4/4 measure with four quarter notes\"). C4 is middle C. highlight lights notes, a line, "
@@ -597,8 +605,36 @@ export function createAionServer(options: AionServerOptions): McpServer {
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   }, async (args, ctx) => {
     const before = await link.run(backend => backend.state());
-    if (before.presentation?.kind !== "scene") return failure("no-scene: no 3D object is on show. Use show_scene first.");
+    if (before.presentation?.kind !== "scene" && before.presentation?.kind !== "model") return failure("no-scene: no 3D object is on show. Use show_scene or show_model first.");
     return run(ctx, backend => backend.apply({ type: "view", ...args }), () => "View changed. Do not narrate it.");
+  });
+
+  // v0.9: the model library — one tool for every model (see src/host/models).
+  const models = options.models ?? new ModelService(new ModelLibrary({ assetsDir: options.assetsDir, home: link.home }));
+  let modelMedia: { key: string; ref: MediaRef } | null = null;
+  server.registerTool("show_model", {
+    title: "Show a 3D model",
+    description: TOOL_DESCRIPTIONS.show_model,
+    inputSchema: showModelInput,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  }, async (args, ctx) => {
+    const before = await link.run(backend => backend.state());
+    const p = before.presentation;
+    const current = p?.kind === "model" ? { model: p.model, colors: p.colors, media: p.media, ...(p.animation ? { animation: p.animation } : {}), ...(p.playing ? { playing: true } : {}) } : null;
+    const outcome = await models.handle(args, current);
+    if (outcome.kind === "error") return failure(outcome.message);
+    if (outcome.kind === "text") return result(summarize(before, modeFor(ctx), outcome.message));
+    const { converted } = outcome;
+    // The same particles again (only colours or playback changed): the same media, so the body changes them in place.
+    const ref = modelMedia && modelMedia.key === converted.key && current?.media.id === modelMedia.ref.id ? modelMedia.ref : await hand(converted.bundle, PARTICLES_MIME);
+    modelMedia = { key: converted.key, ref };
+    const manifest = converted.manifest;
+    const content: PresentationContent = {
+      kind: "model", media: ref, model: manifest.id, label: manifest.name.slice(0, LIMITS.title), colors: outcome.colors, credit: creditLine(manifest).slice(0, 240),
+      ...(converted.animation ? { animation: converted.animation.name.slice(0, 60) } : {}), ...(outcome.playing ? { playing: true } : {}),
+    };
+    return run(ctx, backend => backend.apply({ type: "present", content }),
+      () => `${outcome.message} Answer in your own voice, in the first person (you have become it); do not narrate this tool call.`, { shown: manifest.name });
   });
 
   server.registerTool("show_image", {

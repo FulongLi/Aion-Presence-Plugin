@@ -79,7 +79,7 @@ export const PICTURE_QUALITY = { portraitMinSide: 240, pictureMinLongSide: 640 }
 /** Whether the particle body can carry this content legibly. */
 export function bodyCapable(content: PresentationContent): boolean {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": case "map": case "writing": case "animation": return true;
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "image": case "terrain": case "scene": case "model": case "map": case "writing": case "animation": return true;
     case "text": return !content.title && isGlyphText(content.text);
     case "result": return content.status !== "info";
     case "music": return content.symbol !== undefined;
@@ -91,12 +91,12 @@ export function bodyCapable(content: PresentationContent): boolean {
 
 /** Whether this content has a card form. A form, a symbol or an emoji is only ever the body. */
 export function cardCapable(content: PresentationContent): boolean {
-  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji" || content.kind === "scene" || content.kind === "animation");
+  return !(content.kind === "form" || content.kind === "symbol" || content.kind === "emoji" || content.kind === "scene" || content.kind === "model" || content.kind === "animation");
 }
 
 function automatic(content: PresentationContent, detail: boolean): { route: PresentationRoute; reason: RouteReason } {
   switch (content.kind) {
-    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene": case "map": case "animation":
+    case "form": case "clock": case "number": case "symbol": case "emoji": case "terrain": case "scene": case "model": case "map": case "animation":
       return { route: "body", reason: "body-native" };
     case "writing":
       return { route: "hybrid", reason: "writing-hybrid" };

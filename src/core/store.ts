@@ -455,7 +455,7 @@ export class PresenceStore {
 
   /** Changes how a 3D object on show is viewed. False when no 3D object is showing. */
   orient(command: OrbitCommand): boolean {
-    if (this.state.presentation?.kind !== "scene") return false;
+    if (this.state.presentation?.kind !== "scene" && this.state.presentation?.kind !== "model") return false;
     this.commit({ sceneView: { ...command, id: (this.state.sceneView?.id ?? 0) + 1 } });
     return true;
   }

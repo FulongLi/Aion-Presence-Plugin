@@ -26,7 +26,8 @@ import { routeAlong, elevationAt } from "../visual/geo/route";
 import { accentColor, particlePalette, type Appearance } from "../core/colors";
 import { HOLD_SECONDS, markerWords, type GeoMarker } from "../core/presentation";
 import { normalizeImage } from "../visual/image";
-import type { MorphTarget } from "../visual/types";
+import { isSolidTarget, type MorphTarget } from "../visual/types";
+import { decodeBundle } from "../visual/models/bundle";
 import { buildCard } from "./card";
 import { decodeImage, rasterizeEmoji, rasterizeText } from "./glyphs";
 import { ImmersiveController } from "./immersive";
@@ -258,8 +259,9 @@ export class PresenceView {
   /** The 3D view while the formed visual is a 3D object (each new one starts from its own default view). */
   private orbitFrame(dt: number): OrbitView {
     const target = this.visual.target;
-    const solid = target?.visual.kind === "mesh3d" && this.visual.phase !== "sphere";
-    if (solid && this.visual.revision !== this.orbitRevision) { this.orbitRevision = this.visual.revision; this.orbit.reset(target.motion); }
+    const solid = isSolidTarget(target?.visual) && this.visual.phase !== "sphere";
+    // A model morphing straight into the next keeps the view the user turned it to (v0.9).
+    if (solid && this.visual.revision !== this.orbitRevision) { this.orbitRevision = this.visual.revision; if (!this.visual.crossing) this.orbit.reset(target!.motion); }
     this.orbit.active = solid;
     return this.orbit.sample(dt);
   }
@@ -361,7 +363,8 @@ export class PresenceView {
       const caption = presentation?.route !== "body" ? ""
         : presentation.kind === "terrain" ? presentation.label
           : presentation.kind === "map" ? [presentation.label, markerWords(presentation.markers)].filter(Boolean).join(" · ")
-            : presentation.kind === "image" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ") : "";
+            : presentation.kind === "image" && presentation.alt ? [presentation.alt, presentation.credit].filter(Boolean).join(" · ")
+              : presentation.kind === "model" ? presentation.credit ?? presentation.label : "";
       if (caption) this.say(caption, 6_000);
     }
     // v0.4.5: the interactive card on show follows the hub's card (its layout, Codex's commands).
@@ -485,8 +488,14 @@ export class PresenceView {
    */
   private bodyKey: string | null = null;
   private formBody(body: ReturnType<typeof planPresentation>["body"], hold: number) {
-    const key = body.type === "terrain" ? `terrain:${body.media.id}:${body.style}` : null;
-    if (key && key === this.bodyKey && this.visual.presenting && this.visual.phase !== "returning") { this.visual.holdFor(hold); return; }
+    const key = body.type === "terrain" ? `terrain:${body.media.id}:${body.style}` : body.type === "model" ? `model:${body.media.id}` : null;
+    if (key && key === this.bodyKey && this.visual.presenting && this.visual.phase !== "returning") {
+      // v0.9: the same model again with other colours or playback: changed in place, never formed again.
+      const formed = this.visual.target?.visual;
+      if (body.type === "model" && formed?.kind === "model") { formed.colors = body.colors; formed.playing = body.playing === true; }
+      this.visual.holdFor(hold);
+      return;
+    }
     this.bodyKey = key;
     void this.visual.submit(body.type === "none" ? null : { ...body, hold });
   }
@@ -759,6 +768,17 @@ export class PresenceView {
           visual: { kind: "mesh3d", scene: request.scene }, hold, label: request.scene.title, transition: { form: 2, return: 1.5 },
           motion: { orbit: request.scene.rotation === "none" ? 0 : ORBIT.spin, tilt: (request.scene.tilt ?? 15) * Math.PI / 180 },
         };
+      case "model": {
+        // v0.9: a model's particles, converted on the host; it forms in depth, slightly elevated, turning slowly.
+        const blob = await this.transport.media(request.media.id);
+        signal.throwIfAborted();
+        const particles = decodeBundle(new Uint8Array(await blob.arrayBuffer()));
+        signal.throwIfAborted();
+        return {
+          visual: { kind: "model", id: request.model, particles, colors: request.colors, playing: request.playing === true }, hold, label: request.model,
+          transition: { form: 2.4, return: 1.8 }, motion: { orbit: ORBIT.spin * 0.8, tilt: 8 * Math.PI / 180 },
+        };
+      }
       case "writing": {
         // A writing (v0.4.3; v0.4.4 true outlines and words): sampled once with each grain's reveal key; the writing uniforms do the rest.
         const sequence = sequenceFor(request);
