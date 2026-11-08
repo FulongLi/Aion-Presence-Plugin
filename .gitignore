@@ -19,3 +19,6 @@ npm-debug.log*
 # local builds of the macOS audio bridge (npm run audio-bridge:build)
 /native/audio-bridge/build/
 __pycache__/
+
+# v0.9.1: local experimental models with third-party character rights (never committed)
+/local-models/

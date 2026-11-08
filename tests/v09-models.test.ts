@@ -226,7 +226,7 @@ test("animation: the Fox's own Walk clip is baked from its skeleton; every frame
   // Same scale as the rest pose (one placement matrix for every frame).
   const extent = (p: Float32Array) => { let r = 0; for (let i = 0; i < p.length; i += 3) r = Math.max(r, Math.hypot(p[i], p[i + 1], p[i + 2])); return r; };
   assert.ok(Math.abs(extent(baked.frames[0]) - extent(particles.positions)) < 0.4);
-  assert.throws(() => bakeAnimation(new GltfModel(lumen()), surface, { animation: 0 }), /animation-unknown/);
+  assert.throws(() => bakeAnimation(model, surface, { animation: 7 }), /animation-unknown/);
 });
 
 test("normalization: up axis, yaw and placement; Z-up STL stands upright", () => {
@@ -442,8 +442,9 @@ test("show_model: one tool for every model — forms, switches colours in place,
     assert.ok(!(await aion.call("set_scene_view", { rotate: "left" })).isError, "a model can be turned");
     const walk = await aion.call("show_model", { model: "fox", animation: "Walk" });
     assert.match(text(walk), /playing "Walk"/);
+    // v0.9.1: Lumen has its own Bounce clip; a clip it does not have is refused with the ones it has.
     const none = await aion.call("show_model", { model: "Lumen", animation: "wave" });
-    assert.ok(none.isError && /no animation of its own/.test(text(none)));
+    assert.ok(none.isError && /animations: Bounce/.test(text(none)), text(none));
     const before = (await aion.link.run(backend => backend.state())).presentation?.id;
     const missing = await aion.call("show_model", { model: "Squirtle" });
     assert.ok(missing.isError && /model-not-installed/.test(text(missing)) && /never downloads/.test(text(missing)), text(missing));
