@@ -55,6 +55,7 @@ The whole, end to end:
 | `writing/` (v0.4.4) | The Chinese Writing Pack's pure core: the block-compressed resource container (`pack/container.ts`), the lossless codec of Hanzi Writer character data (`hanzi/codec.ts`), outline geometry and validation shared by the build, the host and the page (`hanzi/geometry.ts`), simplified ↔ traditional classification (`hanzi/variants.ts`), the pack's identity and pinned upstream sources (`hanzi/sources.ts`). See [CHINESE-WRITING.md](CHINESE-WRITING.md). |
 | `animation/` (v0.4.3) | The Animation Core (`timeline.ts`: playback anchored to the clock, easing, keyframes, segments; `control.ts`: one control vocabulary), the Stroke Animation Engine (`stroke/`: the data model, the path processor, curated packs, the writing timeline) and the Scene Sequencer (`scene/`: approved motion primitives compiled onto Figure 2.0, five demos). Pure. See [ANIMATION.md](ANIMATION.md) and [STROKE-ANIMATION.md](STROKE-ANIMATION.md). |
 | `visual/scene3d/` | The 3D Scene Engine: the scene schema, its strict validator, presets, the Three.js geometry builder and the surface/edge particle sampler (`mesh3d` targets). See [SCENES.md](SCENES.md). |
+| `visual/models/` (v0.9) | The model library's pure core: glTF/OBJ/STL readers (skins and clips evaluated in any pose), a strict JPEG decoder, normalization, the area-weighted sampler with hidden-surface removal and colours, correspondence with the sphere, animation baking, the particle bundle, manifests (`aion.model/1`, rights rules) and the registry. `model` targets. See [MODEL-LIBRARY.md](MODEL-LIBRARY.md). |
 
 ### Precedence
 
@@ -105,6 +106,10 @@ before density). Additions, mirrored in the Canvas 2D fallback:
   same grains re-form as a circular particle spectrum (bass at the bottom, treble at the top) around a small core; and
   an audio field on the sphere (`physics/audioField.ts`). Both are driven by one `AudioVisualFrame` per frame and are
   zero without sound.
+- **Models** (v0.9): a grain's target is one vec4 (place, writing key) plus a look (its own colour, its tone); a model in
+  its original colours shows the look's colour (`formedOwn`, eased), otherwise Aion's formed tint. A third buffer holds
+  the previous target, so one formed model morphs straight into the next (`crossWeight`, `crossTarget`); compute stays at
+  7 storage buffers. `ModelPlayback` plays a model's baked clip by updating the target's places.
 - **3D objects** (v0.4): `formedTarget()` turns a formed target by yaw, pitch and zoom (identity for flat
   visuals). While it is 3D, tone follows depth and the ripple is reduced. The orbit controller
   (`interaction/orbit.ts`) turns it slowly and lets the user drag, zoom and reset; `toWorld()` maps a screen point
@@ -151,6 +156,10 @@ Codex hooks ──► aion-hook.mjs ──loopback HTTP──► PresenceHub
   (`plugins/aion-presence/cad/aion_freecad_worker.py`: requests on stdin, responses on fd 3, FreeCAD transactions);
   `commands.ts` is the strict schema of `cad_model`'s actions; `preview.ts` turns the worker's per-feature tessellation
   into a GLB for the CAD viewer; `desktop.ts` hands a saved document to the FreeCAD application. [FREECAD.md](FREECAD.md)
+- **Models** (`models/`, v0.9): the user's model library in the plugin data directory (`library.ts`: imports validated
+  and converted once, a particle cache, removal), texture decoding (`textures.ts`), and what `show_model` does and says
+  (`service.ts`). Bundled models and catalogue references come from the plugin's `assets/models/`. Aion never downloads a
+  model. [MODEL-LIBRARY.md](MODEL-LIBRARY.md)
 - **Hooks** (`hooks/`): event → activity, own tools ignored, `Stop` after `responding` → complete.
 - **Audio bridge** (`audio/bridge.ts`, v0.4.2): the hub's end of the macOS Aion Audio Bridge — a private Unix socket, the
   shared analyser at 60 Hz, features out as `event: audio` on the companion stream. Started only when the user asks.
@@ -254,6 +263,8 @@ marketplace is `spirit-connect`: `codex plugin marketplace add FulongLi/Aion-Pre
 - **Another body**: one entry in `PERSISTENT_BODIES`, one layer weight in `AionBody`, one rest function evaluated in
   compute, material and the canvas fallback.
 - **Another 3D primitive**: one entry in the scene schema and validator, one builder case, its triangle bound.
+- **Another model** (v0.9): a GLB and a manifest entry (bundled, if redistributable), or the user's import — no code.
+  Another model format: one reader producing `ModelGeometry` (`src/visual/models/`), converted to GLB at import.
 - **A desktop shell** (e.g. Tauri): the same page and renderer, one more surface adapter for window, always-on-top
   and fullscreen controls the browser cannot offer.
 - **Another host**: a transport in `src/surface/transports` and, if it is not an MCP client, an adapter that sends

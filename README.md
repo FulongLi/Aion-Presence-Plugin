@@ -94,6 +94,7 @@ and for the full body a browser with WebGPU (others get a canvas fallback). Fall
 | [Generative Visual Engine](docs/GENERATIVE-VISUAL-ENGINE.md) | Generated scenes: [Scene IR](docs/SCENE-IR.md), [animation](docs/SCENE-ANIMATION.md), [interaction](docs/SCENE-INTERACTION.md), [Router 2.0](docs/PRESENTATION-ROUTER-V2.md), [real-Codex tests](docs/SCENE-GENERATION-TESTS.md) |
 | [Interactive cards](docs/CARDS.md) | Card 2.0, [bridge](docs/CARD-BRIDGE.md), [security](docs/CARD-SECURITY.md), [Earth–Moon](docs/EARTH-MOON.md), [CAD viewer](docs/CAD-VIEWER.md) |
 | [FreeCAD](docs/FREECAD.md) | Parametric CAD in the user's FreeCAD: the backend, operations, revisions, the hand-off, limits |
+| [Model library](docs/MODEL-LIBRARY.md) | Aion becomes 3D models as particles: conversion, morphing, colours, animation, rights · [catalogue](docs/MODEL-CATALOGUE.md) |
 | [Simulation](docs/SIMULATION.md) | FEM with Gmsh and Elmer on the FreeCAD model: studies, faces, validation, results, verification · [Simulation Card](docs/SIMULATION-CARD.md) |
 | [Route Explorer](docs/ROUTE-EXPLORER.md) | Routes on the terrain and in their card: providers, elevation, tiles, limits |
 | [Architecture](docs/architecture.md) | How Codex, the hub, the surface and the renderer fit together |

@@ -34,6 +34,9 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
   the exact map, an elevation profile linked to the body, distance, time and climbing. [ROUTE-EXPLORER.md](ROUTE-EXPLORER.md)
 - **Aion's own forms**: Tao symbols, trigrams, constellations, zodiac and planetary signs, clocks, numbers, words,
   symbols, emoji, and genuine **3D objects** from validated primitives. [SCENES.md](SCENES.md)
+- **3D models** (v0.9): Aion becomes a model from its library — its surface converted into Aion's particles, in its
+  own colours or Aion's silver, morphing from one model into the next, with the model's own animation (the Fox walks).
+  Users import models they downloaded; Pokémon fan models are catalogued as references only. [MODEL-LIBRARY.md](MODEL-LIBRARY.md)
 - **Codex's work**, concisely: results, code excerpts, file changes, diagrams and local images in quiet cards. Logs
   never go into Aion.
 - **The Presentation Router** decides body, card or both from what the information is. [architecture.md](architecture.md)
@@ -45,6 +48,8 @@ document. Release-by-release changes are in [CHANGELOG.md](../CHANGELOG.md).
 "Plan a cycling route from Glasgow to Edinburgh." → the route on that relief, the map and profile beside it;
                                               "Show me the highest point." "Reverse the route."
 "Show me an Egyptian pyramid in 3D."       → a 3D pyramid that turns; drag it, zoom, reset
+"Show me the fox." "In your silver." "Make it walk." "Show me another one." "Return to your original form."
+                                           → the sphere becomes the fox, …, and gathers into the sphere again
 ```
 
 ## Teaching
