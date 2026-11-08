@@ -14,9 +14,9 @@ export const PNG_LIMITS = { side: 4096, bytes: 8 * 1024 * 1024 };
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const CHANNELS: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
 
-export function decodePng(bytes: Uint8Array): Raster {
+export function decodePng(bytes: Uint8Array, limits: { side: number; bytes: number } = PNG_LIMITS): Raster {
   const fail = (code = "png-invalid"): never => { throw new ResolveError(code); };
-  if (bytes.length > PNG_LIMITS.bytes || bytes.length < 33 || SIGNATURE.some((b, i) => bytes[i] !== b)) fail();
+  if (bytes.length > limits.bytes || bytes.length < 33 || SIGNATURE.some((b, i) => bytes[i] !== b)) fail();
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 8, width = 0, height = 0, type = -1, palette: Uint8Array | null = null, transparency: Uint8Array | null = null;
   const data: Uint8Array[] = [];
@@ -30,7 +30,7 @@ export function decodePng(bytes: Uint8Array): Raster {
       const depth = body[8]; type = body[9];
       if (depth !== 8 || !(type in CHANNELS) || body[10] !== 0 || body[11] !== 0) fail("png-unsupported");
       if (body[12] !== 0) fail("png-unsupported"); // interlaced
-      if (!width || !height || width > PNG_LIMITS.side || height > PNG_LIMITS.side) fail();
+      if (!width || !height || width > limits.side || height > limits.side) fail();
     } else if (name === "PLTE") palette = body;
     else if (name === "tRNS") transparency = body;
     else if (name === "IDAT") data.push(body);
