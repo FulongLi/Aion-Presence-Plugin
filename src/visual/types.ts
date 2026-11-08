@@ -166,6 +166,9 @@ export interface ModelTarget {
   particles: { count: number; positions: Float32Array; colors: Uint8Array; shade: Uint8Array; frames: Float32Array[]; fps: number };
   colors: "original" | "silver";
   playing?: boolean;
+  /** v0.9.1: the clip's rate (1: as authored) and a counter that restarts it when it changes. */
+  speed?: number;
+  restart?: number;
 }
 
 export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget | StrokesTarget | ModelTarget;

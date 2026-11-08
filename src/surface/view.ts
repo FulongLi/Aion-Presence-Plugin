@@ -492,7 +492,9 @@ export class PresenceView {
     if (key && key === this.bodyKey && this.visual.presenting && this.visual.phase !== "returning") {
       // v0.9: the same model again with other colours or playback: changed in place, never formed again.
       const formed = this.visual.target?.visual;
-      if (body.type === "model" && formed?.kind === "model") { formed.colors = body.colors; formed.playing = body.playing === true; }
+      if (body.type === "model" && formed?.kind === "model") {
+        formed.colors = body.colors; formed.playing = body.playing === true; formed.speed = body.speed; formed.restart = body.restart;
+      }
       this.visual.holdFor(hold);
       return;
     }
@@ -775,7 +777,7 @@ export class PresenceView {
         const particles = decodeBundle(new Uint8Array(await blob.arrayBuffer()));
         signal.throwIfAborted();
         return {
-          visual: { kind: "model", id: request.model, particles, colors: request.colors, playing: request.playing === true }, hold, label: request.model,
+          visual: { kind: "model", id: request.model, particles, colors: request.colors, playing: request.playing === true, speed: request.speed, restart: request.restart }, hold, label: request.model,
           transition: { form: 2.4, return: 1.8 }, motion: { orbit: ORBIT.spin * 0.8, tilt: 8 * Math.PI / 180 },
         };
       }

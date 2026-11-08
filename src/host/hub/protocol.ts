@@ -210,6 +210,7 @@ const presentationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("model"), media: particlesRef, model: z.string().regex(/^[a-z0-9][a-z0-9-]{1,63}$/), label: clean(cleanLine, LIMITS.title),
     colors: z.enum(["original", "silver"]), credit: clean(cleanLine, 240).optional(), animation: clean(cleanLine, 60).optional(), playing: z.boolean().optional(),
+    speed: z.number().min(0.25).max(2.5).optional(), restart: z.number().int().min(0).max(1_000_000).optional(),
   }).strict(),
   z.object({
     kind: z.literal("music"), title: clean(cleanLine, LIMITS.title), score: z.custom<MusicScore>(value => checkScore(value).ok, "a valid score"),

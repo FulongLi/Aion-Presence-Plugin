@@ -53,7 +53,7 @@ import { packSymbol, strokeCatalogText } from "../../animation/stroke/registry";
 import { lookupConcept, MUSIC_CONCEPTS } from "../../music/glossary";
 import { MUSIC_FORM_IDS } from "../../music/visual/glyphForms";
 import type { StrokeSequence } from "../../animation/stroke/types";
-import { compiledFor, controlAnimation, sequenceFor, speedRate } from "../../animation/control";
+import { compiledFor, controlAnimation, controlModelClip, sequenceFor, speedRate } from "../../animation/control";
 import { chinesePack, type ChinesePack } from "../writing/chinesePack";
 import { resolveWriting, type WritingFacts } from "../writing/resolve";
 import { phaseAt } from "../../animation/timeline";
@@ -324,7 +324,7 @@ export const TOOL_DESCRIPTIONS = {
     + "— walk, jump, pick-up, put-down, point, face, gesture, react, crouch, wait, think, notice, examine, touch — with up to three objects (box, ball, "
     + "panel, question). \"Show a stick figure jumping over a box\" → demo jump-over-obstacle; \"Animate the figure thinking\" → thinking; \"Make it explore "
     + "this box\" → exploring. The body becomes the figure and returns. Keep it short; one sentence about it, no running commentary.",
-  control_animation: "Control the animation on show — a symbol being written or a figure's action sequence: pause, resume, replay, change speed "
+  control_animation: "Control the animation on show (writing, a figure's sequence, a model's own clip): pause, resume, replay, change speed "
     + "(\"write it more slowly\" → replay with speed slow, \"faster\"), next or previous stroke, repeat a stroke (\"repeat the third stroke\" → "
     + "repeat, stroke 3), complete (\"show the whole character again\"), stop. The result says which stroke is being written and how.",
   express: "Show an expression or a gesture with Aion's body, briefly, when the user asks for one (\"look happy\", \"a curious expression\", "
@@ -1348,6 +1348,16 @@ export function createAionServer(options: AionServerOptions): McpServer {
   }, async (args, ctx) => {
     const before = await link.run(backend => backend.state());
     const shown = before.presentation;
+    // v0.9.1: a model's own clip (show_model animation) takes the same commands.
+    if (shown?.kind === "model") {
+      if (!shown.animation) return failure("no-animation: this model has no clip playing. show_model with animation plays one of its own clips (the result lists them).");
+      const next = controlModelClip({ playing: shown.playing === true, speed: shown.speed ?? 1 }, { action: args.action, ...(args.speed ? { speed: args.speed } : {}) });
+      if (!next.ok) return failure(`animation-control: ${next.problem}.`);
+      const { id: _id, at: _at, hold: _hold, route: _route, reason: _reason, bodyHold: _bodyHold, cardHold: _cardHold, ...content } = shown;
+      const updated: PresentationContent = { ...content, playing: next.playing, speed: next.speed, ...(next.restart ? { restart: (shown.restart ?? 0) + 1 } : {}) };
+      return run(ctx, backend => backend.apply({ type: "present", content: updated }),
+        () => `${shown.label}: "${shown.animation}" ${next.playing ? `playing at ${next.speed}× speed` : "paused"}. Do not narrate it.`);
+    }
     if (!shown || (shown.kind !== "writing" && shown.kind !== "animation") || before.animation?.presentation !== shown.id) {
       return failure("no-animation: nothing is being written or animated now. Use show_stroke_animation or play_animation first.");
     }
