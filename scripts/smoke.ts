@@ -176,6 +176,7 @@ try {
   if (section("cad")) await cad();
   if (section("sim")) await sim();
   if (section("v06") && !offline) for (const renderer of ["auto", "canvas"] as const) await v06(renderer);
+  if (section("models")) for (const renderer of ["auto", "canvas"] as const) await models(renderer);
 } finally {
   await browser.close();
   await hub.stop();
@@ -2076,6 +2077,101 @@ async function v06(renderer: "auto" | "canvas") {
     check(left.length > 0 && left.every(l => l.geometries + l.textures + l.urls + l.loops === 0), `nothing left behind (${JSON.stringify(left.at(-1))})`);
     await aion.call("clear_presentation", {});
     await until(page, s => s.phase === "sphere", 6_000);
+    check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
+  } finally { await aion.close(); await page.close(); }
+}
+
+/**
+ * v0.9, the model library in the real renderer through the real tool (show_model, as Codex calls it): the sphere becomes
+ * Lumen (an original test character) in its own colours, switches to Aion's silver in place, morphs straight into the
+ * Fox (no return through the sphere), turns, walks with the Fox's own clip, refuses a model it does not have without
+ * showing anything else, and returns to the sphere. Frames of the transformation are kept for the demonstration GIF.
+ */
+async function models(renderer: "auto" | "canvas") {
+  console.log(`v0.9: model library (${renderer})`);
+  const aion = await connectAion({ home });
+  const { page, errors } = await open(browser, `&mic=0${renderer === "canvas" ? "&renderer=canvas" : ""}`);
+  const view = <T,>(expression: string) => page.evaluate(`(() => { const v = window.aionPresence; return ${expression}; })()`) as Promise<T>;
+  const shot = (moment: string) => page.screenshot({ path: join(OUT, `models-${renderer}-${moment}.png`) });
+  // The frames show what the user sees: without the diagnostics panel.
+  await page.addStyleTag({ content: "#debug, .debug, [data-debug] { display: none !important; }" });
+  const frames = join(OUT, `models-${renderer}-frames`);
+  mkdirSync(frames, { recursive: true });
+  let frame = 0;
+  const film = async (ms: number, every = 120) => { for (let t = 0; t < ms; t += every) { await page.screenshot({ path: join(frames, `${String(frame++).padStart(3, "0")}.png`) }); await pause(every / 3); } };
+  /** Lit pixels by colour: warm (orange/yellow), teal and grey (unsaturated), as shares of the lit pixels. */
+  const colours = async () => page.evaluate(`(async (data) => { const img = new Image(); img.src = "data:image/png;base64," + data; await img.decode();
+      const c = new OffscreenCanvas(img.width / 2, img.height / 2); const x = c.getContext("2d"); x.drawImage(img, 0, 0, c.width, c.height);
+      const d = x.getImageData(0, 0, c.width, c.height).data; let lit = 0, warm = 0, teal = 0, grey = 0;
+      for (let i = 0; i < d.length; i += 4) { const r = d[i], g = d[i + 1], b = d[i + 2], m = Math.max(r, g, b), n = Math.min(r, g, b);
+        if (m < 60) continue; lit++; const s = (m - n) / m; if (s < 0.3) { grey++; continue; }
+        const h = m === r ? ((g - b) / (m - n) + 6) % 6 * 60 : m === g ? ((b - r) / (m - n) + 2) * 60 : ((r - g) / (m - n) + 4) * 60;
+        // Aion's silver is a cool, slightly blue white (the canvas renderer keeps more of its tint than tone-mapped WebGPU).
+        if (h > 195 && h < 235 && s < 0.45) grey++; else if (h < 60 || h > 330) warm++; else if (h >= 150 && h <= 195) teal++; }
+      return { lit, warm: warm / Math.max(1, lit), teal: teal / Math.max(1, lit), grey: grey / Math.max(1, lit) }; })(${JSON.stringify((await page.screenshot({ type: "png" })).toString("base64"))})`) as Promise<{ lit: number; warm: number; teal: number; grey: number }>;
+  try {
+    await pause(800);
+    await film(400);
+    const lumen = await aion.call("show_model", { model: "Lumen" });
+    check(!lumen.isError, `show_model Lumen: ${String((lumen.content as { text: string }[])[0].text).slice(0, 140)}`);
+    await film(3_000);
+    check((await until(page, s => s.phase === "holding", 6_000)).phase === "holding", "the sphere becomes Lumen");
+    check(await view<boolean>("v.orbit.active"), "the model is a 3D view (orbit active)");
+    await pause(600);
+    const original = await colours();
+    await shot("1-lumen-original");
+    check(original.teal > 0.25, `original colours: Lumen is teal (${(original.teal * 100).toFixed(0)}% of lit pixels)`);
+    const revision = await view<number>("v.visual.revision");
+    const silver = await aion.call("show_model", { colors: "silver" });
+    check(!silver.isError, "show_model colors silver (no name: the model on show)");
+    await film(1_200);
+    await pause(400);
+    const grey = await colours();
+    await shot("2-lumen-silver");
+    check(await view<number>("v.visual.revision") === revision, "silver is applied in place (the body did not re-form)");
+    check(grey.grey > 0.6 && grey.teal < original.teal / 2, `Aion silver: mostly Aion's silver (${(grey.grey * 100).toFixed(0)}% silver)`);
+    // Lumen → Fox: straight from one model into the next, never through the sphere.
+    const fox = await aion.call("show_model", { model: "fox", colors: "original" });
+    check(!fox.isError, `show_model fox: ${String((fox.content as { text: string }[])[0].text).slice(0, 120)}`);
+    const phases = new Set<string>();
+    let crossing = false;
+    for (let t = 0; t < 2_800; t += 140) {
+      const state = await view<{ phase: string; crossing: boolean }>("({ phase: v.visual.phase, crossing: v.visual.crossing })");
+      phases.add(state.phase); crossing ||= state.crossing;
+      await page.screenshot({ path: join(frames, `${String(frame++).padStart(3, "0")}.png`) });
+    }
+    check(crossing && !phases.has("sphere") && !phases.has("returning"), `Lumen → Fox morphs directly (phases: ${[...phases].join(", ")})`);
+    await pause(800);
+    const foxColours = await colours();
+    await shot("3-fox");
+    check(foxColours.warm > 0.3, `the Fox is orange (${(foxColours.warm * 100).toFixed(0)}% warm)`);
+    const yaw = await view<number>("v.orbit.yaw");
+    const turned = await aion.call("set_scene_view", { rotate: "left", degrees: 60 });
+    await pause(1_400);
+    check(!turned.isError && await view<number>("v.orbit.yaw") < yaw - 0.4, "set_scene_view turns the model");
+    await aion.call("set_scene_view", { spin: false });
+    await film(1_000);
+    const still = await look(page, 6, 120);
+    const walk = await aion.call("show_model", { animation: "Walk" });
+    check(!walk.isError && /playing "Walk"/.test(String((walk.content as { text: string }[])[0].text)), "show_model animation Walk: the Fox's own clip");
+    await film(2_400);
+    const walking = await look(page, 6, 120);
+    await shot("4-fox-walking");
+    check(walking.motion > still.motion * 1.3, `the Fox walks (motion ${walking.motion.toFixed(2)} vs still ${still.motion.toFixed(2)})`);
+    const quality = await view<{ frameMs: number; count: number; tier: number }>("v.runtime.quality()");
+    console.log(`    frame time while a model is formed: ${quality.frameMs.toFixed(1)} ms (${quality.count} particles, tier ${quality.tier})`);
+    const before = hub.snapshot().presentation?.id;
+    const missing = await aion.call("show_model", { model: "Pikachu" });
+    const said = String((missing.content as { text: string }[])[0].text);
+    check(!!missing.isError && /model-(not-installed|unknown)/.test(said) && hub.snapshot().presentation?.id === before, `an uninstalled model is refused, nothing else shown: ${said.slice(0, 100)}`);
+    const another = await aion.call("show_model", { model: "another one" });
+    check(!another.isError && /Lumen/.test(String((another.content as { text: string }[])[0].text)), "\"another one\": the next installed character");
+    await film(2_600);
+    await aion.call("clear_presentation", {});
+    await film(2_400);
+    check((await until(page, s => s.phase === "sphere", 6_000)).phase === "sphere", "back to the sphere");
+    check(!(await view<boolean>("v.orbit.active")), "the 3D view ends with it");
+    await shot("5-sphere-again");
     check(!errors.length, `no page errors${errors.length ? `: ${errors.join("; ")}` : ""}`);
   } finally { await aion.close(); await page.close(); }
 }
