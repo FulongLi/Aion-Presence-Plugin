@@ -16,9 +16,13 @@ import { PaletteEase } from "./palette";
 import type { ParticlePalette } from "../core/colors";
 import { ringParams } from "./ring";
 import { NO_WRITING, type WritingUniforms } from "./writing";
+import { ModelPlayback } from "./modelPlayback";
 
-/** What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. */
-export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null }
+/**
+ * What the runtime reads each frame. It knows nothing about the host, MCP, hooks or tools. v0.9: `crossing` — the latest
+ * target replaced a formed one directly (a model morphing into another), and `cross` is how far (0…1).
+ */
+export interface MorphSource { sample(dt: number): number; readonly revision: number; readonly target: MorphTarget | null; readonly crossing?: boolean; readonly cross?: number }
 /**
  * `body` is Aion's persistent body (sphere or figure, see core/body.ts), the rest every temporary visual
  * forms from and returns to.
@@ -129,6 +133,7 @@ export async function createParticleRuntime(
   const u = system.uniforms;
   const speechMotion = new SpeechMotion();
   const palette = new PaletteEase();
+  const playback = new ModelPlayback();
   const fx = createPostFX(renderer, scene, camera, config);
   const pointer = options.interactive === false ? null : new PointerPusher(container, camera);
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -194,10 +199,20 @@ export async function createParticleRuntime(
       revision = inputs.morph.revision;
       spinAngle = 0;
       if (inputs.morph.target) {
-        try { system.setTarget(inputs.morph.target); } catch { /* invalid targets are rejected upstream */ }
+        try { system.setTarget(inputs.morph.target, inputs.morph.crossing === true); } catch { /* invalid targets are rejected upstream */ }
       }
+      playback.reset(inputs.morph.target);
+      if (inputs.morph.target?.visual.kind !== "model" && !inputs.morph.crossing) u.formedOwn.value = 0;
     }
     u.morph.value = morph;
+    u.targetBlend.value = inputs.morph.crossing ? inputs.morph.cross ?? 1 : 1;
+    // v0.9: a model's original colours ease in and out (about half a second) when the user switches them.
+    const visual = inputs.morph.target?.visual;
+    const own = visual?.kind === "model" && visual.colors === "original" ? 1 : 0;
+    u.formedOwn.value += (own - u.formedOwn.value) * Math.min(1, dt * 4);
+    // v0.9: a model's own animation clip, played as a loop (positions only).
+    const places = playback.sample(inputs.morph.target, dt * (calm() ? 0.5 : 1));
+    if (places) system.setPlaces(places.positions, places.count);
     if (inputs.framing) frameView(inputs.framing.sample(dt));
     const body = inputs.body.sample(dt, now, calm());
     u.bodyMorph.value = body.level;

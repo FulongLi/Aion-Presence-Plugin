@@ -6,7 +6,7 @@ export type VisualPhase = "sphere" | "forming" | "holding" | "returning";
 /** What became of a submitted action: its target is queued to form, it could not be resolved, or a newer one replaced it. */
 export type SubmitOutcome = "queued" | "failed" | "cancelled" | "sphere";
 
-export const transitionSeconds = { form: 1.6, return: 1.3 };
+export const transitionSeconds = { form: 1.6, return: 1.3, cross: 2.2 };
 const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
 
 /**
@@ -15,14 +15,20 @@ const ease = (x: number) => x * x * x * (x * (x * 6 - 15) + 10);
  * chosen body (the runtime mixes the persistent body in underneath; see aion/body.ts). A visual never
  * changes which body it returns to.
  * A new action while another is shown first returns through the sphere, so the same particles
- * always carry the change and the target buffer is only replaced while the body is a sphere.
+ * always carry the change and the target buffer is only replaced while the body is a sphere — except (v0.9) one formed
+ * model followed by another: the body morphs straight from the first into the second (`crossing`, `cross` 0 → 1), since
+ * both are in correspondence with the same sphere. A third request during that morph waits for it to finish.
  */
 export class VisualActionController<Request = unknown> {
   phase: VisualPhase = "sphere";
   /** Eased morph weight: 0 is the sphere, 1 is the formed information state. */
   level = 0;
-  /** Increments whenever `target` is replaced; only ever while level is 0. */
+  /** Increments whenever `target` is replaced; only ever while level is 0, or when a model crosses into another. */
   revision = 0;
+  /** v0.9: the current target replaced a formed model directly; `cross` is how far that morph is (1 when done). */
+  crossing = false;
+  cross = 1;
+  private crossProgress = 1;
   target: MorphTarget | null = null;
   /** Error code of the most recent action that could not be resolved (e.g. "portrait-not-found"). */
   lastFailure: string | null = null;
@@ -66,7 +72,12 @@ export class VisualActionController<Request = unknown> {
   /** Shows an already-resolved target, e.g. a local photo that never leaves the device. */
   show(target: MorphTarget) {
     this.pending = target;
-    this.release();
+    if (!this.canCross(target)) this.release();
+  }
+
+  /** A formed model can morph straight into another model (v0.9). */
+  private canCross(next: MorphTarget) {
+    return (this.phase === "forming" || this.phase === "holding") && this.target?.visual.kind === "model" && next.visual.kind === "model";
   }
 
   /** Begins the return to the sphere from wherever the morph currently is. */
@@ -93,10 +104,27 @@ export class VisualActionController<Request = unknown> {
 
   sample(elapsed: number) {
     const dt = Number.isFinite(elapsed) ? Math.max(0, Math.min(0.1, elapsed)) : 0;
+    if (this.crossProgress < 1) {
+      this.crossProgress = Math.min(1, this.crossProgress + dt / transitionSeconds.cross);
+      this.cross = ease(this.crossProgress);
+    }
+    if (this.pending && this.crossProgress >= 1 && this.canCross(this.pending)) {
+      // One formed model straight into the next: the level stays; the new target's hold starts now.
+      this.target = this.pending;
+      this.pending = null;
+      this.revision++;
+      this.crossing = true;
+      this.crossProgress = 0; this.cross = 0;
+      if (this.phase === "holding") this.holdLeft = Math.max(this.target.hold, transitionSeconds.cross);
+    } else if (this.pending && this.phase !== "sphere" && this.phase !== "returning" && !this.canCross(this.pending)) {
+      this.release();
+    }
     if (this.phase === "sphere" && this.pending) {
       this.target = this.pending;
       this.pending = null;
       this.revision++;
+      this.crossing = false;
+      this.crossProgress = 1; this.cross = 1;
       this.phase = "forming";
       this.progress = 0;
     } else if (this.phase === "forming") {

@@ -153,7 +153,25 @@ export interface StrokesTarget {
   guides: number[][];
 }
 
-export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget | StrokesTarget;
+/**
+ * A model from the model library (v0.9, see visual/models): the host converted its surface into particles (area-sampled,
+ * coloured from its materials and textures, in correspondence with Aion's sphere) and the body forms them in depth. The
+ * same particles show in Aion's silver (their baked light and the model's own light and dark) or in the model's original
+ * colours; `colors` may change while the model is formed, without forming it again. `frames`: a clip baked from the
+ * model's own skeleton (positions only), played as a loop at `fps` when `playing`.
+ */
+export interface ModelTarget {
+  kind: "model";
+  id: string;
+  particles: { count: number; positions: Float32Array; colors: Uint8Array; shade: Uint8Array; frames: Float32Array[]; fps: number };
+  colors: "original" | "silver";
+  playing?: boolean;
+}
+
+export type VisualTarget = Raster2DTarget | HeightFieldTarget | PointLayoutTarget | Mesh3DTarget | MapTarget | StrokesTarget | ModelTarget;
+
+/** Targets the body shows in depth (orbit, depth light): 3D scenes and models. */
+export const isSolidTarget = (target: VisualTarget | undefined | null) => target?.kind === "mesh3d" || target?.kind === "model";
 
 /** A particle arrangement ready for the runtime: a visual target plus how long to hold it. */
 export interface MorphTarget {

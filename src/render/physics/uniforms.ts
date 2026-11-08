@@ -45,6 +45,9 @@ export function createUniforms(config: ParticleConfig) {
     formedAngle: uniform(0),
     // A formed 3D object's view (see interaction/orbit.ts): turn, elevation, zoom, and 1 while it is 3D.
     formedYaw: uniform(0), formedPitch: uniform(0), formedZoom: uniform(1), formedDepth: uniform(0),
+    // v0.9: a formed model morphing straight into the next (0: the previous target, 1: the current one; 1 for everything
+    // else), and how much of a model's own colour is shown (0: Aion's formed tint, as for every other visual).
+    targetBlend: uniform(1), formedOwn: uniform(0),
     // Aion's persistent body (see aion/body.ts): the figure layer's weight, its skeleton anchors (world
     // units, vec4 each) and the halo's accumulated turn. Weight 0 leaves the sphere exactly as before.
     bodyMorph: uniform(0),

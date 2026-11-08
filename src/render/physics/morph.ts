@@ -1,5 +1,5 @@
 import type { Node } from "three/webgpu";
-import { cos, float, sin, vec3 } from "three/tsl";
+import { cos, float, mix, normalize, sin, vec3 } from "three/tsl";
 import type { PhysicsUniforms } from "./uniforms";
 
 /**
@@ -53,3 +53,21 @@ export function eyesWeight(rest: Node, u: PhysicsUniforms) {
   const w = u.eyesMorph.mul(1.35).sub(hash.mul(0.35)).clamp(0, 1);
   return w.mul(w).mul(float(3).sub(w.mul(2)));
 }
+
+/**
+ * v0.9: one formed model morphing straight into the next. Each grain leaves the previous target for the current one on
+ * its own staggered schedule (a third stable hash), and the body breathes out a little on the way — an exhale between two
+ * shapes, never a scatter. targetBlend 1 (every target that is not crossing) gives exactly the current target.
+ */
+export function crossWeight(rest: Node, u: PhysicsUniforms) {
+  const hash = sin(rest.dot(vec3(7.13, 91.7, 45.3))).mul(17923.1171).fract();
+  const w = u.targetBlend.mul(1.4).sub(hash.mul(0.4)).clamp(0, 1);
+  return w.mul(w).mul(float(3).sub(w.mul(2)));
+}
+export function crossTarget(previous: Node, target: Node, weight: Node) {
+  const mixed = mix(previous, target, weight);
+  return mixed.add(normalize(mixed.add(vec3(0, 0.0001, 0))).mul(sin(weight.mul(Math.PI)).mul(0.16)));
+}
+
+/** The CPU reference of crossWeight's stagger hash (canvas fallback). */
+export const CROSS_STAGGER = [7.13, 91.7, 45.3, 17923.1171] as const;

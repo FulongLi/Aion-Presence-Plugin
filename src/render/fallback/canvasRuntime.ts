@@ -2,7 +2,8 @@ import { createFigureLayout, figurePoint } from "../../core/figure/layout";
 import { createEyesLayout, eyesPoint } from "../../core/eyes/layout";
 import { createTargetPoints } from "../../visual/points";
 import { particleDefaults } from "../particleDefaults";
-import { formedPoint } from "../physics/morph";
+import { CROSS_STAGGER, formedPoint } from "../physics/morph";
+import { ModelPlayback } from "../modelPlayback";
 import { createSphere } from "../sphere/createSphere";
 import type { QualityReport, RuntimeHandle, RuntimeInputs, RuntimeOptions } from "../ParticleRuntime";
 import { PaletteEase } from "../palette";
@@ -37,19 +38,26 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
   const layout = createFigureLayout(count), eyesLayout = createEyesLayout(count);
   // Per-particle stagger, as in the GPU morph and body weights (physics/morph.ts).
   const morphStagger = new Float32Array(count), bodyStagger = new Float32Array(count), eyesStagger = new Float32Array(count), ringStagger = new Float32Array(count);
+  const crossStagger = new Float32Array(count);
   for (let i = 0; i < count; i++) {
     const [x, y, z] = [sphere.positions[i * 3], sphere.positions[i * 3 + 1], sphere.positions[i * 3 + 2]];
     morphStagger[i] = hash(x, y, z, 12.9898, 78.233, 37.719, 43758.5453);
     bodyStagger[i] = hash(x, y, z, 41.3, 17.9, 63.1, 24634.6345);
     eyesStagger[i] = hash(x, y, z, 23.7, 59.3, 11.9, 31871.2297);
     ringStagger[i] = ringHash(x, y, z, ...RING_STAGGER);
+    crossStagger[i] = hash(x, y, z, ...CROSS_STAGGER);
   }
-  let target: { positions: Float32Array; tones: Float32Array; keys?: Float32Array } | null = null;
+  type Points = { positions: Float32Array; tones: Float32Array; keys?: Float32Array; colors?: Float32Array };
+  let target: Points | null = null;
+  // v0.9: the target a formed model is morphing away from, a model's own colours (eased in), and its animation clip.
+  let previous: Points | null = null, own = 0;
+  const playback = new ModelPlayback();
   const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
   const calm = () => options.reducedMotion !== false && reducedMotion.matches;
   let centre = { x: 0, y: 0, zoom: 1 };
   let width = 1, height = 1, scale = 1, frame = 0, frames = 0, last = performance.now(), clock = 0, revision = -1, spin = 0, frameMs = 16.7, stopped = false;
   const xs = new Float32Array(count), ys = new Float32Array(count), light = new Float32Array(count), sizes = new Float32Array(count).fill(1);
+  const formed = new Float32Array(count);
   const palette = new PaletteEase();
   const resize = () => {
     const ratio = Math.min(devicePixelRatio || 1, fallbackDefaults.pixelRatio);
@@ -70,8 +78,17 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
     const morph = inputs.morph.sample(dt);
     if (revision !== inputs.morph.revision) {
       revision = inputs.morph.revision; spin = 0;
+      previous = inputs.morph.crossing && target ? { ...target, positions: new Float32Array(target.positions) } : null;
       try { target = inputs.morph.target ? createTargetPoints(inputs.morph.target.visual, count) : null; } catch { target = null; }
+      playback.reset(inputs.morph.target);
+      if (inputs.morph.target?.visual.kind !== "model" && !inputs.morph.crossing) own = 0;
     }
+    const visual = inputs.morph.target?.visual;
+    own += ((visual?.kind === "model" && visual.colors === "original" ? 1 : 0) - own) * Math.min(1, dt * 4);
+    const places = playback.sample(inputs.morph.target, dt);
+    if (places && target) for (let i = 0; i < count; i++) { const j = i < places.count ? i : i % places.count; target.positions.set(places.positions.subarray(j * 3, j * 3 + 3), i * 3); }
+    const blend = inputs.morph.crossing ? inputs.morph.cross ?? 1 : 1;
+    if (blend >= 1) previous = null;
     const turn = inputs.morph.target?.motion?.spin ?? 0;
     const view = inputs.orbit?.sample(dt) ?? { yaw: 0, pitch: 0, zoom: 1, depth: 0 };
     const formedView = view.depth ? { angle: spin, yaw: view.yaw, pitch: view.pitch, zoom: view.zoom } : { angle: spin, yaw: 0, pitch: 0, zoom: 1 };
@@ -142,12 +159,22 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       if (mw > 0 && target) {
         // Writing (v0.4.3): the pen's grains ride the tip; strokes are lit as they are written (render/writing.ts).
         const key = target.keys ? target.keys[i] : -1;
-        const [wx, wy, wz] = writingPoint(target.positions[i * 3], target.positions[i * 3 + 1], target.positions[i * 3 + 2], key, writing);
+        let px = target.positions[i * 3], py = target.positions[i * 3 + 1], pz = target.positions[i * 3 + 2], targetTone = target.tones[i];
+        if (previous) {
+          // A model morphing into the next (v0.9): the same staggered schedule and exhale as on the GPU (physics/morph.ts).
+          const cw = smooth(blend * 1.4 - crossStagger[i] * 0.4);
+          px = previous.positions[i * 3] + (px - previous.positions[i * 3]) * cw; py = previous.positions[i * 3 + 1] + (py - previous.positions[i * 3 + 1]) * cw;
+          pz = previous.positions[i * 3 + 2] + (pz - previous.positions[i * 3 + 2]) * cw;
+          const length = Math.hypot(px, py, pz) || 1, lift = Math.sin(cw * Math.PI) * 0.16 / length;
+          px += px * lift; py += py * lift; pz += pz * lift;
+          targetTone = previous.tones[i] + (targetTone - previous.tones[i]) * cw;
+        }
+        const [wx, wy, wz] = writingPoint(px, py, pz, key, writing);
         const [tx, ty, tz] = formedPoint(wx, wy, wz, formedView);
         x += (tx - x) * mw; y += (ty - y) * mw; z += (tz - z) * mw;
         // A 3D object is lit by depth (nearer is brighter), as on the GPU.
         const near = view.depth ? 0.5 + 0.62 * smooth((tz + 1.9) / 3.8) : 1;
-        tone += (target.tones[i] * 0.95 * near * writingLight(key, writing) - tone) * mw;
+        tone += (targetTone * 0.95 * near * writingLight(key, writing) - tone) * mw;
         written = 1 + (writingSize(key, writing) - 1) * mw;
       }
       const perspective = 7.4 / (7.4 - z);
@@ -155,18 +182,42 @@ export function createCanvasRuntime(container: HTMLElement, inputs: RuntimeInput
       ys[i] = centreY - y * zoom * perspective;
       light[i] = Math.max(0, Math.min(1, tone));
       sizes[i] = (grain + (1 - grain) * mw) * written;
+      formed[i] = mw;
     }
     context.clearRect(0, 0, width, height);
     context.globalCompositeOperation = "lighter";
     const size = fallbackDefaults.size;
     // Particles are batched by brightness so each level is one fill.
     const tint = base.map((value, k) => value * (1 + (formedTint[k] - 1) * morph));
+    // v0.9: a model in its original colours: its formed grains are drawn in their own colours, batched by colour.
+    const colored = own > 0.02 && target?.colors ? target.colors : null;
+    if (colored) {
+      const batches = new Map<number, number[]>();
+      for (let i = 0; i < count; i++) {
+        if (!(formed[i] > 0.5)) continue;
+        const l = 0.35 + light[i] * 0.75;
+        const q = (v: number, k: number) => Math.min(15, Math.round(Math.min(1, Math.pow(Math.max(0, v), 1 / 2.2) * l) * 15)) << k;
+        const key = q(colored[i * 3], 8) | q(colored[i * 3 + 1], 4) | q(colored[i * 3 + 2], 0);
+        const list = batches.get(key); if (list) list.push(i); else batches.set(key, [i]);
+      }
+      const silver = 1 - own;
+      // Opaque, not additive: overlapping grains of one colour must keep that colour, not add up to white.
+      context.globalCompositeOperation = "source-over";
+      for (const [key, list] of batches) {
+        const rgb = [(key >> 8) & 15, (key >> 4) & 15, key & 15].map((v, k) => Math.round((v * 17) * own + tint[k] * silver));
+        context.fillStyle = `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.8)`;
+        context.beginPath();
+        for (const i of list) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
+        context.fill();
+      }
+      context.globalCompositeOperation = "lighter";
+    }
     for (let level = 1; level <= fallbackDefaults.levels; level++) {
       const lo = (level - 1) / fallbackDefaults.levels, hi = level / fallbackDefaults.levels;
       const [r, g, bl] = tint.map(value => Math.min(255, Math.round(value * (0.35 + hi * 0.75))));
       context.fillStyle = `rgba(${r}, ${g}, ${bl}, ${(0.25 + hi * 0.6).toFixed(3)})`;
       context.beginPath();
-      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
+      for (let i = 0; i < count; i++) if (light[i] > lo && light[i] <= hi && !(colored && formed[i] > 0.5)) { const d = size * sizes[i]; context.rect(xs[i] - d / 2, ys[i] - d / 2, d, d); }
       context.fill();
     }
     context.globalCompositeOperation = "source-over";

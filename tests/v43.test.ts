@@ -335,7 +335,8 @@ test("renderer compatibility: compute stays within WebGPU's eight storage buffer
   const system = readFileSync(join(import.meta.dirname, "..", "src/render/ParticleSystem.ts"), "utf8");
   const storages = [...system.matchAll(/storage\(/g)].length;
   assert.ok(storages <= 8, `${storages} storage buffers`);
-  assert.match(system, /writingTarget\(target\.element\(instanceIndex\), keys\.element\(instanceIndex\), u\)/);
+  // v0.9: the reveal key lives in the target's w (one vec4 per grain), which freed the buffer the cross-morph needs.
+  assert.match(system, /writingTarget\(crossed, t\.w, u\)/);
   const canvas = readFileSync(join(import.meta.dirname, "..", "src/render/fallback/canvasRuntime.ts"), "utf8");
   for (const name of ["writingPoint", "writingLight", "writingSize"]) assert.match(canvas, new RegExp(name));
 });
