@@ -4,6 +4,25 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
+## [0.9.2] — Unreleased (in review)
+
+The user's own models folder. Docs: [MODEL-LIBRARY.md](docs/MODEL-LIBRARY.md#the-users-own-models-folder-v092).
+
+### Added
+- **`~/.aion-presence/my-models/`**: model files dropped there (`.glb`, `.gltf`, `.obj`, `.stl`, top level or one folder
+  down, each with an optional `<file>.aion.json` for name, category, author, licence and rights) are imported into the
+  library automatically, re-imported when they change and removed when deleted. The folder is outside every plugin host's
+  data directory, so each Aion install on the machine sees the same models and plugin updates never touch them. Imports
+  stay `local` (never bundled, never uploaded); a file that cannot be imported is named by `show_model action find`.
+  `AION_MODELS_DIR` moves it. No new tool and no tool-metadata change.
+- `tests/v092-shared-models.test.ts` (4): location, import with sidecar rights, two installs sharing one folder, change,
+  replacement, deletion, bad files and sidecars, an absent folder, adoption of a hand-imported copy, concurrent requests.
+
+### Notes
+- v0.9.1 had not reached `main` (PR #18 was merged before its v0.9.1 commits were pushed); this version carries it.
+- Koromon and Agumon (third-party designs) stay out of the repository; on the owner's machine they now live in the
+  models folder, so every install finds them.
+
 ## [0.9.1] — Unreleased (in review)
 
 Full particle bounds and non-humanoid animation. Report: [docs/v0.9.1/REPORT.md](docs/v0.9.1/REPORT.md).

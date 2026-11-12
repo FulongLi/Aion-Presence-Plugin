@@ -153,7 +153,7 @@ reallocation per model); the library keeps at most four converted bundles in mem
 | State | What it means | Where | Example |
 | --- | --- | --- | --- |
 | **catalogued** | Source, author, licence and rights recorded; no file distributed or kept | `assets/models/catalogue/*.json` | 626 Pokémon fan models on Sketchfab (236 characters) |
-| **local** | The user downloaded the file themselves, under its terms, and imported it | the plugin data dir's `models/` (never in the repository, never uploaded) | a Pikachu model the user imports |
+| **local** | The user downloaded the file themselves, under its terms, and imported it | the plugin data dir's `models/`, fed by `action: "import"` or the user's own models folder (never in the repository, never uploaded) | a Pikachu model the user imports |
 | **redistributable** | The model's licence *and* any underlying design rights allow shipping it | `assets/models/` (bundled) | Lumen (Aion's own), the Khronos Fox (CC0 + CC BY 4.0) |
 
 The manifest schema (`aion.model/1`, `manifest.ts`) enforces it: a redistributable model needs a licence that allows
@@ -175,12 +175,36 @@ every 1.5 s, an identifying User-Agent) and never downloads a model. free3d.com 
 they were not scraped. The readable catalogue — available, catalogued and restricted entries — is
 [MODEL-CATALOGUE.md](MODEL-CATALOGUE.md).
 
+## The user's own models folder (v0.9.2)
+
+`~/.aion-presence/my-models/` (`sharedModelsDir()` in `src/host/paths.ts`) is where a user keeps models they want Aion to
+have everywhere on their machine. It sits outside every plugin host's data directory, so each Aion install (another Codex
+profile, a reinstalled or updated plugin with an empty data directory) finds the same models, and updates never touch it.
+
+- **What it reads**: `.glb`, `.gltf`, `.obj`, `.stl` at the top level or one folder down (a `.gltf` or `.obj` with its
+  own files); dot-files and other files are ignored.
+- **Sidecar** `<file>.aion.json` (all optional; unknown keys are refused, so a typo is reported): `name`, `category`,
+  `author`, `licence`, `url` (https), `underlyingIp` (`original`, `third-party`, `public-domain`, `unknown`), `ipOwner`,
+  `notes`. Without one, the name comes from the file name and the rights are `unknown`.
+- **Mirroring**: whenever the library is read (at most one directory listing when nothing changed, and once shortly
+  after the server starts), new files are imported exactly like `action: "import"` (validated, converted once, id
+  `my-<name>`), changed files or sidecars are re-imported under the same id, and deleted files leave the library with
+  their cached particles. A copy imported earlier by hand is adopted rather than duplicated. A folder that does not exist
+  changes nothing (an unmounted disk never empties the library). Files that cannot be imported are listed by
+  `action: "find"`, which also names the folder.
+- **Rights**: everything imported from it is `local` (`redistributionVerified: false`): the folder is the user's, not
+  the plugin's, and nothing in it is uploaded or published. It is the place for models whose designs belong to someone
+  else (a fan likeness of a franchise character) that the user wants on every install without putting them in a
+  repository.
+- `AION_MODELS_DIR` moves the folder; with `AION_PRESENCE_HOME` set (development, tests) it is `<home>/my-models`, so a
+  test never reads the real one. Only the plugin's entry point mirrors it; scripts and tests construct libraries without.
+
 ## Files
 
 | Path | |
 | --- | --- |
 | `src/visual/models/` | Pure core: `geometry.ts` (neutral geometry, matrices), `gltf.ts`, `obj.ts`, `stl.ts`, `jpeg.ts`, `writeGltf.ts`, `normalization.ts`, `bvh.ts`, `sampler.ts`, `correspond.ts`, `animation.ts`, `bundle.ts`, `manifest.ts`, `registry.ts` |
-| `src/host/models/` | `library.ts` (import, cache, removal), `textures.ts`, `service.ts` (what `show_model` does and says) |
+| `src/host/models/` | `library.ts` (import, cache, removal, the user's models folder), `textures.ts`, `service.ts` (what `show_model` does and says) |
 | `src/render/` | `ParticleSystem.ts` (target, look and previous buffers), `rendering/material.ts`, `physics/morph.ts` (`crossWeight`, `crossTarget`), `modelPlayback.ts`, `fallback/canvasRuntime.ts` |
 | `src/visual/controller.ts` | Model → model cross-morph |
 | `plugins/aion-presence/assets/models/` | `library.json` (bundled models), `originals/lumen.glb`, `khronos/fox.glb`, `catalogue/pokemon.json` |
