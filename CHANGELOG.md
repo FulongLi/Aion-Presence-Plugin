@@ -4,6 +4,49 @@ All notable changes to Aion Presence. Dates are when the change reached the repo
 (the merge date of its pull request). Only **v0.4.5** is a tagged GitHub release; the other versions were merged as
 development versions without a release tag. Details live in [docs/](docs/); this file stays brief.
 
+## [0.9.2] — Unreleased (in review)
+
+The user's own models folder. Docs: [MODEL-LIBRARY.md](docs/MODEL-LIBRARY.md#the-users-own-models-folder-v092).
+
+### Added
+- **`~/.aion-presence/my-models/`**: model files dropped there (`.glb`, `.gltf`, `.obj`, `.stl`, top level or one folder
+  down, each with an optional `<file>.aion.json` for name, category, author, licence and rights) are imported into the
+  library automatically, re-imported when they change and removed when deleted. The folder is outside every plugin host's
+  data directory, so each Aion install on the machine sees the same models and plugin updates never touch them. Imports
+  stay `local` (never bundled, never uploaded); a file that cannot be imported is named by `show_model action find`.
+  `AION_MODELS_DIR` moves it. No new tool and no tool-metadata change.
+- `tests/v092-shared-models.test.ts` (4): location, import with sidecar rights, two installs sharing one folder, change,
+  replacement, deletion, bad files and sidecars, an absent folder, adoption of a hand-imported copy, concurrent requests.
+
+### Notes
+- v0.9.1 had not reached `main` (PR #18 was merged before its v0.9.1 commits were pushed); this version carries it.
+- Koromon and Agumon (third-party designs) stay out of the repository; on the owner's machine they now live in the
+  models folder, so every install finds them.
+
+## [0.9.1] — Unreleased (in review)
+
+Full particle bounds and non-humanoid animation. Report: [docs/v0.9.1/REPORT.md](docs/v0.9.1/REPORT.md).
+
+### Fixed
+- **Animated models clipped** (the running Fox's nose and tail tip cut flat): particle bundles quantized every animation
+  frame over the rest pose's range and clamped what lay beyond it (up to 0.165 units on the Fox's Run). Bundles are now
+  quantized over the extent of every frame; converter version 2 rebuilds cached bundles. Root-cause analysis, before/after
+  captures and a regression test.
+
+### Added
+- glTF **morph targets** (POSITION deltas with node, mesh or animated weights), evaluated before skinning; joint and morph
+  counts in model info.
+- **Clip control**: `control_animation` pauses, resumes, replays and changes the speed (0.25–2.5×) of a model's own clip,
+  in place. No new tool (59,986 B by Codex's measure).
+- **Rig builder** (`scripts/lib/rig.ts`): skinned parts, soft joints, morph targets, looping clips, leg IK, a soft-body
+  bounce. **Lumen** is now rigged with squash/stretch and a "Bounce" clip (the bundled soft-body fixture).
+- `scripts/models/playback.ts`: models through the real renderer — frames, GIFs, frame-time percentiles per detail level
+  and tier, load times, viewport checks (views, zoom, window sizes, fullscreen transitions); the Fox before/after.
+- Koromon and Agumon evaluated **locally only** (git-ignored `local-models/`, third-party designs): a bounce with landing
+  compression, a bipedal walk with arm swing and tail follow-through, both through Aion's renderer.
+- `tests/v091-animation.test.ts` (8): the bundle regression, morph targets, attachment without tearing and seamless loops
+  for a soft body and a tailed biped, leg IK, Lumen's clip, clip control.
+
 ## [0.9.0] — Unreleased (in review)
 
 The 3D Particle Model Library: Aion converts external 3D models into its own particles and becomes them — formed out of

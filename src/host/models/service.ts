@@ -44,6 +44,8 @@ export class ModelService {
         if (!request.model) return { kind: "error", message: "invalid-arguments: name the imported model to remove (its id)." };
         const registry = await this.library.registry();
         const id = registry.get(request.model)?.manifest.id ?? registry.resolve(request.model).model?.manifest.id;
+        const inFolder = id ? await this.library.sharedPath(id) : null;
+        if (inFolder) return { kind: "error", message: `model-in-folder: ${id} comes from the user's own models folder; delete ${inFolder} (and its .aion.json) to remove it everywhere.` };
         const removed = id ? await this.library.remove(id) : false;
         return removed ? { kind: "text", message: `Removed ${id} from this machine's model library (its file and cached particles).` }
           : { kind: "error", message: `model-not-removable: ${request.model} is not one of the user's imported models (bundled models and catalogue entries stay).` };
@@ -75,7 +77,10 @@ export class ModelService {
     const matches = registry.search(query, query ? 12 : 40);
     const all = registry.all();
     const installed = all.filter(entry => entry.installed);
-    const head = `Model library: ${installed.length} installed (${installed.map(e => e.manifest.name).join(", ") || "none"}), ${all.length - installed.length} catalogued references.`;
+    const shared = this.library.sharedDir;
+    const head = `Model library: ${installed.length} installed (${installed.map(e => e.manifest.name).join(", ") || "none"}), ${all.length - installed.length} catalogued references.`
+      + (shared ? ` The user's own models folder (imported automatically, kept on this machine): ${shared}.` : "")
+      + (this.library.sharedProblems.length ? ` Not imported from it: ${this.library.sharedProblems.slice(0, 4).join("; ")}.` : "");
     if (!matches.length) return { kind: "text", message: `${head} Nothing matches "${query}".` };
     const lines = (query ? matches : matches.filter(m => m.entry.installed).concat(matches.filter(m => !m.entry.installed).slice(0, 8))).map(m => `- ${entryLine(m.entry)}`);
     return { kind: "text", message: `${head}\n${query ? `Matches for "${query}":` : "Installed first:"}\n${lines.join("\n")}` };

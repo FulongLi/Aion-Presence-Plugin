@@ -1,4 +1,4 @@
-import { endOf, pause, PLAYBACK_SPEEDS, positionAt, rateFor, replay, resume, seek, setRate, startPlayback, type PlaybackSpeed, type PlaybackState } from "./timeline";
+import { endOf, pause, PLAYBACK_SPEEDS, RATE_LIMITS, positionAt, rateFor, replay, resume, seek, setRate, startPlayback, type PlaybackSpeed, type PlaybackState } from "./timeline";
 import { writingSequence } from "./stroke/registry";
 import type { WritingSource } from "./stroke/compose";
 import type { StrokeSequence } from "./stroke/types";
@@ -52,6 +52,26 @@ export function animationDuration(content: Animated): number {
 }
 
 export const speedRate = (speed?: PlaybackSpeed) => PLAYBACK_SPEEDS[speed ?? "normal"];
+
+/**
+ * v0.9.1: a model's own clip (show_model) under the same control vocabulary — pause, resume (play), replay, speed, stop.
+ * Returns the clip's new playing state and rate, or why a command does not apply to a model.
+ */
+export function controlModelClip(current: { playing: boolean; speed: number }, command: { action: AnimationAction; speed?: AnimationSpeed }):
+  { ok: true; playing: boolean; speed: number; restart: boolean } | { ok: false; problem: string } {
+  const clamp = (rate: number) => Math.max(RATE_LIMITS.min, Math.min(RATE_LIMITS.max, Math.round(rate * 100) / 100));
+  switch (command.action) {
+    case "play": case "resume": return { ok: true, playing: true, speed: current.speed, restart: false };
+    case "replay": return { ok: true, playing: true, speed: current.speed, restart: true };
+    case "pause": case "stop": return { ok: true, playing: false, speed: current.speed, restart: false };
+    case "speed": {
+      if (!command.speed) return { ok: false, problem: "speed needs slow, normal, fast, slower or faster" };
+      const rate = command.speed === "slower" ? current.speed * 0.7 : command.speed === "faster" ? current.speed * 1.4 : PLAYBACK_SPEEDS[command.speed];
+      return { ok: true, playing: current.playing, speed: clamp(rate), restart: false };
+    }
+    default: return { ok: false, problem: `${command.action} applies to writing; a model's clip can pause, resume, replay, change speed or stop` };
+  }
+}
 
 /** A new playback for content just presented. */
 export const playbackFor = (content: Animated, now: number, rate = 1): PlaybackState => startPlayback(animationDuration(content), now, { rate });

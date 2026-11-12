@@ -84,18 +84,41 @@ other too.
   the target's w (one vec4 per grain), which freed the buffer the previous target needs; the look (colour + tone) is a
   vertex attribute.
 
-## Animation (first version)
+## Animation
 
-A model's **own** clips only. When a rigged glTF has animation clips, `bakeAnimation` evaluates the clip through the
-skeleton (sampled TRS channels — step, linear, slerp, cubic spline — and linear blend skinning) at up to 15 frames a
-second, and re-places every particle on *its own spot* of the moving surface (the triangle and barycentric weights it was
-sampled at), with the rest pose's placement so the character keeps its size. The frames travel in the bundle (at most
-6 MB of them); `ModelPlayback` loops them, interpolating between frames, in both renderers. The Fox's Survey, Walk and Run
-work this way.
+A model's **own** clips only, for any body plan — quadrupeds (the Fox), soft-bodied characters (Lumen's bounce), bipeds
+with tails — because nothing assumes a humanoid skeleton:
 
-Not done (on purpose): no motion is invented. A model without clips has no animation — Aion says so and offers to turn
-it (`set_scene_view`). `express` gestures belong to Aion's own bodies and are never applied to a model. Morph targets
-(blend shapes) are not evaluated yet; a clip is baked once per request (cached), not streamed.
+```text
+animated GLB  →  deforming mesh  →  surface-attached particles  →  Aion's renderer
+(skins, morph    (GltfModel: TRS channels with step/linear/      (each particle sampled once on the rest pose: a
+ targets, clips)  slerp/cubic spline, morph weights, linear        triangle + barycentric weights; re-placed on that
+                  blend skinning, at any time)                     spot in every frame — never resampled)
+```
+
+`bakeAnimation` evaluates the clip at up to 15 frames a second and places every frame with the rest pose's matrix, so
+the character keeps its size; the frames travel in the bundle (at most 6 MB of them), **quantized over the extent of every
+frame** (v0.9.1: v0.9.0 clamped frames to the rest pose's range, which flattened the running Fox's nose —
+[report](v0.9.1/REPORT.md#1-the-foxs-clipped-nose--root-cause)). `ModelPlayback` loops them, interpolating between frames,
+at the clip's speed, in both renderers. Morph targets (v0.9.1) are evaluated before skinning, as glTF specifies.
+
+Control: `show_model {animation: "<clip>"}` starts one of the clips the result lists (`"stop"` ends it); while it plays,
+`control_animation` pauses, resumes, replays it or changes its speed (slow, normal, fast, slower, faster; 0.25–2.5×), in
+place. Not done (on purpose): no motion is invented. A model without clips has no animation — Aion says so and offers to
+turn it (`set_scene_view`); `express` gestures belong to Aion's own bodies. No retargeting between skeletons, no motion
+capture, one clip at a time.
+
+**Making an animated model** (v0.9.1): any tool that exports glTF 2.0 with a skin and/or morph targets and named clips
+(Blender: File → Export → glTF 2.0, "Animation" on). For Aion's own fixtures, `scripts/lib/rig.ts` builds one in code:
+bones with rest positions, skinned parts with soft joints (`segmentSkin`, `blend`), morph targets, looping clips sampled
+from a function of time, two-bone leg IK (`legIk`) for planted feet, a reusable soft-body bounce (`softBounce`). Lumen's
+"Bounce" is built this way. Check a model in Aion's renderer, not just a GLB viewer:
+`npx tsx scripts/models/playback.ts --out <dir> --model <file.glb>=<Name>` (frames, a GIF, frame-time percentiles per
+detail level and render tier, load times, and the viewport checks).
+
+**Characters with third-party rights** (a franchise's characters) are evaluated in the git-ignored `local-models/`
+folder and imported into the user's own library; they are never committed or bundled. v0.9.1's Koromon and Agumon
+evaluation is described in the [report](v0.9.1/REPORT.md#3-koromon-and-agumon-local-only).
 
 ## The tool
 
@@ -130,7 +153,7 @@ reallocation per model); the library keeps at most four converted bundles in mem
 | State | What it means | Where | Example |
 | --- | --- | --- | --- |
 | **catalogued** | Source, author, licence and rights recorded; no file distributed or kept | `assets/models/catalogue/*.json` | 626 Pokémon fan models on Sketchfab (236 characters) |
-| **local** | The user downloaded the file themselves, under its terms, and imported it | the plugin data dir's `models/` (never in the repository, never uploaded) | a Pikachu model the user imports |
+| **local** | The user downloaded the file themselves, under its terms, and imported it | the plugin data dir's `models/`, fed by `action: "import"` or the user's own models folder (never in the repository, never uploaded) | a Pikachu model the user imports |
 | **redistributable** | The model's licence *and* any underlying design rights allow shipping it | `assets/models/` (bundled) | Lumen (Aion's own), the Khronos Fox (CC0 + CC BY 4.0) |
 
 The manifest schema (`aion.model/1`, `manifest.ts`) enforces it: a redistributable model needs a licence that allows
@@ -152,16 +175,40 @@ every 1.5 s, an identifying User-Agent) and never downloads a model. free3d.com 
 they were not scraped. The readable catalogue — available, catalogued and restricted entries — is
 [MODEL-CATALOGUE.md](MODEL-CATALOGUE.md).
 
+## The user's own models folder (v0.9.2)
+
+`~/.aion-presence/my-models/` (`sharedModelsDir()` in `src/host/paths.ts`) is where a user keeps models they want Aion to
+have everywhere on their machine. It sits outside every plugin host's data directory, so each Aion install (another Codex
+profile, a reinstalled or updated plugin with an empty data directory) finds the same models, and updates never touch it.
+
+- **What it reads**: `.glb`, `.gltf`, `.obj`, `.stl` at the top level or one folder down (a `.gltf` or `.obj` with its
+  own files); dot-files and other files are ignored.
+- **Sidecar** `<file>.aion.json` (all optional; unknown keys are refused, so a typo is reported): `name`, `category`,
+  `author`, `licence`, `url` (https), `underlyingIp` (`original`, `third-party`, `public-domain`, `unknown`), `ipOwner`,
+  `notes`. Without one, the name comes from the file name and the rights are `unknown`.
+- **Mirroring**: whenever the library is read (at most one directory listing when nothing changed, and once shortly
+  after the server starts), new files are imported exactly like `action: "import"` (validated, converted once, id
+  `my-<name>`), changed files or sidecars are re-imported under the same id, and deleted files leave the library with
+  their cached particles. A copy imported earlier by hand is adopted rather than duplicated. A folder that does not exist
+  changes nothing (an unmounted disk never empties the library). Files that cannot be imported are listed by
+  `action: "find"`, which also names the folder.
+- **Rights**: everything imported from it is `local` (`redistributionVerified: false`): the folder is the user's, not
+  the plugin's, and nothing in it is uploaded or published. It is the place for models whose designs belong to someone
+  else (a fan likeness of a franchise character) that the user wants on every install without putting them in a
+  repository.
+- `AION_MODELS_DIR` moves the folder; with `AION_PRESENCE_HOME` set (development, tests) it is `<home>/my-models`, so a
+  test never reads the real one. Only the plugin's entry point mirrors it; scripts and tests construct libraries without.
+
 ## Files
 
 | Path | |
 | --- | --- |
 | `src/visual/models/` | Pure core: `geometry.ts` (neutral geometry, matrices), `gltf.ts`, `obj.ts`, `stl.ts`, `jpeg.ts`, `writeGltf.ts`, `normalization.ts`, `bvh.ts`, `sampler.ts`, `correspond.ts`, `animation.ts`, `bundle.ts`, `manifest.ts`, `registry.ts` |
-| `src/host/models/` | `library.ts` (import, cache, removal), `textures.ts`, `service.ts` (what `show_model` does and says) |
+| `src/host/models/` | `library.ts` (import, cache, removal, the user's models folder), `textures.ts`, `service.ts` (what `show_model` does and says) |
 | `src/render/` | `ParticleSystem.ts` (target, look and previous buffers), `rendering/material.ts`, `physics/morph.ts` (`crossWeight`, `crossTarget`), `modelPlayback.ts`, `fallback/canvasRuntime.ts` |
 | `src/visual/controller.ts` | Model → model cross-morph |
 | `plugins/aion-presence/assets/models/` | `library.json` (bundled models), `originals/lumen.glb`, `khronos/fox.glb`, `catalogue/pokemon.json` |
-| `scripts/models/` | `make-originals.ts`, `discover.ts` (+ `pokemon.ts`), `import.ts`, `build-catalogue.ts`, `measure.ts`, `demo-gif.ts` |
+| `scripts/models/` · `scripts/lib/rig.ts` | `make-originals.ts`, `discover.ts` (+ `pokemon.ts`), `import.ts`, `build-catalogue.ts`, `measure.ts`, `demo-gif.ts`, `playback.ts` (v0.9.1) · the rig builder |
 
 Commands: `npm run models:originals` · `models:discover` · `models:import -- --file <path> [--catalogue <id>]` ·
 `models:catalogue` · `models:measure [-- --file <path>]` · `models:demo` · `npm run smoke -- --only=models`.
@@ -216,4 +263,5 @@ bundle, validated again on decode (header, counts, exact length). Catalogue JSON
 - Base colour only (no lighting from the model's normal maps or PBR); vertex colours, textures and material colours mix.
 - Up to 50,000 particles (the renderer's top tier); devices on lower tiers show a uniform subset. The canvas fallback shows
   4,000 particles, with colours batched to 4 bits a channel.
-- Animation: skinned clips only, baked at ≤ 15 fps, ≤ 6 MB per clip; no morph targets; colours do not animate.
+- Animation: skinned and morph-target clips, baked at ≤ 15 fps, ≤ 6 MB per clip; colours do not animate; visibility is
+  decided on the rest pose.

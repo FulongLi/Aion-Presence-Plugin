@@ -9,13 +9,14 @@ import {
  * self-contained GLB: every buffer and image inside its binary chunk, bounded counts, ranges checked); this reader adds
  * what geometry needs: accessors with strides, normalization and sparse values, triangle lists, strips and fans, the node
  * hierarchy (matrix or TRS), materials (metallic-roughness base colour, the spec-gloss diffuse of older exports, alpha
- * modes, KHR_texture_transform), vertex colours, and skins evaluated in a pose — the rest pose, or any animation at any
- * time — so a rigged character stands as it should and its genuine animation can be sampled (see animation.ts).
+ * modes, KHR_texture_transform), vertex colours, morph targets (v0.9.1: POSITION deltas weighted by the node's, the
+ * mesh's or the animation's weights) and skins evaluated in a pose — the rest pose, or any animation at any time — so a
+ * rigged or blend-shaped character stands as it should and its genuine animation can be sampled (see animation.ts).
  */
 interface Json {
   scene?: number; scenes?: { nodes?: number[] }[];
-  nodes?: { mesh?: number; skin?: number; children?: number[]; matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; name?: string }[];
-  meshes?: { primitives: { attributes: Record<string, number>; indices?: number; mode?: number; material?: number }[] }[];
+  nodes?: { mesh?: number; skin?: number; children?: number[]; matrix?: number[]; translation?: number[]; rotation?: number[]; scale?: number[]; weights?: number[]; name?: string }[];
+  meshes?: { weights?: number[]; primitives: { attributes: Record<string, number>; indices?: number; mode?: number; material?: number; targets?: Record<string, number>[] }[] }[];
   accessors?: { bufferView?: number; byteOffset?: number; count: number; componentType: number; type: string; normalized?: boolean;
     sparse?: { count: number; indices: { bufferView: number; byteOffset?: number; componentType: number }; values: { bufferView: number; byteOffset?: number } } }[];
   bufferViews?: { buffer: number; byteOffset?: number; byteLength: number; byteStride?: number }[];
@@ -59,6 +60,10 @@ export class GltfModel {
       return { name: (typeof animation.name === "string" && animation.name.trim() ? animation.name.trim() : `animation ${index + 1}`).slice(0, 60), duration, channels: animation.channels?.length ?? 0 };
     });
   }
+
+  /** Bones across the model's skins (distinct joints), and the most morph targets any primitive has. */
+  get joints(): number { return new Set((this.json.skins ?? []).flatMap(skin => skin.joints ?? [])).size; }
+  get morphTargets(): number { return Math.max(0, ...(this.json.meshes ?? []).flatMap(mesh => mesh.primitives.map(p => p.targets?.length ?? 0))); }
 
   /** An accessor's values as floats (normalized integers mapped to −1…1 or 0…1), sparse values applied. Cached. */
   accessor(index: number): Float32Array {
@@ -150,6 +155,28 @@ export class GltfModel {
     });
   }
 
+  /** Morph weights per node in a pose: the animation's, else the node's, else the mesh's (else none). */
+  private morphWeights(pose?: Pose): (number[] | null)[] {
+    const nodes = this.json.nodes ?? [];
+    const out = nodes.map(node => {
+      const mesh = node.mesh !== undefined ? this.json.meshes?.[node.mesh] : undefined;
+      const count = Math.max(0, ...(mesh?.primitives ?? []).map(p => p.targets?.length ?? 0));
+      if (!count) return null;
+      const base = node.weights ?? mesh?.weights ?? [];
+      return Array.from({ length: count }, (_, k) => Number.isFinite(base[k]) ? base[k] : 0);
+    });
+    const animation = pose ? this.json.animations?.[pose.animation] : undefined;
+    for (const channel of animation?.channels ?? []) {
+      const node = channel.target?.node;
+      if (node === undefined || channel.target.path !== "weights" || !out[node]) continue;
+      const sampler = animation!.samplers[channel.sampler];
+      if (!sampler) continue;
+      const value = sampleChannel(this.accessor(sampler.input), this.accessor(sampler.output), out[node]!.length, sampler.interpolation ?? "LINEAR", pose!.time, false);
+      if (value) out[node] = value;
+    }
+    return out;
+  }
+
   /** Each node's local matrix in a pose (the rest pose, or an animation sampled at a time). */
   private locals(pose?: Pose): Mat4[] {
     const nodes = this.json.nodes ?? [];
@@ -202,6 +229,7 @@ export class GltfModel {
   geometry(pose?: Pose): ModelGeometry {
     const nodes = this.json.nodes ?? [], meshes = this.json.meshes ?? [];
     const { world, shown } = this.worlds(pose);
+    const morphs = this.morphWeights(pose);
     const warnings = [...this.warnings];
     const primitives: ModelPrimitive[] = [];
     const skinMatrices = (this.json.skins ?? []).map(skin => {
@@ -218,8 +246,21 @@ export class GltfModel {
       for (const primitive of mesh?.primitives ?? []) {
         const mode = primitive.mode ?? 4;
         if (mode !== 4 && mode !== 5 && mode !== 6) { if (!warnings.includes("points-or-lines")) warnings.push("points-or-lines"); continue; }
-        const source = this.accessor(primitive.attributes.POSITION);
+        let source = this.accessor(primitive.attributes.POSITION);
         const vertexCount = source.length / 3;
+        // Morph targets: the base positions plus each target's deltas times its weight (before skinning, as glTF says).
+        const weights = morphs[nodeIndex];
+        if (weights && primitive.targets?.length && weights.some(w => w !== 0)) {
+          const morphed = Float32Array.from(source);
+          primitive.targets.forEach((target, k) => {
+            const w = weights[k] ?? 0;
+            if (!w || target.POSITION === undefined) return;
+            const delta = this.accessor(target.POSITION);
+            if (delta.length !== morphed.length) return;
+            for (let i = 0; i < morphed.length; i++) morphed[i] += delta[i] * w;
+          });
+          source = morphed;
+        }
         let positions: Float32Array;
         const skinned = node.skin !== undefined && primitive.attributes.JOINTS_0 !== undefined && primitive.attributes.WEIGHTS_0 !== undefined && skinMatrices[node.skin];
         if (skinned) {

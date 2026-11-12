@@ -8,7 +8,11 @@
       "schema": "aion.model/1",
       "id": "aion-lumen",
       "name": "Lumen",
-      "aliases": ["Aion Lumen", "lumen creature", "Aion's test character"],
+      "aliases": [
+        "Aion Lumen",
+        "lumen creature",
+        "Aion's test character"
+      ],
       "category": "character",
       "subject": "lumen",
       "source": {
@@ -16,7 +20,9 @@
         "url": "https://github.com/FulongLi/Aion-Presence-Plugin/blob/main/scripts/models/make-originals.ts",
         "title": "Lumen",
         "author": "Aion Presence project",
-        "formats": ["glb"]
+        "formats": [
+          "glb"
+        ]
       },
       "licence": {
         "id": "LicenseRef-Aion",
@@ -32,19 +38,35 @@
         "ipOwner": "Aion Presence project",
         "redistributionVerified": true,
         "extractedGameAsset": "no",
-        "notes": "Designed for this project and built procedurally by scripts/models/make-originals.ts."
+        "notes": "Designed for this project and built procedurally by scripts/models/make-originals.ts. v0.9.1: rigged, with squash and stretch morph targets and a looping Bounce clip (the soft-body regression fixture)."
       },
       "availability": "redistributable",
-      "download": { "available": true, "method": "direct", "requiresAccount": false, "status": "downloaded" },
+      "download": {
+        "available": true,
+        "method": "direct",
+        "requiresAccount": false,
+        "status": "downloaded"
+      },
       "checked": "2026-11-08",
-      "particle": { "colors": "original", "detail": "high" },
-      "file": "originals/lumen.glb"
+      "particle": {
+        "colors": "original",
+        "detail": "high"
+      },
+      "file": "originals/lumen.glb",
+      "stats": {
+        "triangles": 25832,
+        "animations": 1
+      }
     },
     {
       "schema": "aion.model/1",
       "id": "khronos-fox",
       "name": "Fox",
-      "aliases": ["red fox", "the fox", "狐狸"],
+      "aliases": [
+        "red fox",
+        "the fox",
+        "狐狸"
+      ],
       "category": "animal",
       "subject": "fox",
       "source": {
@@ -52,7 +74,10 @@
         "url": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox",
         "title": "Fox",
         "author": "PixelMannen (model); tomkranis (rigging and animation); AsoboStudio and scurest (glTF conversion)",
-        "formats": ["glb", "gltf"],
+        "formats": [
+          "glb",
+          "gltf"
+        ],
         "published": "2018-07-19"
       },
       "licence": {
@@ -71,10 +96,23 @@
         "notes": "A generic animal, no third-party design. Licences from the asset's metadata.json, checked 2026-11-08. Rigged, with three animation clips (Survey, Walk, Run)."
       },
       "availability": "redistributable",
-      "download": { "available": true, "method": "direct", "requiresAccount": false, "status": "downloaded", "bytes": 162852 },
+      "download": {
+        "available": true,
+        "method": "direct",
+        "requiresAccount": false,
+        "status": "downloaded",
+        "bytes": 162852
+      },
       "checked": "2026-11-08",
-      "stats": { "triangles": 576, "textures": 1, "animations": 3 },
-      "particle": { "colors": "original", "detail": "high" },
+      "stats": {
+        "triangles": 576,
+        "textures": 1,
+        "animations": 3
+      },
+      "particle": {
+        "colors": "original",
+        "detail": "high"
+      },
       "file": "khronos/fox.glb"
     }
   ]

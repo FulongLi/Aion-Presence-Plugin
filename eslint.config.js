@@ -3,7 +3,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["node_modules/**", "plugins/aion-presence/runtime/**", ".e2e/**"] },
+  { ignores: ["node_modules/**", "plugins/aion-presence/runtime/**", ".e2e/**", "local-models/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

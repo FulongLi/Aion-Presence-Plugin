@@ -1,8 +1,10 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, extname, isAbsolute, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import { AssetError, packGltf, selfContainedGlb, validateGlb, GLTF_LIMITS, type GltfInfo } from "../../cards/assets/gltf";
 import { GltfModel } from "../../visual/models/gltf";
 import { readObj, parseMtl } from "../../visual/models/obj";
@@ -13,7 +15,7 @@ import { bakeAnimation } from "../../visual/models/animation";
 import { encodeBundle } from "../../visual/models/bundle";
 import type { ModelImage } from "../../visual/models/geometry";
 import {
-  CATALOGUE_SCHEMA, DETAIL_COUNTS, MODEL_SCHEMA, modelCatalogue, validateManifest, type ModelDetail, type ModelManifest,
+  CATALOGUE_SCHEMA, DETAIL_COUNTS, MODEL_CATEGORIES, MODEL_SCHEMA, modelCatalogue, validateManifest, type ModelDetail, type ModelManifest,
 } from "../../visual/models/manifest";
 import { ModelRegistry, normalizeName, type RegistryEntry } from "../../visual/models/registry";
 import { presenceHome } from "../paths";
@@ -26,6 +28,9 @@ import { colourImages, decodeTextures } from "./textures";
  *     catalogues (`catalogue/*.json`: sources only, no files) — read-only, shipped with the plugin;
  *   - the user's library in the plugin data directory (`models/library.json`, `models/files/`): models the user downloaded
  *     themselves and imported — local only, never uploaded, never redistributed;
+ *   - the user's own models folder (v0.9.2, `sharedModelsDir()`, outside every host's data directory): files there are
+ *     imported automatically, re-imported when they change and removed from the library when they are deleted, so one
+ *     copy serves every Aion install on the machine and survives plugin updates. It is never part of the plugin;
  *   - the particle cache (`models/cache/`): converted particle bundles, keyed by the model file's hash, the detail level,
  *     the clip and the converter version, so a model is converted once and loads instantly after.
  *
@@ -34,7 +39,8 @@ import { colourImages, decodeTextures } from "./textures";
  * malformed model fails at import with a readable reason instead of reaching the renderer.
  */
 export const LIBRARY_SCHEMA = "aion.model-library/1";
-export const CONVERTER_VERSION = 1;
+/** v2 (0.9.1): bundles are quantized over the extent of every frame (v1 clamped animated frames to the rest pose's). */
+export const CONVERTER_VERSION = 2;
 export const MODEL_LIBRARY_LIMITS = { ...GLTF_LIMITS, bytes: 96 * 1024 * 1024, textureSize: 8192, triangles: 3_000_000 };
 /** A baked clip may add at most this much to a bundle (the hub's media store keeps items under 8 MB). */
 const CLIP_BYTES = 6 * 1024 * 1024;
@@ -45,8 +51,13 @@ export class ModelLibraryError extends Error {
 }
 const fail = (code: string, detail: string): never => { throw new ModelLibraryError(code, detail); };
 
-interface LibraryRecord { manifest: ModelManifest; file: string; sha256: string; bytes: number; imported: string; info: ModelInfo }
-export interface ModelInfo { triangles: number; meshes: number; textures: number; animations: string[]; warnings: string[] }
+interface LibraryRecord {
+  manifest: ModelManifest; file: string; sha256: string; bytes: number; imported: string; info: ModelInfo;
+  /** v0.9.2: the file in the user's models folder this entry mirrors (its path there, and what it was when imported). */
+  shared?: SharedStamp;
+}
+interface SharedStamp { path: string; size: number; mtimeMs: number; sidecarMtimeMs: number }
+export interface ModelInfo { triangles: number; meshes: number; textures: number; animations: string[]; warnings: string[]; joints?: number; morphTargets?: number }
 interface LibraryFile { schema: typeof LIBRARY_SCHEMA; entries: LibraryRecord[] }
 
 export interface Provenance {
@@ -54,6 +65,9 @@ export interface Provenance {
   catalogue?: string;
   name?: string;
   source?: { url?: string; author?: string; licence?: string };
+  /** v0.9.1: who owns the depicted design, when the user knows (a franchise character is third-party). */
+  rights?: { underlyingIp: "original" | "third-party" | "public-domain" | "unknown"; ipOwner?: string; notes?: string };
+  category?: ModelManifest["category"];
 }
 
 export interface ConvertedModel {
@@ -63,6 +77,34 @@ export interface ConvertedModel {
   animation?: { name: string; frames: number; fps: number };
   report?: SampleReport; info: ModelInfo;
 }
+
+/**
+ * `<model file name>.aion.json` beside a file in the user's models folder: what the file cannot say about itself. All
+ * optional; anything else is refused, so a typo is reported instead of silently ignored.
+ */
+export const SIDECAR_SUFFIX = ".aion.json";
+const sidecarSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  category: z.enum(MODEL_CATEGORIES).optional(),
+  author: z.string().max(80).optional(),
+  licence: z.string().max(80).optional(),
+  url: z.string().url().startsWith("https://").max(400).optional(),
+  underlyingIp: z.enum(["original", "third-party", "public-domain", "unknown"]).optional(),
+  ipOwner: z.string().max(120).optional(),
+  notes: z.string().max(400).optional(),
+}).strict();
+type Sidecar = z.infer<typeof sidecarSchema>;
+const sidecarProvenance = (sidecar: Sidecar, name: string): Provenance => ({
+  name: sidecar.name ?? name,
+  ...(sidecar.category ? { category: sidecar.category } : {}),
+  source: { ...(sidecar.author ? { author: sidecar.author } : {}), ...(sidecar.licence ? { licence: sidecar.licence } : {}), ...(sidecar.url ? { url: sidecar.url } : {}) },
+  rights: {
+    underlyingIp: sidecar.underlyingIp ?? "unknown", ...(sidecar.ipOwner ? { ipOwner: sidecar.ipOwner } : {}),
+    notes: sidecar.notes ?? "From the user's own models folder; kept on this machine only.",
+  },
+});
+/** Marks the library's own work while it mirrors the models folder (its imports must not start another mirror). */
+const mirroring = new AsyncLocalStorage<true>();
 
 const today = () => new Date().toISOString().slice(0, 10);
 const slug = (value: string) => normalizeName(value).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48) || "model";
@@ -75,14 +117,33 @@ export class ModelLibrary {
   private readonly memory = new Map<string, Uint8Array>();
   readonly catalogueProblems: string[] = [];
 
-  constructor(private readonly options: { home?: string; assetsDir?: string } = {}) {
+  /** v0.9.2: problems with files in the user's models folder at the last look (a file that could not be imported). */
+  sharedProblems: string[] = [];
+  private sharedSeen: string | null = null;
+  private sharedRun: Promise<void> | null = null;
+
+  /** `shared`: the user's own models folder (see sharedModelsDir); none unless given, so tests and scripts never read it. */
+  constructor(private readonly options: { home?: string; assetsDir?: string; shared?: string | null } = {}) {
     this.root = join(options.home ?? presenceHome(), "models");
   }
+
+  /** Where an imported model's file sits in the user's models folder, if it came from there. */
+  async sharedPath(id: string): Promise<string | null> {
+    const record = (await this.userLibrary()).entries.find(entry => entry.manifest.id === id);
+    return record?.shared && this.options.shared ? join(this.options.shared, record.shared.path) : null;
+  }
+
+  /** The user's models folder, if this library mirrors one. */
+  get sharedDir(): string | null { return this.options.shared ?? null; }
 
   private get assets() { return this.options.assetsDir ? join(this.options.assetsDir, "models") : null; }
 
   /** Reads the bundled catalogues and the user's library (once; again after an import or removal). */
   async registry(): Promise<ModelRegistry> {
+    if (this.options.shared && !mirroring.getStore()) {
+      this.sharedRun ??= mirroring.run(true, () => this.mirrorShared()).finally(() => { this.sharedRun = null; });
+      await this.sharedRun;
+    }
     if (this.registryCache) return this.registryCache;
     const registry = new ModelRegistry();
     this.bundled = [];
@@ -114,7 +175,8 @@ export class ModelLibrary {
       try {
         const raw = JSON.parse(await readFile(path, "utf8")) as LibraryFile;
         if (raw?.schema === LIBRARY_SCHEMA && Array.isArray(raw.entries)) {
-          entries = raw.entries.filter(record => validateManifest(record?.manifest).ok && typeof record.file === "string" && /^files\/[a-z0-9-]+\.glb$/.test(record.file));
+          entries = raw.entries.filter(record => validateManifest(record?.manifest).ok && typeof record.file === "string" && /^files\/[a-z0-9-]+\.glb$/.test(record.file))
+            .map(record => record.shared && typeof record.shared.path !== "string" ? { ...record, shared: undefined } : record);
         }
       } catch { /* an unreadable library is treated as empty, never overwritten silently: imports write a fresh file */ }
     }
@@ -211,7 +273,7 @@ export class ModelLibrary {
     const manifest: ModelManifest = catalogued
       ? { ...catalogued, id, availability: "local", download: { ...catalogued.download, status: "downloaded" }, checked: today(), file: undefined }
       : {
-        schema: MODEL_SCHEMA, id, name, category: "other",
+        schema: MODEL_SCHEMA, id, name, category: provenance.category ?? "other",
         source: {
           site: "local file", ...(provenance.source?.url && /^https:\/\//.test(provenance.source.url) ? { url: provenance.source.url.slice(0, 400) } : {}),
           title: name, author: provenance.source?.author?.slice(0, 80) || "unknown", formats: [ext.slice(1)],
@@ -220,7 +282,10 @@ export class ModelLibrary {
           id: /^[A-Za-z0-9.+-]{2,40}$/.test(provenance.source?.licence ?? "") ? provenance.source!.licence! : "unknown", label: provenance.source?.licence?.slice(0, 80) || "unknown (the user's own file)",
           modification: "unknown", redistribution: "unknown", commercial: "unknown",
         },
-        rights: { underlyingIp: "unknown", redistributionVerified: false, notes: "Imported by the user from a local file; kept on this machine only." },
+        rights: {
+          underlyingIp: provenance.rights?.underlyingIp ?? "unknown", ...(provenance.rights?.ipOwner ? { ipOwner: provenance.rights.ipOwner.slice(0, 120) } : {}),
+          redistributionVerified: false, notes: (provenance.rights?.notes ?? "Imported by the user from a local file; kept on this machine only.").slice(0, 400),
+        },
         availability: "local", download: { available: false, method: "manual", requiresAccount: false, status: "downloaded" }, checked: today(),
       };
     delete (manifest as { file?: string }).file;
@@ -236,6 +301,101 @@ export class ModelLibrary {
     library.entries.push({ manifest: checked.manifest, file, sha256, bytes: glb!.byteLength, imported: new Date().toISOString(), info: modelInfo });
     await this.saveUser();
     return { manifest: checked.manifest, info: modelInfo, duplicate: false };
+  }
+
+  /** The model files in the user's folder: top level, or one folder down (a .gltf or .obj with its own files). */
+  private async sharedFiles(dir: string): Promise<{ path: string; full: string; size: number; mtimeMs: number; sidecarMtimeMs: number }[]> {
+    const found: { path: string; full: string; size: number; mtimeMs: number; sidecarMtimeMs: number }[] = [];
+    const visit = async (relative: string, depth: number) => {
+      let names: string[];
+      try { names = (await readdir(join(dir, relative))).sort(); } catch { return; }
+      for (const name of names) {
+        if (name.startsWith(".")) continue;
+        const path = relative ? `${relative}/${name}` : name, full = join(dir, path);
+        let info;
+        try { info = await stat(full); } catch { continue; }
+        if (info.isDirectory()) { if (depth === 0) await visit(path, 1); continue; }
+        if (!info.isFile() || !(IMPORT_TYPES as readonly string[]).includes(extname(name).toLowerCase())) continue;
+        let sidecarMtimeMs = 0;
+        try { sidecarMtimeMs = (await stat(`${full}${SIDECAR_SUFFIX}`)).mtimeMs; } catch { /* no sidecar */ }
+        found.push({ path, full, size: info.size, mtimeMs: info.mtimeMs, sidecarMtimeMs });
+      }
+    };
+    await visit("", 0);
+    return found;
+  }
+
+  /**
+   * Brings the library in line with the user's models folder: new files are imported, changed files (or sidecars)
+   * re-imported under the same id, deleted files removed. Costs one directory listing when nothing changed. A file that
+   * cannot be imported is reported (sharedProblems) and retried only when it changes. A folder that does not exist (yet)
+   * changes nothing, so an unmounted or not-yet-created folder never empties the library.
+   */
+  private async mirrorShared(): Promise<void> {
+    const dir = this.options.shared!;
+    if (!existsSync(dir)) return;
+    const files = await this.sharedFiles(dir);
+    const signature = files.map(f => `${f.path}:${f.size}:${f.mtimeMs}:${f.sidecarMtimeMs}`).join("|");
+    if (signature === this.sharedSeen) return;
+    const problems: string[] = [];
+    const library = await this.userLibrary();
+    const stamp = (f: typeof files[number]): SharedStamp => ({ path: f.path, size: f.size, mtimeMs: f.mtimeMs, sidecarMtimeMs: f.sidecarMtimeMs });
+    const same = (a: SharedStamp | undefined, b: SharedStamp) => a && a.path === b.path && a.size === b.size && a.mtimeMs === b.mtimeMs && a.sidecarMtimeMs === b.sidecarMtimeMs;
+    for (const record of [...library.entries]) {
+      if (record.shared && !files.some(f => f.path === record.shared!.path)) await this.remove(record.manifest.id);
+    }
+    for (const file of files) {
+      const now = stamp(file);
+      const known = library.entries.find(record => record.shared?.path === file.path);
+      if (same(known?.shared, now)) continue;
+      try {
+        let sidecar: Sidecar = {};
+        if (file.sidecarMtimeMs) {
+          let raw: unknown;
+          try { raw = JSON.parse(await readFile(`${file.full}${SIDECAR_SUFFIX}`, "utf8")); } catch { fail("sidecar-invalid", `${basename(file.path)}${SIDECAR_SUFFIX} is not valid JSON.`); }
+          const parsed = sidecarSchema.safeParse(raw);
+          if (!parsed.success) fail("sidecar-invalid", `${basename(file.path)}${SIDECAR_SUFFIX}: ${parsed.error.issues[0]?.path.join(".") || "value"} ${parsed.error.issues[0]?.message}`);
+          sidecar = parsed.data!;
+        }
+        if (known) await this.remove(known.manifest.id);
+        const name = basename(file.path).replace(/\.[^.]+$/, "");
+        const provenance = sidecarProvenance(sidecar, name.charAt(0).toUpperCase() + name.slice(1));
+        const imported = await this.importFile(file.full, provenance);
+        const record = library.entries.find(entry => entry.manifest.id === imported.manifest.id)!;
+        if (imported.duplicate && !record.shared) {
+          // Already imported by hand: the folder now owns it, and the sidecar's words replace the defaults.
+          const merged = this.withProvenance(record.manifest, provenance);
+          if (merged) record.manifest = merged;
+        }
+        record.shared = now;
+        await this.saveUser();
+      } catch (error) {
+        if (!(error instanceof ModelLibraryError)) throw error;
+        problems.push(`${file.path}: ${error.message}: ${error.detail}`);
+      }
+    }
+    this.sharedProblems = problems;
+    this.sharedSeen = signature;
+  }
+
+  /** A user model's manifest with a sidecar's name, category, source and rights (null if the result is not valid). */
+  private withProvenance(manifest: ModelManifest, provenance: Provenance): ModelManifest | null {
+    if (manifest.source.site !== "local file") return null;
+    const next: ModelManifest = {
+      ...manifest, name: (provenance.name ?? manifest.name).slice(0, 80), category: provenance.category ?? manifest.category,
+      source: {
+        ...manifest.source, title: (provenance.name ?? manifest.source.title).slice(0, 80), author: provenance.source?.author?.slice(0, 80) || manifest.source.author,
+        ...(provenance.source?.url ? { url: provenance.source.url.slice(0, 400) } : {}),
+      },
+      licence: provenance.source?.licence ? { ...manifest.licence, label: provenance.source.licence.slice(0, 80) } : manifest.licence,
+      rights: {
+        ...manifest.rights, underlyingIp: provenance.rights?.underlyingIp ?? manifest.rights.underlyingIp,
+        ...(provenance.rights?.ipOwner ? { ipOwner: provenance.rights.ipOwner.slice(0, 120) } : {}),
+        notes: (provenance.rights?.notes ?? manifest.rights.notes ?? "").slice(0, 400),
+      },
+    };
+    const checked = validateManifest(next);
+    return checked.ok ? checked.manifest : null;
   }
 
   /** Removes an imported model, its file and its cached particles. Bundled models and catalogue entries stay. */
@@ -269,7 +429,10 @@ export class ModelLibrary {
     const known = key ? this.described.get(key) : undefined;
     if (known) return known;
     const geometry = gltf.model.geometry();
-    const info = { triangles: gltf.info.triangles, meshes: gltf.info.meshes, textures: gltf.info.images, animations: gltf.animations, warnings: geometry.warnings.slice(0, 8) };
+    const info = {
+      triangles: gltf.info.triangles, meshes: gltf.info.meshes, textures: gltf.info.images, animations: gltf.animations, warnings: geometry.warnings.slice(0, 8),
+      joints: gltf.model.joints, morphTargets: gltf.model.morphTargets,
+    };
     if (key) this.described.set(key, info);
     return info;
   }

@@ -10,8 +10,13 @@ export class ModelPlayback {
   private time = 0;
   private wasPlaying = false;
   private buffer = new Float32Array(0);
+  private restart: number | undefined;
 
-  reset(target: MorphTarget | null) { this.time = 0; this.wasPlaying = target?.visual.kind === "model" && target.visual.playing === true; }
+  reset(target: MorphTarget | null) {
+    this.time = 0;
+    this.wasPlaying = target?.visual.kind === "model" && target.visual.playing === true;
+    this.restart = target?.visual.kind === "model" ? target.visual.restart : undefined;
+  }
 
   sample(target: MorphTarget | null, dt: number): { positions: Float32Array; count: number } | null {
     const visual = target?.visual;
@@ -24,7 +29,9 @@ export class ModelPlayback {
       return { positions, count };
     }
     this.wasPlaying = true;
-    this.time = (this.time + Math.max(0, dt)) % (frames.length / fps);
+    if (visual.restart !== this.restart) { this.restart = visual.restart; this.time = 0; }
+    const rate = Number.isFinite(visual.speed) ? Math.max(0.25, Math.min(2.5, visual.speed!)) : 1;
+    this.time = (this.time + Math.max(0, dt) * rate) % (frames.length / fps);
     const at = this.time * fps, k = Math.floor(at) % frames.length, s = at - Math.floor(at);
     const a = frames[k], b = frames[(k + 1) % frames.length];
     if (this.buffer.length !== a.length) this.buffer = new Float32Array(a.length);

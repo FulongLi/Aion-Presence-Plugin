@@ -25,8 +25,20 @@ export interface ParticleBundle extends ModelParticles {
 
 export class BundleError extends Error { constructor(readonly detail: string) { super("particles-invalid"); this.name = "BundleError"; } }
 
+/**
+ * v0.9.1: the quantization range is the true extent of the rest pose *and every frame* (never just the rest pose's
+ * normalized radius). An animated model reaches beyond its rest pose — the Fox's nose and tail when it runs, up to 1.92
+ * against 1.75 — and clamping those coordinates flattened its nose and cut its tail tip.
+ */
+export function boundsOf(bundle: Pick<ParticleBundle, "positions" | "frames" | "count">): number {
+  let extent = 0;
+  for (const values of [bundle.positions, ...bundle.frames]) for (let i = 0; i < bundle.count * 3; i++) { const v = Math.abs(values[i]); if (v > extent) extent = v; }
+  return extent;
+}
+
 export function encodeBundle(bundle: ParticleBundle): Uint8Array {
-  const { count, extent } = bundle;
+  const { count } = bundle;
+  const extent = Math.max(bundle.extent, boundsOf(bundle) * 1.0001);
   if (!(count > 0 && count <= BUNDLE_LIMITS.count) || !(extent > 0 && extent <= 10) || bundle.frames.length > BUNDLE_LIMITS.frames) throw new BundleError("The bundle is out of range.");
   const frameBytes = count * 6;
   const out = new Uint8Array(HEADER + count * 10 + bundle.frames.length * frameBytes);

@@ -117,9 +117,10 @@ export type PresentationContent =
    * v0.9: a model from the model library, converted into particles on the host (media of type
    * application/vnd.aion.particles; see visual/models). `model`: its library id; `colors`: Aion's silver or the model's
    * original colours; `credit`: its author and licence, shown while it is formed; `animation`/`playing`: the clip baked into
-   * the media, and whether it plays. Showing the same media again with other colours or playback changes them in place.
+   * the media, and whether it plays; v0.9.1 `speed` (0.25–2.5) and `restart` (changes when the clip should start over), set
+   * by control_animation. Showing the same media again with other colours or playback changes them in place.
    */
-  | { kind: "model"; media: MediaRef; model: string; label: string; colors: "original" | "silver"; credit?: string; animation?: string; playing?: boolean }
+  | { kind: "model"; media: MediaRef; model: string; label: string; colors: "original" | "silver"; credit?: string; animation?: string; playing?: boolean; speed?: number; restart?: number }
   /**
    * Music notation (v0.4.2): a validated score drawn exactly on a card (the notation engine), with what to highlight.
    * `symbol`: a music form the body may become beside it (the clef being explained). `lesson`: where in a Music
@@ -268,7 +269,7 @@ export type BodyVisual =
   | { type: "emoji"; emoji: string }
   | { type: "scene"; scene: Scene3D }
   /** v0.9: a model's particles (the media), in its colours, its clip playing or not. */
-  | { type: "model"; media: MediaRef; model: string; colors: "original" | "silver"; playing?: boolean }
+  | { type: "model"; media: MediaRef; model: string; colors: "original" | "silver"; playing?: boolean; speed?: number; restart?: number }
   /** v0.4.3: the body writes a symbol (a writing target revealed stroke by stroke); v0.4.4: from its source. */
   | { type: "writing"; stroke: string; source: WritingSource; highlight?: "radical" }
   /** v0.4.3: the body itself (as the figure) performs an action sequence; nothing is formed. */
@@ -295,7 +296,10 @@ function bodyVisual(presentation: PresentationContent): BodyVisual {
     case "symbol": return { type: "form", form: `symbol.${presentation.symbol}` };
     case "emoji": return { type: "emoji", emoji: presentation.emoji };
     case "scene": return { type: "scene", scene: presentation.scene };
-    case "model": return { type: "model", media: presentation.media, model: presentation.model, colors: presentation.colors, ...(presentation.playing ? { playing: true } : {}) };
+    case "model": return {
+      type: "model", media: presentation.media, model: presentation.model, colors: presentation.colors, ...(presentation.playing ? { playing: true } : {}),
+      ...(presentation.speed !== undefined ? { speed: presentation.speed } : {}), ...(presentation.restart !== undefined ? { restart: presentation.restart } : {}),
+    };
     case "music": return presentation.symbol ? { type: "form", form: presentation.symbol } : { type: "none" };
     case "artifact": return presentation.media ? { type: "image", media: presentation.media, fit: "object" } : { type: "none" };
     case "writing": return { type: "writing", stroke: presentation.stroke, source: presentation.source, ...(presentation.highlight ? { highlight: presentation.highlight } : {}) };
