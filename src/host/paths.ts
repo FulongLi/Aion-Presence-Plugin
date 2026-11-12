@@ -11,6 +11,16 @@ export function presenceHome(env: NodeJS.ProcessEnv = process.env): string {
   return env.AION_PRESENCE_HOME || env.PLUGIN_DATA || join(homedir(), ".aion-presence");
 }
 
+/**
+ * v0.9.2: the user's own models folder. Model files dropped here (.glb, .gltf, .obj, .stl, each with an optional
+ * `<name>.aion.json`) are imported into the library automatically. It is deliberately outside any plugin host's data
+ * directory, so every Aion install on this machine sees it and plugin updates never touch it. AION_MODELS_DIR overrides
+ * it; with AION_PRESENCE_HOME set (development, tests) it lives there instead, so a test never reads the real folder.
+ */
+export function sharedModelsDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.AION_MODELS_DIR || join(env.AION_PRESENCE_HOME || join(homedir(), ".aion-presence"), "my-models");
+}
+
 export const HUB_FILE = "hub.json";
 export const TOKEN_FILE = "token";
 export const HOOK_HEARTBEAT_FILE = "hooks-seen";

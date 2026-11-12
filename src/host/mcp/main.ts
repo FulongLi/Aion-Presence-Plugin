@@ -5,6 +5,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import manifest from "../../../plugins/aion-presence/plugin.json" with { type: "json" };
 import { markFirstRun, shouldAutoOpen } from "../firstRun";
 import { PresenceLink } from "../hub/link";
+import { sharedModelsDir } from "../paths";
 import { openBrowser } from "../surface";
 import { createAionServer } from "./server";
 
@@ -47,7 +48,7 @@ async function firstRun(host: { embedded: boolean }) {
 }
 
 const server = createAionServer({
-  link, page: readPage, version: manifest.version, assetsDir, cadScript, simRunner,
+  link, page: readPage, version: manifest.version, assetsDir, cadScript, simRunner, sharedModels: sharedModelsDir(),
   onReady: host => { firstRun(host).catch(() => { /* Aion still opens when asked */ }); },
 });
 

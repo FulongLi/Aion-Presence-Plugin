@@ -119,6 +119,8 @@ export interface AionServerOptions {
   sim?: SimulationService;
   /** v0.9: the model library service (injectable for tests). */
   models?: ModelService;
+  /** v0.9.2: the user's own models folder, mirrored into the library (the plugin entry point passes sharedModelsDir()). */
+  sharedModels?: string | null;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -610,7 +612,9 @@ export function createAionServer(options: AionServerOptions): McpServer {
   });
 
   // v0.9: the model library — one tool for every model (see src/host/models).
-  const models = options.models ?? new ModelService(new ModelLibrary({ assetsDir: options.assetsDir, home: link.home }));
+  const models = options.models ?? new ModelService(new ModelLibrary({ assetsDir: options.assetsDir, home: link.home, shared: options.sharedModels ?? null }));
+  // v0.9.2: import what is new in the user's models folder now, so the first show_model does not wait for it.
+  if (!options.models && options.sharedModels) setTimeout(() => { models.library.registry().catch(() => { /* reported by find */ }); }, 1500).unref();
   let modelMedia: { key: string; ref: MediaRef } | null = null;
   server.registerTool("show_model", {
     title: "Show a 3D model",
